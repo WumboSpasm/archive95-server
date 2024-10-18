@@ -1,0 +1,75 @@
+ .navbar {
+    width: 100%;
+    height: 120px;
+    color: black;
+    background-color: white;
+    border-top: 1px solid black;
+    padding: 4px 8px;
+    font-family: serif;
+    font-size: initial;
+    font-weight: normal;
+    font-style: normal;
+    text-align: left;
+    box-sizing: border-box;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+}
+.navbar a:link {
+    color: blue;
+}
+.navbar a:active {
+    color: red;
+}
+.navbar a:visited {
+    color: purple;
+}
+.navbar-top, .navbar-bottom,
+.navbar-options, .navbar-archives,
+.navbar-extras, .navbar-extras a {
+    display: flex;
+    flex-direction: row;
+}
+.navbar-top, .navbar-bottom {
+    gap: 16px;
+}
+.navbar-url {
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1;
+}
+.navbar-bottom {
+    margin-top: auto;
+}
+.navbar-options {
+    gap: 8px;
+}
+.navbar-archives {
+    gap: 6px;
+    flex-grow: 1;
+}
+.navbar-archives > div {
+    width: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.navbar-archives > div > div {
+    font-weight: bold;
+}
+.navbar-archives a {
+    display: inline-flex;
+}
+.navbar-active {
+    outline: 2px solid blue;
+}
+.navbar-extras {
+    gap: 12px;
+}
+.navbar-extras a {
+    align-items: center;
+}
