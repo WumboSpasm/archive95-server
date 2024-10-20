@@ -244,29 +244,34 @@ class Query {
         else
             return;
         
-        const pathQuery = ["orphan", "raw"].some(mode => mode == this.args.mode);
-        const compareUrl = pathQuery ? this.url : sanitizeUrl(this.url);
-
-        this.archives = db.prepare(`SELECT * FROM files WHERE ${(pathQuery ? "path" : "compare")} = ?`).all(compareUrl);
-        if (this.archives.length == 0) return;
-
-        if (this.archives.length > 1) {
-            this.archives.sort((a, b) => {
-                const asort = sourceInfo.find(source => source.short == a.source).id;
-                const bsort = sourceInfo.find(source => source.short == b.source).id;
-                return asort - bsort;
-            });
-
-            if (source != "") {
-                let selectedArchive = this.archives.findIndex(archive => 
-                    archive.source == source && archive.url == this.url
-                );
-                if (selectedArchive == -1)
-                    selectedArchive = this.archives.findIndex(archive => 
-                        archive.source == source && sanitizeUrl(archive.url) == compareUrl
+        if (["orphan", "raw"].some(mode => mode == this.args.mode)) {
+            if (this.args.source == "") return;
+            this.archives = db.prepare("SELECT * FROM files WHERE source = ? AND path = ?").all(source, this.url);
+            if (this.archives.length == 0) return;
+        }
+        else {
+            const compareUrl = sanitizeUrl(this.url);
+            this.archives = db.prepare("SELECT * FROM files WHERE compare = ?").all(compareUrl);
+            if (this.archives.length > 1) {
+                this.archives.sort((a, b) => {
+                    const asort = sourceInfo.find(source => source.short == a.source).id;
+                    const bsort = sourceInfo.find(source => source.short == b.source).id;
+                    return asort - bsort;
+                });
+    
+                if (source != "") {
+                    let selectedArchive = this.archives.findIndex(archive => 
+                        archive.source == source && archive.url == this.url
                     );
-                this.selectedArchive = Math.max(0, selectedArchive);
+                    if (selectedArchive == -1)
+                        selectedArchive = this.archives.findIndex(archive => 
+                            archive.source == source && sanitizeUrl(archive.url) == compareUrl
+                        );
+                    this.selectedArchive = Math.max(0, selectedArchive);
+                }
             }
+            else if (this.archives.length == 0)
+                return;
         }
 
         this.entry = this.archives[this.selectedArchive];
@@ -781,8 +786,8 @@ async function injectNavbar(html, query) {
 // Identify the file type by contents, or by file extension if returned type is too basic
 async function mimeType(filePath) {
     const types = (await Promise.all([
-        $`mimetype -bM "${filePath}"`.text(), // microdvd
-        $`mimetype -b "${filePath}"`.text() // basic
+        $`mimetype -bM "${filePath}"`.text(),
+        $`mimetype -b "${filePath}"`.text()
     ])).map(t => t.trim());
     return (types[0].startsWith("text/") || (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))) ? types[1] : types[0];
 }
