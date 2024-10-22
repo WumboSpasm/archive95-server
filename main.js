@@ -804,7 +804,7 @@ function sanitizeUrl(url) {
 }
 
 // Get rid of quotes surrounding a string
-function trimQuotes(string) { return string.replace(/^"(.*?)"$/s, "$1"); }
+function trimQuotes(string) { return string.trim().replace(/^"(.*?)"$/s, "$1"); }
 
 // Display error page
 async function error(url) {
