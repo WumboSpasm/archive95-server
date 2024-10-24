@@ -2,6 +2,10 @@ import { $ } from "bun";
 import { Database } from "bun:sqlite";
 import { unlink } from "node:fs/promises";
 
+/*----------------------------+
+ | Important Global Constants |
+ +----------------------------*/
+
 const dbPath = "data/archive95.sqlite";
 
 const staticFiles = [
@@ -31,27 +35,22 @@ const templates = {
     },
 };
 
-const build = Bun.argv.length > 2 && Bun.argv[2] == "build";
-if (build) {
-    console.log("removing old database files...")
+/*----------------+
+ | Build Database |
+ +----------------*/
+
+if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
+    const startTime = Date.now();
+
+    console.log("creating new database...")
     if (await Bun.file(dbPath).exists()) await unlink(dbPath);
     if (await Bun.file(dbPath + "-shm").exists()) await unlink(dbPath + "-shm");
     if (await Bun.file(dbPath + "-wal").exists()) await unlink(dbPath + "-wal");
-}
-
-console.log("initializing database...");
-const db = new Database(dbPath, {
-    create: true,
-    strict: true,
-    readonly: !build,
-});
-db.exec("PRAGMA journal_mode = WAL;");
-
-if (build) {
-    const startTime = Date.now();
+    const db = new Database(dbPath, { create: true, strict: true });
+    db.exec("PRAGMA journal_mode = WAL;");
 
     const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split(/\r?\n/g).map(async (source, s, data) => {
-        source = source.split("\t");
+        source = fixedArray(source.split("\t"), 6);
         console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
         return {
             id: s,
@@ -76,7 +75,7 @@ if (build) {
                     entryChunks.push([]);
                     currentChunk++;
                 }
-                const [path, url] = entryLine.split("\t");
+                const [path, url] = fixedArray(entryLine.split("\t"), 2);
                 entryChunks[currentChunk].push({
                     compare: sanitizeUrl(url),
                     url: url,
@@ -232,101 +231,15 @@ if (build) {
     process.exit();
 }
 
+/*-----------------------+
+ | Server Initialization |
+ +-----------------------*/
+
+console.log("initializing database...");
+const db = new Database(dbPath, { strict: true, readonly: true });
+db.exec("PRAGMA journal_mode = WAL;");
+
 const sourceInfo = db.prepare("SELECT * FROM sources").all();
-
-class Query {
-    static possibleModes = ["view", "orphan", "raw", "random"];
-    static possibleFlags = ["e", "m", "n", "o", "p"];
-
-    args = {
-        mode: "",
-        source: "",
-        flags: "",
-    };
-    url = "";
-
-    archives = [];
-    selectedArchive = 0;
-
-    entry = null;
-    source = null;
-
-    constructor(url, args) {
-        // mode[-source][_flags]
-        const argsA = args.split("_");
-        const argsB = argsA[0].split("-");
-        if (this.constructor.possibleModes.some(mode => mode == argsB[0]))
-            this.args.mode = argsB[0];
-        else
-            return;
-        if (argsB.length > 1 && sourceInfo.some(source => source.short == argsB[1]))
-            this.args.source = argsB[1];
-        if (argsA.length > 1)
-            for (const flag of this.constructor.possibleFlags)
-                if (argsA[1].includes(flag))
-                    this.args.flags += flag;
-        
-        const source = this.args.source;
-        if (this.args.source != "") this.args.source = "-" + this.args.source;
-        if (this.args.flags != "") this.args.flags = "_" + this.args.flags;
-
-        if (this.args.mode == "random") {
-            let whereConditions = [];
-            let whereParameters = [];
-            if (!this.args.flags.includes("m"))
-                whereConditions.push('type = "text/html"');
-            if (!this.args.flags.includes("o"))
-                whereConditions.push('compare != ""');
-            if (this.args.source != "") {
-                whereConditions.push("source = ?");
-                whereParameters.push(source);
-            }
-            this.entry = db.prepare(
-                `SELECT url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
-            ).get(...whereParameters);
-            this.url = this.entry.url;
-            this.archives = [this.entry];
-            return;
-        }
-        else if (url != "")
-            this.url = url;
-        else
-            return;
-        
-        if (["orphan", "raw"].some(mode => mode == this.args.mode)) {
-            if (this.args.source == "") return;
-            this.archives = db.prepare("SELECT * FROM files WHERE source = ? AND path = ?").all(source, this.url);
-            if (this.archives.length == 0) return;
-        }
-        else {
-            const compareUrl = sanitizeUrl(this.url);
-            this.archives = db.prepare("SELECT * FROM files WHERE compare = ?").all(compareUrl);
-            if (this.archives.length > 1) {
-                this.archives.sort((a, b) => {
-                    const asort = sourceInfo.find(source => source.short == a.source).id;
-                    const bsort = sourceInfo.find(source => source.short == b.source).id;
-                    return asort - bsort;
-                });
-    
-                if (source != "") {
-                    let selectedArchive = this.archives.findIndex(archive => 
-                        archive.source == source && archive.url == this.url
-                    );
-                    if (selectedArchive == -1)
-                        selectedArchive = this.archives.findIndex(archive => 
-                            archive.source == source && sanitizeUrl(archive.url) == compareUrl
-                        );
-                    this.selectedArchive = Math.max(0, selectedArchive);
-                }
-            }
-            else if (this.archives.length == 0)
-                return;
-        }
-
-        this.entry = this.archives[this.selectedArchive];
-        this.source = sourceInfo.find(source => source.short == this.entry.source);
-    }
-}
 
 const server = Bun.serve({
     port: 8989,
@@ -359,40 +272,98 @@ const server = Bun.serve({
         let url, args;
         if (slashIndex != -1) {
             url = requestPath.substring(slashIndex + 1) + requestUrl.search;
-            args = requestPath.substring(0, slashIndex);
+            args = splitArgs(requestPath.substring(0, slashIndex));
         }
         else {
             url = "";
-            args = requestPath;
+            args = splitArgs(requestPath);
+        }
+        if (args == null) return error();
+
+        if (args.mode == "random") {
+            let whereConditions = [];
+            let whereParameters = [];
+            if (!args.flags.includes("m"))
+                whereConditions.push('type = "text/html"');
+            if (!args.flags.includes("o"))
+                whereConditions.push('compare != ""');
+            if (args.source != "") {
+                whereConditions.push("source = ?");
+                whereParameters.push(args.source);
+            }
+
+            const entry = db.prepare(
+                `SELECT url, path, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
+            ).get(...whereParameters);
+            return Response.redirect(
+                entry.url != ""
+                    ? `/${joinArgs("view", entry.source, args.flags)}/${entry.url}`
+                    : `/${joinArgs("orphan", entry.source, args.flags)}/${entry.path}`
+            );
         }
 
-        // Extract useful information out of request
-        const query = new Query(url, args);
-        if (query.entry == null)
-            return await error(query.args.mode != "" ? query.url : null);
-        else if (query.args.mode == "random")
-            return Response.redirect(
-                query.entry.compare != ""
-                    ? `/view-${query.entry.source}${query.args.flags}/${query.entry.url}`
-                    : `/orphan-${query.entry.source}${query.args.flags}/${query.entry.path}`
-            );
+        let archives = [];
+        let desiredArchive = 0;
+        if (args.mode == "view") {
+            const compareUrl = sanitizeUrl(url);
+            archives = db.prepare("SELECT * FROM files WHERE compare = ?").all(compareUrl);
+            if (archives.length == 0) return error(url);
+            if (archives.length > 1) {
+                // Sort archives from oldest to newest
+                archives.sort((a, b) => {
+                    const asort = sourceInfo.find(source => source.short == a.source).id;
+                    const bsort = sourceInfo.find(source => source.short == b.source).id;
+                    return asort - bsort;
+                });
+                // Get desired archive by first looking for exact URL match, then sanitized URL if there are no exact matches
+                if (args.source != "") {
+                    desiredArchive = archives.findIndex(archive => 
+                        archive.source == args.source && archive.url == url
+                    );
+                    if (desiredArchive == -1)
+                        desiredArchive = archives.findIndex(archive => 
+                            archive.source == args.source && sanitizeUrl(archive.url) == compareUrl
+                        );
+                    desiredArchive = Math.max(0, desiredArchive);
+                }
+            }
+        }
+        else if (args.mode == "orphan" || args.mode == "raw") {
+            if (args.source == "" || url == "") return error();
+            const entry = db.prepare("SELECT * FROM files WHERE source = ? AND path = ?").get(args.source, url);
+            if (entry == null) return error();
+            archives.push(entry);
+        }
 
-        const filePath = `data/sources/${query.entry.source}/${query.entry.path}`;
-        const contentType = query.entry.type == "text/html" ? (query.entry.type + ";charset=utf-8") : query.entry.type;
-
+        const entry = archives[desiredArchive];
+        const filePath = `data/sources/${entry.source}/${entry.path}`;
+        const contentType = entry.type == "text/html" ? (entry.type + ";charset=utf-8") : entry.type;
         const file = Bun.file(filePath);
 
-        if (["view", "orphan"].some(mode => mode == query.args.mode) && !query.args.flags.includes("p") && query.entry.type == "image/x-xbitmap")
+        if (args.mode != "raw" && !args.flags.includes("p") && entry.type == "image/x-xbitmap")
             // Convert XBM to PNG
             return new Response(await $`convert ${filePath} PNG:-`.blob(), { headers: { "Content-Type": "image/png" } });
-        else if (query.args.mode == "raw" || query.entry.type != "text/html")
+        else if (args.mode == "raw" || entry.type != "text/html")
             // Display raw or non-HTML files verbatim
             return new Response(file, { headers: { "Content-Type": contentType }});
         
-        return new Response(await prepareArchivedPage(file, query), { headers: { "Content-Type": contentType } });
+        // Make adjustments to page markup before serving
+        let html = await file.text();
+        html = fixMarkup(html, entry);
+        html = redirectLinks(html, entry, args.flags);
+        if (!args.flags.includes("p"))
+            html = improvePresentation(html);
+        if (args.mode == "view" && !args.flags.includes("n"))
+            html = await injectNavbar(html, archives, desiredArchive, args.flags);
+        
+        return new Response(html, { headers: { "Content-Type": contentType } });
     }
 });
 console.log("server started at " + server.url);
+
+/*-------------------------+
+ | Server Helper Functions |
+ +-------------------------*/
 
 // Escape characters that have the potential to screw with markup / enable XSS injections
 const charMap = {
@@ -552,24 +523,304 @@ function prepareSearch(params) {
     return html;
 }
 
-// Make adjustments to page markup according to flags
-async function prepareArchivedPage(file, query) {
-    let html = await file.text();
+// Point links to archives, or the original URLs if "e" flag is enabled
+function redirectLinks(html, entry, flags) {
+    let unmatchedLinks = getLinks(html).map(link => {
+        const matchStart = link.index - link.tag.length;
+        const matchEnd = link.index;
+        const parsedUrl = URL.parse(link.original, entry.url);
+        if (parsedUrl != null)
+            return {...link,
+                url: parsedUrl.href,
+                compareUrl: sanitizeUrl(parsedUrl.href),
+                start: matchStart,
+                end: matchEnd,
+            };
+        else
+            return null;
+    }).filter(link => link != null);
+    if (unmatchedLinks.length == 0) return html;
 
-    html = fixMarkup(html, query.entry);
-    textContent(html);
-    html = redirectLinks(html, query);
-    
-    if (!query.args.flags.includes("p"))
-        html = improvePresentation(html);
-    
-    if (query.args.mode == "view" && !query.args.flags.includes("n"))
-        html = await injectNavbar(html, query);
+    let matchedLinks = [];
+
+    // Check for path matches (needed for sources that have their own filesystems)
+    if (sourceInfo.find(source => source.short == entry.source).local) {
+        const comparePaths = unmatchedLinks.map(link => {
+            if (!link.whole) {
+                const parsedUrl = URL.parse(link.original, "http://abc/" + entry.path);
+                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
+            }
+            return null;
+        });
+        if (comparePaths.length > 0) {
+            const comparePathsDeduped = [...new Set(comparePaths.filter(path => path != null))];
+            const entryQuery = db.prepare(`SELECT compare, url, path, source FROM files WHERE source = ? AND path IN (${
+                Array(comparePathsDeduped.length).fill("?").join(", ")
+            })`).all(entry.source, ...comparePathsDeduped);
+
+            const orphanFlags = flags.replace("n", "");
+            for (const compareEntry of entryQuery)
+                for (let l = 0; l < unmatchedLinks.length; l++)
+                    if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
+                        if (flags.includes("e"))
+                            unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : compareEntry.path;
+                        else
+                            unmatchedLinks[l].url = compareEntry.url != ""
+                                ? `/${joinArgs("view", entry.source, flags)}/${compareEntry.url}`
+                                : `/${joinArgs("orphan", entry.source, orphanFlags)}/${compareEntry.path}`;
+                        matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
+                        comparePaths.splice(l, 1);
+                        l -= 1;
+                    }
+        }
+    }
+
+    if (!flags.includes("e")) {
+        const compareUrls = [...new Set(unmatchedLinks.map(link => link.compareUrl))];
+        const entryQuery = db.prepare(`SELECT compare, path, source FROM files WHERE compare IN (${
+            Array(compareUrls.length).fill("?").join(", ")
+        })`).all(...compareUrls);
+
+        if (entryQuery.length > 0) {
+            // Check for source-local matches first
+            const sourceLocalEntries = entryQuery.filter(filterEntry => filterEntry.source == entry.source);
+            if (sourceLocalEntries.length > 0)
+                for (const sourceLocalEntry of sourceLocalEntries)
+                    for (let l = 0; l < unmatchedLinks.length; l++)
+                        if (sourceLocalEntry.compare == unmatchedLinks[l].compareUrl) {
+                            unmatchedLinks[l].url = `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+                            matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
+                            l -= 1;
+                        }
+                    
+            // Then for matches anywhere else
+            const sourceExternalEntries = entryQuery.filter(filterEntry => filterEntry.source != entry.source);
+            if (unmatchedLinks.length > 0 && sourceExternalEntries.length > 0) {
+                for (const sourceExternalEntry of sourceExternalEntries)
+                    for (let l = 0; l < unmatchedLinks.length; l++)
+                        if (sourceExternalEntry.compare == unmatchedLinks[l].compareUrl) {
+                            unmatchedLinks[l].url = `/${joinArgs("view", sourceExternalEntry.source, flags)}/${unmatchedLinks[l].url}`;
+                            matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
+                            l -= 1;
+                        }
+            }
+        }
+    }
+
+    // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
+    // We shouldn't be loading any content off of Wayback
+    if (!flags.includes("e"))
+        for (let l = 0; l < unmatchedLinks.length; l++)
+            unmatchedLinks[l].url = /^a /i.test(unmatchedLinks[l].before)
+                ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
+                : `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+
+    // Update markup with new links
+    let offset = 0;
+    for (const link of unmatchedLinks.concat(matchedLinks).toSorted((a, b) => a.start - b.start)) {
+        const tag = `<${link.before}"${link.url}"${link.after}>`;
+        html = html.substring(0, link.start + offset) + tag + html.substring(link.end + offset);
+        offset += tag.length - link.tag.length;
+    }
 
     return html;
 }
 
-// Fix undesirable markup before making any other changes
+// Display navigation bar
+async function injectNavbar(html, archives, desiredArchive, flags) {
+    const entry = archives[desiredArchive];
+
+    let navbar = templates.navbar.main
+        .replaceAll("{URL}", entry.url)
+        .replaceAll("{WAYBACK}", "https://web.archive.org/web/0/" + entry.url)
+        .replaceAll("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
+        .replaceAll("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
+        .replaceAll("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
+    
+    let archiveButtons = [];
+    for (let a = 0; a < archives.length; a++) {
+        const archive = archives[a];
+        const source = sourceInfo.find(source => source.short == archive.source);
+        archiveButtons.push(
+            templates.navbar.archive
+                .replaceAll("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
+                .replaceAll("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
+                .replaceAll("{ICON}", `/${source.short}.png`)
+                .replaceAll("{TITLE}", source.title)
+                .replaceAll("{DATE}", source.date)
+        );
+    }
+    navbar = navbar.replaceAll("{ARCHIVES}", archiveButtons.join("\n"));
+
+    let screenshotPath = "";
+    let screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE url = ?").get(entry.url);
+    if (screenshotQuery != null)
+        screenshotPath = screenshotQuery.path;
+    else {
+        const testUrls = [...new Set(archives.toSpliced(desiredArchive, 1).map(archive => archive.url))];
+        screenshotQuery = db.prepare(
+            `SELECT path FROM screenshots WHERE url in (${Array(testUrls.length).fill("?").join(", ")})`
+        ).get(...testUrls);
+        if (screenshotQuery != null)
+            screenshotPath = screenshotQuery.path;
+    }
+    if (screenshotPath != "") {
+        const screenshot = templates.navbar.screenshot
+            .replaceAll("{IMAGE}", "/screenshots/" + screenshotPath)
+            .replaceAll("{THUMB}", "/thumbnails/" + screenshotPath);
+        navbar = navbar.replaceAll("{SCREENSHOT}", screenshot);
+    }
+    else
+        navbar = navbar.replaceAll("{SCREENSHOT}", "");
+
+    const style = '<link rel="stylesheet" href="/navbar.css">';
+    const matchHead = html.match(/<head(er)?(| .*?)>/i);
+    html = matchHead != null
+        ? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
+        : style + "\n" + html;
+    
+    const padding = '<div style="height:120px"></div>';
+    const bodyCloseIndex = html.search(/(?:<\/body>(?:[ \r\n\t]+<\/html>)?|<\/html>)(?:[ \r\n\t]+|)$/i);
+    html = bodyCloseIndex != -1
+        ? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
+        : html + "\n" + padding + "\n" + navbar;
+
+    return html;
+}
+
+// Split string of arguments into an object
+function splitArgs(argsStr) {
+    const possibleModes = ["view", "orphan", "raw", "random"];
+    const possibleFlags = ["e", "m", "n", "o", "p"];
+    
+    let args = {
+        mode: "",
+        source: "",
+        flags: "",
+    };
+
+    const argsA = argsStr.split("_");
+    const argsB = argsA[0].split("-");
+    if (possibleModes.some(mode => mode == argsB[0]))
+        args.mode = argsB[0];
+    else
+        return null;
+    if (argsB.length > 1 && sourceInfo.some(source => source.short == argsB[1]))
+        args.source = argsB[1];
+    if (argsA.length > 1)
+        for (const flag of possibleFlags)
+            if (argsA[1].includes(flag))
+                args.flags += flag;
+    
+    return args;
+}
+
+// Join arguments back into a string, ie. mode[-source][_flags]
+function joinArgs(mode = null, source = null, flags = null) {
+    let argsStr = mode || "";
+    if (source != null && source != "") argsStr += "-" + source;
+    if (flags != null && flags != "") argsStr += "_" + flags;
+    return argsStr;
+}
+
+// Display error page
+function error(url) {
+    let errorHtml, status;
+    if (url) {
+        errorHtml = templates.error.archive.replaceAll("{URL}", url);
+        status = 404;
+    }
+    else {
+        errorHtml = templates.error.generic;
+        status = 400;
+    }
+    return new Response(errorHtml, { headers: { "Content-Type": "text/html" }, status: status });
+}
+
+/*------------------------+
+ | Build Helper Functions |
+ +------------------------*/
+
+// Get the title and all visible text on a page
+function textContent(html) {
+    const titleMatch = [...html.matchAll(/<title>(((?!<\/title>).)*?)<\/title>/gis)];
+    const title = titleMatch.length > 0
+        ? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, " ").replaceAll(/[\r\n\t ]+/g, " ").trim()
+        : "";
+
+    const content = html.replaceAll(
+        /<title>.*?<\/title>/gis,
+        "",
+    ).replaceAll(
+        /<[^>]+alt {0,}= {0,}"(.*?)".*?>/gis,
+        " $1 "
+    ).replaceAll(
+        /<[^>]+alt {0,}= {0,}([^ >]+).*?>/gis,
+        " $1 "
+    ).replaceAll(
+        /<! {0,}[-]+.*?[-]+ {0,}>/gs,
+        ""
+    ).replaceAll(
+        /<.*?>/gs,
+        " "
+    ).replaceAll(
+        /[\r\n\t ]+/g,
+        " "
+    ).trim();
+
+    return { title: title, content: content };
+}
+
+// Get links from the given markup and return them as sanitized, fully-formed URLs
+function collectLinks(html, entry, local, entryData) {
+    let rawLinks = getLinks(html).map(link => link.original);
+
+    let links = [];
+    if (local) {
+        const comparePaths = rawLinks.map(link => {
+            if (!link.whole) {
+                const parsedUrl = URL.parse(link, "http://abc/" + entry.path);
+                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
+            }
+            return null;
+        });
+        for (const compareEntry of entryData.filter(filterEntry => filterEntry.source == entry.source)) {
+            if (rawLinks.length == 0) break;
+            for (let l = 0; l < rawLinks.length; l++)
+                if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
+                    if (compareEntry.url != "") links.push(compareEntry.url);
+                    rawLinks.splice(l, 1);
+                    comparePaths.splice(l, 1);
+                    l -= 1;
+                }
+        }
+    }
+
+    for (const link of rawLinks) {
+        const parsedUrl = URL.parse(link, entry.url);
+        if (parsedUrl != null) links.push(parsedUrl.href);
+    }
+
+    return [...new Set(links.map(link => sanitizeUrl(link)))].map(compare => ({ id: entry.id, compare: compare }));
+}
+
+// Identify the file type by contents, or by file extension if returned type is too basic
+async function mimeType(filePath) {
+    const types = (await Promise.all([
+        $`mimetype -bM "${filePath}"`.text(),
+        $`mimetype -b "${filePath}"`.text()
+    ])).map(t => t.trim());
+    return (types[0].startsWith("text/") || (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))) ? types[1] : types[0];
+}
+
+// Set array to a certain length, inserting placeholder values if necessary
+function fixedArray(array, length, fill = "") { return Array(length).fill(fill).map((v, i) => array[i] || v) }
+
+/*----------------------------------+
+ | General-Purpose Helper Functions |
+ +----------------------------------*/
+
+// Attempt to fix altered or poorly-written markup
 function fixMarkup(html, entry) {
     // Revert markup alterations specific to Einblicke ins Internet
     if (entry.source == "einblicke")
@@ -628,141 +879,6 @@ function fixMarkup(html, entry) {
     return html;
 }
 
-// Point links to archives, or the original URLs if "e" flag is enabled
-function redirectLinks(html, query) {
-    let unmatchedLinks = getLinks(html).map(link => {
-        const matchStart = link.index - link.tag.length;
-        const matchEnd = link.index;
-        const parsedUrl = URL.parse(link.original, query.entry.url);
-        if (parsedUrl != null)
-            return {...link,
-                url: parsedUrl.href,
-                compareUrl: sanitizeUrl(parsedUrl.href),
-                start: matchStart,
-                end: matchEnd,
-            };
-        else
-            return null;
-    }).filter(link => link != null);
-    if (unmatchedLinks.length == 0) return html;
-
-    let matchedLinks = [];
-
-    // Check for path matches (needed for sources that have their own filesystems)
-    if (query.source.local) {
-        const comparePaths = unmatchedLinks.map(link => {
-            if (!link.whole) {
-                const parsedUrl = URL.parse(link.original, "http://abc/" + query.entry.path);
-                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
-            }
-            return null;
-        });
-        if (comparePaths.length > 0) {
-            const comparePathsDeduped = [...new Set(comparePaths.filter(path => path != null))];
-            const entryQuery = db.prepare(`SELECT compare, url, path, source FROM files WHERE source = ? AND path IN (${
-                Array(comparePathsDeduped.length).fill("?").join(", ")
-            })`).all(query.entry.source, ...comparePathsDeduped);
-
-            const orphanFlags = query.args.flags.replace(/n/, "").replace(/^_$/, "");
-            for (const entry of entryQuery)
-                for (let l = 0; l < unmatchedLinks.length; l++)
-                    if (comparePaths[l] != null && entry.path == comparePaths[l]) {
-                        if (query.args.flags.includes("e"))
-                            unmatchedLinks[l].url = entry.url != "" ? entry.url : entry.path;
-                        else
-                            unmatchedLinks[l].url = entry.url != ""
-                                ? `/view-${query.entry.source}${query.args.flags}/${entry.url}`
-                                : `/orphan-${query.entry.source}${orphanFlags}/${entry.path}`;
-                        matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
-                        comparePaths.splice(l, 1);
-                        l -= 1;
-                    }
-        }
-    }
-
-    if (!query.args.flags.includes("e")) {
-        const compareUrls = [...new Set(unmatchedLinks.map(link => link.compareUrl))];
-        const entryQuery = db.prepare(`SELECT compare, path, source FROM files WHERE compare IN (${
-            Array(compareUrls.length).fill("?").join(", ")
-        })`).all(...compareUrls);
-
-        if (entryQuery.length > 0) {
-            // Check for source-local matches first
-            const sourceLocalEntries = entryQuery.filter(entry => entry.source == query.entry.source);
-            if (sourceLocalEntries.length > 0)
-                for (const entry of sourceLocalEntries)
-                    for (let l = 0; l < unmatchedLinks.length; l++)
-                        if (entry.compare == unmatchedLinks[l].compareUrl) {
-                            unmatchedLinks[l].url = `/view-${query.entry.source}${query.args.flags}/${unmatchedLinks[l].url}`;
-                            matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
-                            l -= 1;
-                        }
-                    
-            // Then for matches anywhere else
-            const sourceExternalEntries = entryQuery.filter(entry => entry.source != query.entry.source);
-            if (unmatchedLinks.length > 0 && sourceExternalEntries.length > 0) {
-                for (const entry of sourceExternalEntries)
-                    for (let l = 0; l < unmatchedLinks.length; l++)
-                        if (entry.compare == unmatchedLinks[l].compareUrl) {
-                            unmatchedLinks[l].url = `/view-${entry.source}${query.args.flags}/${unmatchedLinks[l].url}`;
-                            matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
-                            l -= 1;
-                        }
-            }
-        }
-    }
-
-    // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
-    // We shouldn't be loading any content off of Wayback
-    if (!query.args.flags.includes("e"))
-        for (let l = 0; l < unmatchedLinks.length; l++)
-            unmatchedLinks[l].url = /^a /i.test(unmatchedLinks[l].before)
-                ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
-                : `/view-${query.entry.source}${query.args.flags}/${unmatchedLinks[l].url}`;
-
-    // Update markup with new links
-    let offset = 0;
-    for (const link of unmatchedLinks.concat(matchedLinks).toSorted((a, b) => a.start - b.start)) {
-        const tag = `<${link.before}"${link.url}"${link.after}>`;
-        html = html.substring(0, link.start + offset) + tag + html.substring(link.end + offset);
-        offset += tag.length - link.tag.length;
-    }
-
-    return html;
-}
-
-function collectLinks(html, entry, local, entryData) {
-    let rawLinks = getLinks(html).map(link => link.original);
-
-    let links = [];
-    if (local) {
-        const comparePaths = rawLinks.map(link => {
-            if (!link.whole) {
-                const parsedUrl = URL.parse(link, "http://abc/" + entry.path);
-                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
-            }
-            return null;
-        });
-        for (const compareEntry of entryData.filter(filterEntry => filterEntry.source == entry.source)) {
-            if (rawLinks.length == 0) break;
-            for (let l = 0; l < rawLinks.length; l++)
-                if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
-                    if (compareEntry.url != "") links.push(compareEntry.url);
-                    rawLinks.splice(l, 1);
-                    comparePaths.splice(l, 1);
-                    l -= 1;
-                }
-        }
-    }
-
-    for (const link of rawLinks) {
-        const parsedUrl = URL.parse(link, entry.url);
-        if (parsedUrl != null) links.push(parsedUrl.href);
-    }
-
-    return [...new Set(links.map(link => sanitizeUrl(link)))].map(compare => ({ id: entry.id, compare: compare }));
-}
-
 // Fix elements that do not display correctly on modern browsers
 function improvePresentation(html, buildMode = false) {
     if (!buildMode) {
@@ -804,66 +920,6 @@ function improvePresentation(html, buildMode = false) {
     return html;
 }
 
-// Display navigation bar
-async function injectNavbar(html, query) {
-    let navbar = templates.navbar.main
-        .replaceAll("{URL}", query.entry.url)
-        .replaceAll("{WAYBACK}", "https://web.archive.org/web/0/" + query.entry.url)
-        .replaceAll("{RAW}", `/raw${query.args.source}/${query.entry.path}`)
-        .replaceAll("{HIDE}", `/view${query.args.source}${(query.args.flags.startsWith("_") ? (query.args.flags + "n") : "_n")}/${query.entry.url}`)
-        .replaceAll("{RANDOM}", `/random${query.args.flags}/`);
-    
-    let archives = [];
-    for (let a = 0; a < query.archives.length; a++) {
-        const archive = query.archives[a];
-        const source = sourceInfo.find(source => source.short == archive.source);
-        archives.push(
-            templates.navbar.archive
-                .replaceAll("{ACTIVE}", a == query.selectedArchive ? ' class="navbar-active"' : "")
-                .replaceAll("{URL}", `/view-${source.short}${query.args.flags}/${archive.url}`)
-                .replaceAll("{ICON}", `/${source.short}.png`)
-                .replaceAll("{TITLE}", source.title)
-                .replaceAll("{DATE}", source.date)
-        );
-    }
-    navbar = navbar.replaceAll("{ARCHIVES}", archives.join("\n"));
-
-    let screenshotPath = "";
-    let screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE url = ?").get(query.entry.url);
-    if (screenshotQuery != null)
-        screenshotPath = screenshotQuery.path;
-    else {
-        const testUrls = [...new Set(query.archives.toSpliced(query.selectedArchive, 1).map(archive => archive.url))];
-        screenshotQuery = db.prepare(
-            `SELECT path FROM screenshots WHERE url in (${Array(testUrls.length).fill("?").join(", ")})`
-        ).get(...testUrls);
-        if (screenshotQuery != null)
-            screenshotPath = screenshotQuery.path;
-    }
-    if (screenshotPath != "") {
-        const screenshot = templates.navbar.screenshot
-            .replaceAll("{IMAGE}", "/screenshots/" + screenshotPath)
-            .replaceAll("{THUMB}", "/thumbnails/" + screenshotPath);
-        navbar = navbar.replaceAll("{SCREENSHOT}", screenshot);
-    }
-    else
-        navbar = navbar.replaceAll("{SCREENSHOT}", "");
-
-    const style = '<link rel="stylesheet" href="/navbar.css">';
-    const matchHead = html.match(/<head(er)?(| .*?)>/i);
-    html = matchHead != null
-        ? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
-        : style + "\n" + html;
-    
-    const padding = '<div style="height:120px"></div>';
-    const bodyCloseIndex = html.search(/(?:<\/body>(?:[ \r\n\t]+<\/html>)?|<\/html>)(?:[ \r\n\t]+|)$/i);
-    html = bodyCloseIndex != -1
-        ? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
-        : html + "\n" + padding + "\n" + navbar;
-
-    return html;
-}
-
 // Find and return links in the given markup, without performing any operations
 function getLinks(html) {
     const linkExp = /<([a-z0-9]+(?: |[^>]+)(?:href|src|action|background) {0,}= {0,})(".*?"|[^ >]+)(.*?)>/gis;
@@ -887,15 +943,6 @@ function getLinks(html) {
     return links;
 }
 
-// Identify the file type by contents, or by file extension if returned type is too basic
-async function mimeType(filePath) {
-    const types = (await Promise.all([
-        $`mimetype -bM "${filePath}"`.text(),
-        $`mimetype -b "${filePath}"`.text()
-    ])).map(t => t.trim());
-    return (types[0].startsWith("text/") || (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))) ? types[1] : types[0];
-}
-
 // Strip the URL down to its bare components, for comparison purposes
 function sanitizeUrl(url) {
     try { url = decodeURIComponent(url); } catch { }
@@ -909,47 +956,3 @@ function sanitizeUrl(url) {
 
 // Get rid of quotes surrounding a string
 function trimQuotes(string) { return string.trim().replace(/^"(.*?)"$/s, "$1"); }
-
-// Display error page
-async function error(url) {
-    let errorHtml, status;
-    if (url) {
-        errorHtml = templates.error.archive.replaceAll("{URL}", url);
-        status = 404;
-    }
-    else {
-        errorHtml = templates.error.generic;
-        status = 400;
-    }
-    return new Response(errorHtml, { headers: { "Content-Type": "text/html" }, status: status });
-}
-
-// Get the title and all visible text on a page
-function textContent(html) {
-    const titleMatch = [...html.matchAll(/<title>(((?!<\/title>).)*?)<\/title>/gis)];
-    const title = titleMatch.length > 0
-        ? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, " ").replaceAll(/[\r\n\t ]+/g, " ").trim()
-        : "";
-
-    const content = html.replaceAll(
-        /<title>.*?<\/title>/gis,
-        "",
-    ).replaceAll(
-        /<[^>]+alt {0,}= {0,}"(.*?)".*?>/gis,
-        " $1 "
-    ).replaceAll(
-        /<[^>]+alt {0,}= {0,}([^ >]+).*?>/gis,
-        " $1 "
-    ).replaceAll(
-        /<! {0,}[-]+.*?[-]+ {0,}>/gs,
-        ""
-    ).replaceAll(
-        /<.*?>/gs,
-        " "
-    ).replaceAll(
-        /[\r\n\t ]+/g,
-        " "
-    ).trim();
-
-    return { title: title, content: content };
-}
