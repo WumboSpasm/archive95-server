@@ -50,10 +50,18 @@ db.exec("PRAGMA journal_mode = WAL;");
 if (build) {
     const startTime = Date.now();
 
-    const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split(/\r?\n/g).map(async (source, s) => {
+    const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split(/\r?\n/g).map(async (source, s, data) => {
         source = source.split("\t");
-        console.log(`loading source ${source[1]}...`);
-        return { id: s, short: source[0], title: source[1], author: source[2], date: source[3], link: source[4] };
+        console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
+        return {
+            id: s,
+            short: source[0],
+            title: source[1],
+            author: source[2],
+            date: source[3],
+            link: source[4],
+            local: source[5].toLowerCase() == "true" ? 1 : 0
+        };
     }));
     const entryData = await (async () => {
         // Load entries into chunks to improve MIME type detection speed
@@ -84,10 +92,11 @@ if (build) {
 
         // Detect MIME types and fill in additional entry information
         let entries = [];
+        let currentEntry = 0;
         for (const chunk of entryChunks)
             entries.push(...await Promise.all(chunk.map(async entry => {
                 const filePath = `data/sources/${entry.source}/${entry.path}`;
-                console.log(`loading file ${filePath}...`);
+                console.log(`[${++currentEntry}/${entryIndex}] loading file ${filePath}...`);
                 entry.type = await mimeType(filePath);
                 if (entry.type.startsWith("text/")) {
                     const text = await Bun.file(filePath).text();
@@ -116,9 +125,25 @@ if (build) {
 
         return entries;
     })();
-    const screenshotData = await Promise.all((await Bun.file("data/screenshots.txt").text()).split(/\r?\n/g).map(async screenshot => {
+    const linkData = await (async () => {
+        let links = [];
+        let totalLinks = 0;
+        for (const entry of entryData)
+            if (entry.type == "text/html") {
+                const filePath = `data/sources/${entry.source}/${entry.path}`;
+                console.log(`[${totalLinks}/??] loading links from ${filePath}...`);
+                const entryLinks = collectLinks(
+                    await Bun.file(filePath).text(), entry,
+                    sourceData.find(source => source.short == entry.source).local, entryData
+                );
+                totalLinks += entryLinks.length;
+                links.push(...entryLinks);
+            }
+        return links;
+    })();
+    const screenshotData = await Promise.all((await Bun.file("data/screenshots.txt").text()).split(/\r?\n/g).map(async (screenshot, s, data) => {
         screenshot = screenshot.split("\t");
-        console.log(`loading screenshot ${screenshot[0]}...`);
+        console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
         return { path: screenshot[0], url: screenshot[1] };
     }));
 
@@ -129,7 +154,8 @@ if (build) {
         title TEXT NOT NULL,
         author TEXT NOT NULL,
         date TEXT NOT NULL,
-        link TEXT NOT NULL
+        link TEXT NOT NULL,
+        local INTEGER NOT NULL
     )`).run();
 
     console.log("creating files table...");
@@ -139,7 +165,7 @@ if (build) {
         url TEXT NOT NULL,
         path TEXT NOT NULL,
         source TEXT NOT NULL,
-        type TEXT
+        type TEXT NOT NULL
     )`).run();
 
     console.log("creating text table...");
@@ -149,6 +175,12 @@ if (build) {
         content TEXT NOT NULL
     )`).run();
 
+    console.log("creating links table...");
+    db.prepare(`CREATE TABLE links (
+        id TEXT NOT NULL,
+        compare TEXT NOT NULL
+    );`).run();
+
     console.log("creating screenshots table...");
     db.prepare(`CREATE TABLE screenshots (
         url TEXT NOT NULL,
@@ -156,23 +188,39 @@ if (build) {
     )`).run();
 
     console.log("adding sources to database...");
-    const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link) VALUES (?, ?, ?, ?, ?, ?)");
-    for (const source of sourceData)
-        sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link);
+    const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, local) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    for (let s = 0; s < sourceData.length; s++) {
+        const source = sourceData[s];
+        console.log(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`)
+        sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.local);
+    }
     
     console.log("adding files to database...");
     const fileQuery = db.prepare("INSERT INTO files (id, compare, url, path, source, type) VALUES (?, ?, ?, ?, ?, ?)");
     const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
-    for (const entry of entryData) {
+    for (let e = 0; e < entryData.length; e++) {
+        const entry = entryData[e];
+        console.log(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
         fileQuery.run(entry.id, entry.compare, entry.url, entry.path, entry.source, entry.type);
         if (entry.title != "" || entry.content != "")
             textQuery.run(entry.id, entry.title, entry.content);
     }
 
+    console.log("adding links to database...");
+    const linkQuery = db.prepare("INSERT INTO links (id, compare) VALUES (?, ?)");
+    for (let l = 0; l < linkData.length; l++) {
+        const link = linkData[l];
+        console.log(`[${l + 1}/${linkData.length}] adding link ${link.compare}...`);
+        linkQuery.run(link.id, link.compare);
+    }
+
     console.log("adding screenshots to database...");
     const screenshotQuery = db.prepare("INSERT INTO screenshots (url, path) VALUES (?, ?)");
-    for (const screenshot of screenshotData)
+    for (let s = 0; s < screenshotData.length; s++) {
+        const screenshot = screenshotData[s];
+        console.log(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
         screenshotQuery.run(screenshot.url, screenshot.path);
+    }
 
     const timeElapsed = Date.now() - startTime;
     const secondsElapsed = Math.floor(timeElapsed / 1000);
@@ -201,6 +249,7 @@ class Query {
     selectedArchive = 0;
 
     entry = null;
+    source = null;
 
     constructor(url, args) {
         // mode[-source][_flags]
@@ -275,6 +324,7 @@ class Query {
         }
 
         this.entry = this.archives[this.selectedArchive];
+        this.source = sourceInfo.find(source => source.short == this.entry.source);
     }
 }
 
@@ -519,9 +569,6 @@ async function prepareArchivedPage(file, query) {
     return html;
 }
 
-// Regex for discovering links in markup
-const linkExp = /<([a-z0-9]+(?: |[^>]+)(?:href|src|action|background) {0,}= {0,})(".*?"|[^ >]+)(.*?)>/gis;
-
 // Fix undesirable markup before making any other changes
 function fixMarkup(html, entry) {
     // Revert markup alterations specific to Einblicke ins Internet
@@ -583,29 +630,55 @@ function fixMarkup(html, entry) {
 
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, query) {
-    let unmatchedLinks = [];
-    let matchedLinks = [];
-
-    for (let match; (match = linkExp.exec(html)) !== null;) {
-        const matchUrl = trimQuotes(match[2]);
-        // Anchor links and unarchived links should be ignored
-        if (matchUrl.startsWith("#") || /^\[unarchived-(link|image)\]$/.test(matchUrl)) continue;
-        const matchStart = linkExp.lastIndex - match[0].length;
-        const matchEnd = linkExp.lastIndex;
-        const parsedUrl = URL.parse(matchUrl, query.entry.url);
-        if (parsedUrl != null && parsedUrl.protocol.startsWith("http"))
-            unmatchedLinks.push({
-                tag: match[0],
-                original: matchUrl,
+    let unmatchedLinks = getLinks(html).map(link => {
+        const matchStart = link.index - link.tag.length;
+        const matchEnd = link.index;
+        const parsedUrl = URL.parse(link.original, query.entry.url);
+        if (parsedUrl != null)
+            return {...link,
                 url: parsedUrl.href,
                 compareUrl: sanitizeUrl(parsedUrl.href),
-                prefix: match[1],
-                suffix: match[3],
                 start: matchStart,
                 end: matchEnd,
-            });
-    }
+            };
+        else
+            return null;
+    }).filter(link => link != null);
     if (unmatchedLinks.length == 0) return html;
+
+    let matchedLinks = [];
+
+    // Check for path matches (needed for sources that have their own filesystems)
+    if (query.source.local) {
+        const comparePaths = unmatchedLinks.map(link => {
+            if (!link.whole) {
+                const parsedUrl = URL.parse(link.original, "http://abc/" + query.entry.path);
+                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
+            }
+            return null;
+        });
+        if (comparePaths.length > 0) {
+            const comparePathsDeduped = [...new Set(comparePaths.filter(path => path != null))];
+            const entryQuery = db.prepare(`SELECT compare, url, path, source FROM files WHERE source = ? AND path IN (${
+                Array(comparePathsDeduped.length).fill("?").join(", ")
+            })`).all(query.entry.source, ...comparePathsDeduped);
+
+            const orphanFlags = query.args.flags.replace(/n/, "").replace(/^_$/, "");
+            for (const entry of entryQuery)
+                for (let l = 0; l < unmatchedLinks.length; l++)
+                    if (comparePaths[l] != null && entry.path == comparePaths[l]) {
+                        if (query.args.flags.includes("e"))
+                            unmatchedLinks[l].url = entry.url != "" ? entry.url : entry.path;
+                        else
+                            unmatchedLinks[l].url = entry.url != ""
+                                ? `/view-${query.entry.source}${query.args.flags}/${entry.url}`
+                                : `/orphan-${query.entry.source}${orphanFlags}/${entry.path}`;
+                        matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
+                        comparePaths.splice(l, 1);
+                        l -= 1;
+                    }
+        }
+    }
 
     if (!query.args.flags.includes("e")) {
         const compareUrls = [...new Set(unmatchedLinks.map(link => link.compareUrl))];
@@ -638,48 +711,56 @@ function redirectLinks(html, query) {
             }
         }
     }
-    
-    // Check for path matches (needed for sources that have their own filesystems)
-    if (unmatchedLinks.length > 0) {
-        const orphanFlags = query.args.flags.replace(/n/, "").replace(/^_$/, "");
-        const comparePaths = unmatchedLinks.map(link => new URL(link.original, "http://abc/" + query.entry.path).pathname.substring(1));
-        const comparePathsDeduped = [...new Set(comparePaths)];
-        const entryQuery = db.prepare(`SELECT compare, url, path, source FROM files WHERE source = ? AND path IN (${
-            Array(comparePathsDeduped.length).fill("?").join(", ")
-        })`).all(query.entry.source, ...comparePathsDeduped);
-
-        for (const entry of entryQuery)
-            for (let l = 0; l < unmatchedLinks.length; l++)
-                if (entry.path == comparePaths[l]) {
-                    if (query.args.flags.includes("e"))
-                        unmatchedLinks[l].url = entry.url != "" ? entry.url : entry.path;
-                    else
-                        unmatchedLinks[l].url = entry.url != ""
-                            ? `/view-${query.entry.source}${query.args.flags}/${entry.url}`
-                            : `/orphan-${query.entry.source}${orphanFlags}/${entry.path}`;
-                    matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
-                    comparePaths.splice(l, 1);
-                    l -= 1;
-                }
-    }
 
     // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
     // We shouldn't be loading any content off of Wayback
     if (!query.args.flags.includes("e"))
         for (let l = 0; l < unmatchedLinks.length; l++)
-            unmatchedLinks[l].url = /^a /i.test(unmatchedLinks[l].prefix)
+            unmatchedLinks[l].url = /^a /i.test(unmatchedLinks[l].before)
                 ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
                 : `/view-${query.entry.source}${query.args.flags}/${unmatchedLinks[l].url}`;
 
     // Update markup with new links
     let offset = 0;
     for (const link of unmatchedLinks.concat(matchedLinks).toSorted((a, b) => a.start - b.start)) {
-        const tag = `<${link.prefix}"${link.url}"${link.suffix}>`;
+        const tag = `<${link.before}"${link.url}"${link.after}>`;
         html = html.substring(0, link.start + offset) + tag + html.substring(link.end + offset);
         offset += tag.length - link.tag.length;
     }
 
     return html;
+}
+
+function collectLinks(html, entry, local, entryData) {
+    let rawLinks = getLinks(html).map(link => link.original);
+
+    let links = [];
+    if (local) {
+        const comparePaths = rawLinks.map(link => {
+            if (!link.whole) {
+                const parsedUrl = URL.parse(link, "http://abc/" + entry.path);
+                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
+            }
+            return null;
+        });
+        for (const compareEntry of entryData.filter(filterEntry => filterEntry.source == entry.source)) {
+            if (rawLinks.length == 0) break;
+            for (let l = 0; l < rawLinks.length; l++)
+                if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
+                    if (compareEntry.url != "") links.push(compareEntry.url);
+                    rawLinks.splice(l, 1);
+                    comparePaths.splice(l, 1);
+                    l -= 1;
+                }
+        }
+    }
+
+    for (const link of rawLinks) {
+        const parsedUrl = URL.parse(link, entry.url);
+        if (parsedUrl != null) links.push(parsedUrl.href);
+    }
+
+    return [...new Set(links.map(link => sanitizeUrl(link)))].map(compare => ({ id: entry.id, compare: compare }));
 }
 
 // Fix elements that do not display correctly on modern browsers
@@ -781,6 +862,29 @@ async function injectNavbar(html, query) {
         : html + "\n" + padding + "\n" + navbar;
 
     return html;
+}
+
+// Find and return links in the given markup, without performing any operations
+function getLinks(html) {
+    const linkExp = /<([a-z0-9]+(?: |[^>]+)(?:href|src|action|background) {0,}= {0,})(".*?"|[^ >]+)(.*?)>/gis;
+    let links = [];
+    for (let match; (match = linkExp.exec(html)) !== null;) {
+        const matchUrl = trimQuotes(match[2]);
+        const wholeLink = /^https?:\/\//i.test(matchUrl);
+        // Anchor, unarchived, and non-HTTP links should be ignored
+        if (matchUrl.startsWith("#") || /^\[unarchived-(link|image)\]$/.test(matchUrl)
+        || (!wholeLink && /^[a-z]+:/i.test(matchUrl)))
+            continue;
+        links.push({
+            tag: match[0],
+            before: match[1],
+            after: match[3],
+            original: matchUrl,
+            index: linkExp.lastIndex,
+            whole: wholeLink,
+        });
+    }
+    return links;
 }
 
 // Identify the file type by contents, or by file extension if returned type is too basic
