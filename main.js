@@ -185,6 +185,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     console.log("creating links table...");
     db.prepare(`CREATE TABLE links (
         id TEXT NOT NULL,
+        url TEXT NOT NULL,
         compare TEXT NOT NULL
     );`).run();
 
@@ -214,11 +215,11 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     }
 
     console.log("adding links to database...");
-    const linkQuery = db.prepare("INSERT INTO links (id, compare) VALUES (?, ?)");
+    const linkQuery = db.prepare("INSERT INTO links (id, url, compare) VALUES (?, ?, ?)");
     for (let l = 0; l < linkData.length; l++) {
         const link = linkData[l];
         console.log(`[${l + 1}/${linkData.length}] adding link ${link.compare}...`);
-        linkQuery.run(link.id, link.compare);
+        linkQuery.run(link.id, link.url, link.compare);
     }
 
     console.log("adding screenshots to database...");
@@ -313,12 +314,9 @@ const server = Bun.serve({
         if (args.mode == "inlinks") {
             if (url == "") return error();
             const sanitizedUrl = sanitizeUrl(url);
-
             const inlinkQuery = db.prepare(
-                "SELECT files.compare, url, path, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.compare = ?"
-            ).all(sanitizeUrl(sanitizedUrl)).filter(inlink =>
-                inlink.compare != "" ? inlink.compare != sanitizedUrl : inlink.path != url
-            );
+                "SELECT files.compare, files.url, path, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.compare = ?"
+            ).all(sanitizedUrl);
 
             let inlinks;
             if (inlinkQuery.length > 0) {
@@ -816,7 +814,7 @@ function textContent(html) {
     return { title: title, content: content };
 }
 
-// Get links from the given markup and return them as sanitized, fully-formed URLs
+// Get links from the given markup and return them as fully-formed URLs
 function collectLinks(html, entry, local, entryData) {
     let rawLinks = getLinks(html).map(link => link.original);
 
@@ -846,7 +844,9 @@ function collectLinks(html, entry, local, entryData) {
         if (parsedUrl != null) links.push(parsedUrl.href);
     }
 
-    return [...new Set(links.map(link => sanitizeUrl(link)))].map(compare => ({ id: entry.id, compare: compare }));
+    return links
+        .map(link => ({ id: entry.id, url: link, compare: sanitizeUrl(link) }))
+        .filter((link, index, self) => link.compare != entry.compare && index == self.findIndex(link2 => link.compare == link2.compare));
 }
 
 // Identify the file type by contents, or by file extension if returned type is too basic
