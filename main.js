@@ -29,11 +29,19 @@ const templates = {
         archive: await Bun.file("meta/navbar_archive.html").text(),
         screenshot: await Bun.file("meta/navbar_screenshot.html").text(),
     },
+    inlinks: {
+        main: await Bun.file("meta/inlinks.html").text(),
+        link: await Bun.file("meta/inlinks_link.html").text(),
+        error: await Bun.file("meta/inlinks_error.html").text(),
+    },
     error: {
         archive: await Bun.file("meta/404_archive.html").text(),
         generic: await Bun.file("meta/404_generic.html").text(),
     },
 };
+
+const possibleModes = ["view", "orphan", "raw", "inlinks", "random"];
+const possibleFlags = ["e", "m", "n", "o", "p"];
 
 /*----------------+
  | Build Database |
@@ -302,6 +310,47 @@ const server = Bun.serve({
             );
         }
 
+        if (args.mode == "inlinks") {
+            if (url == "") return error();
+            const sanitizedUrl = sanitizeUrl(url);
+
+            const inlinkQuery = db.prepare(
+                "SELECT files.compare, url, path, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.compare = ?"
+            ).all(sanitizeUrl(sanitizedUrl)).filter(inlink =>
+                inlink.compare != "" ? inlink.compare != sanitizedUrl : inlink.path != url
+            );
+
+            let inlinks;
+            if (inlinkQuery.length > 0) {
+                const links = inlinkQuery.map(inlink => {
+                    let linkBullet = templates.inlinks.link;
+    
+                    if (inlink.url != "")
+                        linkBullet = linkBullet
+                            .replace("{LINK}", !args.flags.includes("e")
+                                ? `/${joinArgs("view", inlink.source, args.flags)}/${inlink.url}`
+                                : inlink.url)
+                            .replace("{ORIGINAL}", inlink.url);
+                    else
+                        linkBullet = linkBullet
+                            .replace("{LINK}", !args.flags.includes("e")
+                                ? `/${joinArgs("orphan", inlink.source, args.flags.replace("n", ""))}/${inlink.path}`
+                                : `/${inlink.path}`)
+                            .replace("{ORIGINAL}", inlink.path);
+    
+                    return linkBullet.replace("{SOURCE}", inlink.source);
+                });
+                inlinks = templates.inlinks.main
+                    .replaceAll("{URL}", sanitizedUrl)
+                    .replace("{LINKS}", links.join("\n"));
+            }
+            else
+                inlinks = templates.inlinks.error
+                    .replaceAll("{URL}", sanitizedUrl);
+            
+            return new Response(inlinks, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+        }
+
         let archives = [];
         let desiredArchive = 0;
         if (args.mode == "view") {
@@ -563,7 +612,7 @@ function redirectLinks(html, entry, flags) {
                 for (let l = 0; l < unmatchedLinks.length; l++)
                     if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
                         if (flags.includes("e"))
-                            unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : compareEntry.path;
+                            unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : `/${compareEntry.path}`;
                         else
                             unmatchedLinks[l].url = compareEntry.url != ""
                                 ? `/${joinArgs("view", entry.source, flags)}/${compareEntry.url}`
@@ -584,18 +633,17 @@ function redirectLinks(html, entry, flags) {
         if (entryQuery.length > 0) {
             // Check for source-local matches first
             const sourceLocalEntries = entryQuery.filter(filterEntry => filterEntry.source == entry.source);
-            if (sourceLocalEntries.length > 0)
-                for (const sourceLocalEntry of sourceLocalEntries)
-                    for (let l = 0; l < unmatchedLinks.length; l++)
-                        if (sourceLocalEntry.compare == unmatchedLinks[l].compareUrl) {
-                            unmatchedLinks[l].url = `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
-                            matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
-                            l -= 1;
-                        }
+            for (const sourceLocalEntry of sourceLocalEntries)
+                for (let l = 0; l < unmatchedLinks.length; l++)
+                    if (sourceLocalEntry.compare == unmatchedLinks[l].compareUrl) {
+                        unmatchedLinks[l].url = `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+                        matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
+                        l -= 1;
+                    }
                     
             // Then for matches anywhere else
-            const sourceExternalEntries = entryQuery.filter(filterEntry => filterEntry.source != entry.source);
-            if (unmatchedLinks.length > 0 && sourceExternalEntries.length > 0) {
+            if (unmatchedLinks.length > 0) {
+                const sourceExternalEntries = entryQuery.filter(filterEntry => filterEntry.source != entry.source);
                 for (const sourceExternalEntry of sourceExternalEntries)
                     for (let l = 0; l < unmatchedLinks.length; l++)
                         if (sourceExternalEntry.compare == unmatchedLinks[l].compareUrl) {
@@ -605,15 +653,14 @@ function redirectLinks(html, entry, flags) {
                         }
             }
         }
-    }
 
-    // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
-    // We shouldn't be loading any content off of Wayback
-    if (!flags.includes("e"))
+        // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
+        // We shouldn't be loading any content off of Wayback
         for (let l = 0; l < unmatchedLinks.length; l++)
             unmatchedLinks[l].url = /^a /i.test(unmatchedLinks[l].before)
                 ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
                 : `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+    }
 
     // Update markup with new links
     let offset = 0;
@@ -632,10 +679,11 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 
     let navbar = templates.navbar.main
         .replaceAll("{URL}", entry.url)
-        .replaceAll("{WAYBACK}", "https://web.archive.org/web/0/" + entry.url)
-        .replaceAll("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
-        .replaceAll("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
-        .replaceAll("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
+        .replace("{WAYBACK}", "https://web.archive.org/web/0/" + entry.url)
+        .replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
+        .replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
+        .replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
+        .replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
     
     let archiveButtons = [];
     for (let a = 0; a < archives.length; a++) {
@@ -643,14 +691,14 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
         const source = sourceInfo.find(source => source.short == archive.source);
         archiveButtons.push(
             templates.navbar.archive
-                .replaceAll("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
-                .replaceAll("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
-                .replaceAll("{ICON}", `/${source.short}.png`)
-                .replaceAll("{TITLE}", source.title)
-                .replaceAll("{DATE}", source.date)
+                .replace("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
+                .replace("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
+                .replace("{ICON}", `/${source.short}.png`)
+                .replace("{TITLE}", source.title)
+                .replace("{DATE}", source.date)
         );
     }
-    navbar = navbar.replaceAll("{ARCHIVES}", archiveButtons.join("\n"));
+    navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
 
     let screenshotPath = "";
     let screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE url = ?").get(entry.url);
@@ -666,12 +714,12 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
     }
     if (screenshotPath != "") {
         const screenshot = templates.navbar.screenshot
-            .replaceAll("{IMAGE}", "/screenshots/" + screenshotPath)
-            .replaceAll("{THUMB}", "/thumbnails/" + screenshotPath);
-        navbar = navbar.replaceAll("{SCREENSHOT}", screenshot);
+            .replace("{IMAGE}", "/screenshots/" + screenshotPath)
+            .replace("{THUMB}", "/thumbnails/" + screenshotPath);
+        navbar = navbar.replace("{SCREENSHOT}", screenshot);
     }
     else
-        navbar = navbar.replaceAll("{SCREENSHOT}", "");
+        navbar = navbar.replace("{SCREENSHOT}", "");
 
     const style = '<link rel="stylesheet" href="/navbar.css">';
     const matchHead = html.match(/<head(er)?(| .*?)>/i);
@@ -690,9 +738,6 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 
 // Split string of arguments into an object
 function splitArgs(argsStr) {
-    const possibleModes = ["view", "orphan", "raw", "random"];
-    const possibleFlags = ["e", "m", "n", "o", "p"];
-    
     let args = {
         mode: "",
         source: "",

@@ -12,6 +12,7 @@ Archive95 is an unorthodox web archive.
 - `view`: View archived file in fixed form by supplying URL
 - `orphan`: View archived file in fixed form by supplying filesystem path
 - `raw`: View archived file in raw form by supplying filesystem path
+- `inlinks`: View all archived pages that link to the supplied URL
 - `random`: Redirect to a random archived page
 
 ## Flags
