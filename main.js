@@ -390,9 +390,14 @@ const server = Bun.serve({
         if (args.mode != "raw" && !args.flags.includes("p") && entry.type == "image/x-xbitmap")
             // Convert XBM to PNG
             return new Response(await $`convert ${filePath} PNG:-`.blob(), { headers: { "Content-Type": "image/png" } });
-        else if (args.mode == "raw" || entry.type != "text/html")
-            // Display raw or non-HTML files verbatim
-            return new Response(file, { headers: { "Content-Type": contentType }});
+        else if (args.mode == "raw" || entry.type != "text/html") {
+            if (entry.source == "riscdisc" && entry.type == "image/gif")
+                // Fix problematic GIFs present only in The Risc Disc Volume 2
+                return new Response(await $`convert ${filePath} +repage -`.blob(), { headers: { "Content-Type": contentType }});
+            else
+                // Display raw or non-HTML files verbatim
+                return new Response(file, { headers: { "Content-Type": contentType }});
+        }
         
         // Make adjustments to page markup before serving
         let html = await file.text();
@@ -592,23 +597,24 @@ function redirectLinks(html, entry, flags) {
 
     // Check for path matches (needed for sources that have their own filesystems)
     if (sourceInfo.find(source => source.short == entry.source).local) {
-        const comparePaths = unmatchedLinks.map(link => {
+        let comparePaths = unmatchedLinks.map(link => {
             if (!link.whole) {
                 const parsedUrl = URL.parse(link.original, "http://abc/" + entry.path);
-                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
+                if (parsedUrl != null) return parsedUrl.pathname.substring(1).toLowerCase();
             }
             return null;
         });
         if (comparePaths.length > 0) {
             const comparePathsDeduped = [...new Set(comparePaths.filter(path => path != null))];
-            const entryQuery = db.prepare(`SELECT compare, url, path, source FROM files WHERE source = ? AND path IN (${
+            const entryQuery = db.prepare(`SELECT url, path FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
                 Array(comparePathsDeduped.length).fill("?").join(", ")
             })`).all(entry.source, ...comparePathsDeduped);
 
             const orphanFlags = flags.replace("n", "");
-            for (const compareEntry of entryQuery)
+            for (const compareEntry of entryQuery) {
+                const comparePath = compareEntry.path.toLowerCase();
                 for (let l = 0; l < unmatchedLinks.length; l++)
-                    if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
+                    if (comparePaths[l] != null && comparePath == comparePaths[l]) {
                         if (flags.includes("e"))
                             unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : `/${compareEntry.path}`;
                         else
@@ -619,6 +625,7 @@ function redirectLinks(html, entry, flags) {
                         comparePaths.splice(l, 1);
                         l -= 1;
                     }
+            }
         }
     }
 
@@ -655,7 +662,7 @@ function redirectLinks(html, entry, flags) {
         // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
         // We shouldn't be loading any content off of Wayback
         for (let l = 0; l < unmatchedLinks.length; l++)
-            unmatchedLinks[l].url = /^a /i.test(unmatchedLinks[l].before)
+            unmatchedLinks[l].url = /href {0,}= {0,}$/i.test(unmatchedLinks[l].before)
                 ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
                 : `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
     }
@@ -892,12 +899,42 @@ function fixMarkup(html, entry) {
         ).replaceAll(
             // Handle extreme edge cases where an error link doesn't have an accompanying external link
             /(<a .*?href=")(?:[./]+|)fehler.htm(".*?>.*?<\/a>)/gis,
-            `$1[unarchived-link]$2`
+            '$1[unarchived-link]$2'
         );
     
     // Fix anomaly with HTML files in the Edu/ directory of the Silicon Surf Promotional CD
-    if (entry.path.startsWith("Edu/"))
+    if (entry.source == "sgi" && entry.path.startsWith("Edu/"))
         html = html.replaceAll(/(?<!")\.\.\//g, '/');
+
+    // Revert markup alterations specific to RISC Disc 2
+    if (entry.source == "riscdisc") {
+        if (entry.path.startsWith("WWW_BBCNC_ORG_UK"))
+            html = html.replaceAll(
+                // In bbcnc.org.uk only, the brackets are inside the link elements
+                /(<a[ \n].*?>(?:<.*?>|[ \n]+){0,})\[(.*?)\]((?:<\/.*?>|[ \n]+){0,}<\/a>)/gis,
+                '$1$2$3'
+            );
+        else
+            html = html.replaceAll(
+                // Uncomment opening link tags
+                /<(?:(?:-- ?)|!(?:-- ?)?)(a[ \n].*?)(?: ?--)?>/gis,
+                '<$1>'
+            ).replaceAll(
+                // Uncomment closing link tags
+                /<!?-- ?\/(a) ?-->/gi,
+                '</$1>'
+            ).replaceAll(
+                // Remove brackets surrounding link elements
+                /[\[]+(<a[ \n].*?>.*?<\/a>)[\]]+/gis,
+                '$1'
+            );
+        if (entry.path.startsWith("WWW_HOTWIRED_COM"))
+            html = html.replaceAll(
+                // Replace imagemap placeholder with unarchived link notice
+                /"[./]+no_imagemap\.htm"/gi,
+                '"[unarchived-link]"'
+            );
+    }
 
     html = html.replaceAll(
         // Fix attributes with missing quotation mark
@@ -909,11 +946,11 @@ function fixMarkup(html, entry) {
         '<!$1$2-->'
     ).replaceAll(
         // Close any remaining never-ending comments
-        /<!( {0,}[-]+(?:(?![-]+ {0,}>).)*?)>((?:(?![-]+ {0,}>).)*$)/gs,
-        '<!$1-->$2'
+        /<!( {0,}[-]+(?:(?!.*[-]+ {0,}>).)*?)>/gs,
+        '<!$1-->'
     ).replaceAll(
         // Add missing closing tags to link elements
-        /(<a (?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=$|<a )/gis,
+        /(<a[ \n](?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=$|<a[ \n])/gis,
         '$1</a>'
     ).replaceAll(
         // Add missing closing tags to list elements
@@ -967,7 +1004,7 @@ function improvePresentation(html, buildMode = false) {
 
 // Find and return links in the given markup, without performing any operations
 function getLinks(html) {
-    const linkExp = /<([a-z0-9]+(?: |[^>]+)(?:href|src|action|background) {0,}= {0,})(".*?"|[^ >]+)(.*?)>/gis;
+    const linkExp = /<((?:!(?:[- ]+)?)?[a-z0-9]+(?:[ \n]|[^>]+)(?:href|src|action|background) {0,}= {0,})(".*?"|[^ >]+)(.*?)>/gis;
     let links = [];
     for (let match; (match = linkExp.exec(html)) !== null;) {
         const matchUrl = trimQuotes(match[2]);
@@ -1000,4 +1037,4 @@ function sanitizeUrl(url) {
 }
 
 // Get rid of quotes surrounding a string
-function trimQuotes(string) { return string.trim().replace(/^"(.*?)"$/s, "$1"); }
+function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1"); }
