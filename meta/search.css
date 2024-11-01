@@ -47,6 +47,13 @@ ul {
     padding-bottom: 6px;
     margin-bottom: 8px;
 }
+.result-title, .result-text {
+    overflow: hidden;
+    /* TODO: replace this */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
 .result-url {
     font-size: 80%;
     margin-bottom: 4px;
@@ -56,11 +63,6 @@ ul {
 }
 .result-text {
     font-size: 90%;
-    overflow: hidden;
-    /* TODO: replace this */
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
 }
 .navigate {
     display: flex;

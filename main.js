@@ -1,6 +1,6 @@
 import { $ } from "bun";
 import { Database } from "bun:sqlite";
-import { unlink } from "node:fs/promises";
+import { unlink, mkdir } from "node:fs/promises";
 
 /*----------------------------+
  | Important Global Constants |
@@ -50,14 +50,7 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
 if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const startTime = Date.now();
 
-    console.log("creating new database...")
-    if (await Bun.file(dbPath).exists()) await unlink(dbPath);
-    if (await Bun.file(dbPath + "-shm").exists()) await unlink(dbPath + "-shm");
-    if (await Bun.file(dbPath + "-wal").exists()) await unlink(dbPath + "-wal");
-    const db = new Database(dbPath, { create: true, strict: true });
-    db.exec("PRAGMA journal_mode = WAL;");
-
-    const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split(/\r?\n/g).map(async (source, s, data) => {
+    const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split("\n").map(async (source, s, data) => {
         source = fixedArray(source.split("\t"), 6);
         console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
         return {
@@ -71,14 +64,14 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         };
     }));
     const entryData = await (async () => {
-        // Load entries into chunks to improve MIME type detection speed
+        // Load entries into chunks to improve MIME type detection speed when no type cache is present
         console.log("splitting files into chunks...");
         const chunkSize = 50;
         let entryChunks = [];
         let currentChunk = -1;
         let entryIndex = 0;
         for (const source of sourceData) {
-            for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split(/\r?\n/g)) {
+            for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split("\n")) {
                 if (entryIndex % chunkSize == 0) {
                     entryChunks.push([]);
                     currentChunk++;
@@ -97,6 +90,13 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             }
         }
 
+        // Attempt to load type cache
+        await mkdir("data/cache", { recursive: true });
+        const typesFile = Bun.file("data/cache/types.txt");
+        let typesList = await typesFile.exists()
+            ? (await typesFile.text()).split("\n").map(typeLine => typeLine.split("\t"))
+            : [];
+
         // Detect MIME types and fill in additional entry information
         let entries = [];
         let currentEntry = 0;
@@ -104,7 +104,15 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             entries.push(...await Promise.all(chunk.map(async entry => {
                 const filePath = `data/sources/${entry.source}/${entry.path}`;
                 console.log(`[${++currentEntry}/${entryIndex}] loading file ${filePath}...`);
-                entry.type = await mimeType(filePath);
+
+                const typeLine = typesList.find(typeLine => typeLine[0] == filePath);
+                if (typeLine != undefined)
+                    entry.type = typeLine[1];
+                else {
+                    const t = typesList.push([filePath, await mimeType(filePath)]);
+                    entry.type = typesList[t - 1][1];
+                }
+
                 if (entry.type.startsWith("text/")) {
                     const text = await Bun.file(filePath).text();
                     if (entry.type == "text/html") {
@@ -112,10 +120,13 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
                         Object.assign(entry, textContent(html));
                     }
                     else
-                        entry.content = text.replaceAll(/[\r\n\t ]+/g, " ").trim();
+                        entry.content = text.replaceAll(/[\n\t ]+/g, " ").trim();
                 }
                 return entry;
             })));
+        
+        // Write type cache
+        Bun.write("data/cache/types.txt", typesList.map(typeLine => typeLine.join("\t")).join("\n"));
 
         // Sort entries and give them IDs based on the new order
         console.log("sorting files...");
@@ -148,11 +159,18 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             }
         return links;
     })();
-    const screenshotData = await Promise.all((await Bun.file("data/screenshots.txt").text()).split(/\r?\n/g).map(async (screenshot, s, data) => {
+    const screenshotData = await Promise.all((await Bun.file("data/screenshots.txt").text()).split("\n").map(async (screenshot, s, data) => {
         screenshot = screenshot.split("\t");
         console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
         return { path: screenshot[0], url: screenshot[1] };
     }));
+
+    console.log("creating new database...")
+    if (await Bun.file(dbPath).exists()) await unlink(dbPath);
+    if (await Bun.file(dbPath + "-shm").exists()) await unlink(dbPath + "-shm");
+    if (await Bun.file(dbPath + "-wal").exists()) await unlink(dbPath + "-wal");
+    const db = new Database(dbPath, { create: true, strict: true });
+    db.exec("PRAGMA journal_mode = WAL;");
 
     console.log("creating sources table...");
     db.prepare(`CREATE TABLE sources (
@@ -578,9 +596,9 @@ function prepareSearch(params) {
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags) {
     let unmatchedLinks = getLinks(html).map(link => {
-        const matchStart = link.index - link.tag.length;
-        const matchEnd = link.index;
-        const parsedUrl = URL.parse(link.original, entry.url);
+        const matchStart = link.lastIndex - link.fullMatch.length;
+        const matchEnd = link.lastIndex;
+        const parsedUrl = URL.parse(link.rawUrl, entry.url);
         if (parsedUrl != null)
             return {...link,
                 url: parsedUrl.href,
@@ -598,8 +616,8 @@ function redirectLinks(html, entry, flags) {
     // Check for path matches (needed for sources that have their own filesystems)
     if (sourceInfo.find(source => source.short == entry.source).local) {
         let comparePaths = unmatchedLinks.map(link => {
-            if (!link.whole) {
-                const parsedUrl = URL.parse(link.original, "http://abc/" + entry.path);
+            if (!link.isWhole) {
+                const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
                 if (parsedUrl != null) return parsedUrl.pathname.substring(1).toLowerCase();
             }
             return null;
@@ -662,7 +680,7 @@ function redirectLinks(html, entry, flags) {
         // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
         // We shouldn't be loading any content off of Wayback
         for (let l = 0; l < unmatchedLinks.length; l++)
-            unmatchedLinks[l].url = /href {0,}= {0,}$/i.test(unmatchedLinks[l].before)
+            unmatchedLinks[l].url = /^href/i.test(unmatchedLinks[l].attribute)
                 ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
                 : `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
     }
@@ -670,9 +688,9 @@ function redirectLinks(html, entry, flags) {
     // Update markup with new links
     let offset = 0;
     for (const link of unmatchedLinks.concat(matchedLinks).toSorted((a, b) => a.start - b.start)) {
-        const tag = `<${link.before}"${link.url}"${link.after}>`;
-        html = html.substring(0, link.start + offset) + tag + html.substring(link.end + offset);
-        offset += tag.length - link.tag.length;
+        const inject = `${link.attribute}"${link.url}"`;
+        html = html.substring(0, link.start + offset) + inject + html.substring(link.end + offset);
+        offset += inject.length - link.fullMatch.length;
     }
 
     return html;
@@ -733,7 +751,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
         : style + "\n" + html;
     
     const padding = '<div style="height:120px"></div>';
-    const bodyCloseIndex = html.search(/(?:<\/body>(?:[ \r\n\t]+<\/html>)?|<\/html>)(?:[ \r\n\t]+|)$/i);
+    const bodyCloseIndex = html.search(/(?:<\/body>(?:[ \n\t]+<\/html>)?|<\/html>)(?:[ \n\t]+|)$/i);
     html = bodyCloseIndex != -1
         ? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
         : html + "\n" + padding + "\n" + navbar;
@@ -795,7 +813,7 @@ function error(url) {
 function textContent(html) {
     const titleMatch = [...html.matchAll(/<title>(((?!<\/title>).)*?)<\/title>/gis)];
     const title = titleMatch.length > 0
-        ? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, " ").replaceAll(/[\r\n\t ]+/g, " ").trim()
+        ? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, " ").replaceAll(/[\n\t ]+/g, " ").trim()
         : "";
 
     const content = html.replaceAll(
@@ -814,7 +832,7 @@ function textContent(html) {
         /<.*?>/gs,
         " "
     ).replaceAll(
-        /[\r\n\t ]+/g,
+        /[\n\t ]+/g,
         " "
     ).trim();
 
@@ -828,7 +846,7 @@ function collectLinks(html, entry, local, entryData) {
     let links = [];
     if (local) {
         const comparePaths = rawLinks.map(link => {
-            if (!link.whole) {
+            if (!link.isWhole) {
                 const parsedUrl = URL.parse(link, "http://abc/" + entry.path);
                 if (parsedUrl != null) return parsedUrl.pathname.substring(1);
             }
@@ -874,11 +892,14 @@ function fixedArray(array, length, fill = "") { return Array(length).fill(fill).
 
 // Attempt to fix altered or poorly-written markup
 function fixMarkup(html, entry) {
+    // Remove or replace carriage return characters
+    html = html.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+
     // Revert markup alterations specific to Einblicke ins Internet
     if (entry.source == "einblicke")
         html = html.replaceAll(
             // Remove footer
-            /\r?\n?<hr>\r?\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\r?\n?$/gi,
+            /\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/gi,
             ''
         ).replaceAll(
             // Remove broken image URLs and non-original alt attributes
@@ -886,11 +907,11 @@ function fixMarkup(html, entry) {
             '<$1"[unarchived-image]"$2>'
         ).replaceAll(
             // Remove broken page warning
-            /^<html><body>\r?\n?<img src=".*?noise\.gif">\r?\n?<strong>Vorsicht: Diese Seite k&ouml;nnte defekt sein!<\/strong>\r?\n?\r?\n?<hr>\r?\n?/gi,
+            /^<html><body>\n?<img src=".*?noise\.gif">\n?<strong>Vorsicht: Diese Seite k&ouml;nnte defekt sein!<\/strong>\n?\n?<hr>\n?/gi,
             ''
         ).replaceAll(
             // Replace missing form elements with neater placeholder
-            /<p>\r?\n?<strong>Hier sollte eigentlich ein Dialog stattfinden!<\/strong>\r?\n?\[\[<a href=".*?">Net<\/a>\]\]\r?\n?<p>\r?\n?/gi,
+            /<p>\n?<strong>Hier sollte eigentlich ein Dialog stattfinden!<\/strong>\n?\[\[<a href=".*?">Net<\/a>\]\]\n?<p>\n?/gi,
             '<p>[[ Unarchived form element ]]</p>'
         ).replaceAll(
             // Move external links to original link element
@@ -937,11 +958,15 @@ function fixMarkup(html, entry) {
     }
 
     html = html.replaceAll(
-        // Fix attributes with missing quotation mark
+        // Fix closing title tags with missing slash
+        /<(title)>((?:(?!<\/title>).)*?)<(title)>/gis,
+        '<$1>$2</$3>'
+    ).replaceAll(
+        // Fix attributes with missing end quote
         /<([^!].*?= {0,}"(?:(?!").)*?)>/gs,
         '<$1">'
     ).replaceAll(
-        // Fix comments with missing double hyphen
+        // Fix comments without closing sequence
         /<!( {0,}[-]+)([^<]+[^- <])>/g,
         '<!$1$2-->'
     ).replaceAll(
@@ -1004,22 +1029,21 @@ function improvePresentation(html, buildMode = false) {
 
 // Find and return links in the given markup, without performing any operations
 function getLinks(html) {
-    const linkExp = /<((?:!(?:[- ]+)?)?[a-z0-9]+(?:[ \n]|[^>]+)(?:href|src|action|background) {0,}= {0,})(".*?"|[^ >]+)(.*?)>/gis;
+    const linkExp = /((?:href|src|action|background) {0,}= {0,})("(?:(?!>).)*?"|[^ >]+)/gis;
     let links = [];
     for (let match; (match = linkExp.exec(html)) !== null;) {
-        const matchUrl = trimQuotes(match[2]);
-        const wholeLink = /^https?:\/\//i.test(matchUrl);
+        const rawUrl = trimQuotes(match[2]);
+        const isWhole = /^https?:\/\//i.test(rawUrl);
         // Anchor, unarchived, and non-HTTP links should be ignored
-        if (matchUrl.startsWith("#") || /^\[unarchived-(link|image)\]$/.test(matchUrl)
-        || (!wholeLink && /^[a-z]+:/i.test(matchUrl)))
+        if (rawUrl.startsWith("#") || /^\[unarchived-(link|image)\]$/.test(rawUrl)
+        || (!isWhole && /^[a-z]+:/i.test(rawUrl)))
             continue;
         links.push({
-            tag: match[0],
-            before: match[1],
-            after: match[3],
-            original: matchUrl,
-            index: linkExp.lastIndex,
-            whole: wholeLink,
+            fullMatch: match[0],
+            attribute: match[1],
+            rawUrl: rawUrl,
+            lastIndex: linkExp.lastIndex,
+            isWhole: isWhole,
         });
     }
     return links;
