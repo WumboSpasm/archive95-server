@@ -595,10 +595,10 @@ function prepareSearch(params) {
 
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags) {
-    let unmatchedLinks = getLinks(html).map(link => {
+    let unmatchedLinks = getLinks(html, entry.url).map(link => {
         const matchStart = link.lastIndex - link.fullMatch.length;
         const matchEnd = link.lastIndex;
-        const parsedUrl = URL.parse(link.rawUrl, entry.url);
+        const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
         if (parsedUrl != null)
             return {...link,
                 url: parsedUrl.href,
@@ -693,7 +693,8 @@ function redirectLinks(html, entry, flags) {
         offset += inject.length - link.fullMatch.length;
     }
 
-    return html;
+    // Remove base element if it exists
+    return html.replaceAll(/<base .*?>(?:.*?<\/base>)?\n?/gis, '');
 }
 
 // Display navigation bar
@@ -841,13 +842,13 @@ function textContent(html) {
 
 // Get links from the given markup and return them as fully-formed URLs
 function collectLinks(html, entry, local, entryData) {
-    let rawLinks = getLinks(html).map(link => link.original);
+    let rawLinks = getLinks(html, entry.url);
 
-    let links = [];
+    let fixedLinks = [];
     if (local) {
         const comparePaths = rawLinks.map(link => {
             if (!link.isWhole) {
-                const parsedUrl = URL.parse(link, "http://abc/" + entry.path);
+                const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
                 if (parsedUrl != null) return parsedUrl.pathname.substring(1);
             }
             return null;
@@ -856,7 +857,7 @@ function collectLinks(html, entry, local, entryData) {
             if (rawLinks.length == 0) break;
             for (let l = 0; l < rawLinks.length; l++)
                 if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
-                    if (compareEntry.url != "") links.push(compareEntry.url);
+                    if (compareEntry.url != "") fixedLinks.push(compareEntry.url);
                     rawLinks.splice(l, 1);
                     comparePaths.splice(l, 1);
                     l -= 1;
@@ -865,11 +866,11 @@ function collectLinks(html, entry, local, entryData) {
     }
 
     for (const link of rawLinks) {
-        const parsedUrl = URL.parse(link, entry.url);
-        if (parsedUrl != null) links.push(parsedUrl.href);
+        const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
+        if (parsedUrl != null) fixedLinks.push(parsedUrl.href);
     }
 
-    return links
+    return fixedLinks
         .map(link => ({ id: entry.id, url: link, compare: sanitizeUrl(link) }))
         .filter((link, index, self) => link.compare != entry.compare && index == self.findIndex(link2 => link.compare == link2.compare));
 }
@@ -966,7 +967,7 @@ function fixMarkup(html, entry) {
         /<([^!].*?= {0,}"(?:(?!").)*?)>/gs,
         '<$1">'
     ).replaceAll(
-        // Fix comments without closing sequence
+        // Fix comments with missing closing sequence
         /<!( {0,}[-]+)([^<]+[^- <])>/g,
         '<!$1$2-->'
     ).replaceAll(
@@ -1028,7 +1029,9 @@ function improvePresentation(html, buildMode = false) {
 }
 
 // Find and return links in the given markup, without performing any operations
-function getLinks(html) {
+function getLinks(html, baseUrl) {
+    const baseExp = /<base[ \n]+h?ref {0,}= {0,}("(?:(?!>).)*?"|[^ >]+)/is;
+    if (baseExp.test(html)) baseUrl = trimQuotes(html.match(baseExp)[1]);
     const linkExp = /((?:href|src|action|background) {0,}= {0,})("(?:(?!>).)*?"|[^ >]+)/gis;
     let links = [];
     for (let match; (match = linkExp.exec(html)) !== null;) {
@@ -1042,6 +1045,7 @@ function getLinks(html) {
             fullMatch: match[0],
             attribute: match[1],
             rawUrl: rawUrl,
+            baseUrl: baseUrl,
             lastIndex: linkExp.lastIndex,
             isWhole: isWhole,
         });
