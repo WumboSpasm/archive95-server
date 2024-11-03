@@ -50,8 +50,8 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
 if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const startTime = Date.now();
 
-    const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split("\n").map(async (source, s, data) => {
-        source = fixedArray(source.split("\t"), 6);
+    const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split(/[\r\n]+/g).map(async (source, s, data) => {
+        source = overwriteArray([data.length, ...Array(5).fill("undefined"), "false"], source.split("\t"));
         console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
         return {
             id: s,
@@ -71,18 +71,19 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         let currentChunk = -1;
         let entryIndex = 0;
         for (const source of sourceData) {
-            for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split("\n")) {
+            for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split(/[\r\n]+/g)) {
                 if (entryIndex % chunkSize == 0) {
                     entryChunks.push([]);
                     currentChunk++;
                 }
-                const [path, url] = fixedArray(entryLine.split("\t"), 2);
+                const entry = overwriteArray(["undefined", "undefined", "false"], entryLine.split("\t"));
                 entryChunks[currentChunk].push({
-                    compare: sanitizeUrl(url),
-                    url: url,
-                    path: path,
+                    compare: sanitizeUrl(entry[1]),
+                    url: entry[1],
+                    path: entry[0],
                     source: source.short,
                     type: "",
+                    bad: entry[2].toLowerCase() == "true",
                     title: "",
                     content: "",
                 });
@@ -94,7 +95,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         await mkdir("data/cache", { recursive: true });
         const typesFile = Bun.file("data/cache/types.txt");
         let typesList = await typesFile.exists()
-            ? (await typesFile.text()).split("\n").map(typeLine => typeLine.split("\t"))
+            ? (await typesFile.text()).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
             : [];
 
         // Detect MIME types and fill in additional entry information
@@ -159,7 +160,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             }
         return links;
     })();
-    const screenshotData = await Promise.all((await Bun.file("data/screenshots.txt").text()).split("\n").map(async (screenshot, s, data) => {
+    const screenshotData = await Promise.all((await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map(async (screenshot, s, data) => {
         screenshot = screenshot.split("\t");
         console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
         return { path: screenshot[0], url: screenshot[1] };
@@ -190,7 +191,8 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         url TEXT NOT NULL,
         path TEXT NOT NULL,
         source TEXT NOT NULL,
-        type TEXT NOT NULL
+        type TEXT NOT NULL,
+        bad INTEGER NOT NULL
     )`).run();
 
     console.log("creating text table...");
@@ -222,12 +224,12 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     }
     
     console.log("adding files to database...");
-    const fileQuery = db.prepare("INSERT INTO files (id, compare, url, path, source, type) VALUES (?, ?, ?, ?, ?, ?)");
+    const fileQuery = db.prepare("INSERT INTO files (id, compare, url, path, source, type, bad) VALUES (?, ?, ?, ?, ?, ?, ?)");
     const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
     for (let e = 0; e < entryData.length; e++) {
         const entry = entryData[e];
         console.log(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
-        fileQuery.run(entry.id, entry.compare, entry.url, entry.path, entry.source, entry.type);
+        fileQuery.run(entry.id, entry.compare, entry.url, entry.path, entry.source, entry.type, entry.bad);
         if (entry.title != "" || entry.content != "")
             textQuery.run(entry.id, entry.title, entry.content);
     }
@@ -465,7 +467,7 @@ function prepareSearch(params) {
         .replace("{FORMATSTEXT}", search.formatsText ? " checked" : "")
         .replace("{FORMATSMEDIA}", search.formatsMedia ? " checked" : "");
     
-    if (params.has("query") && params.get("query").length >= 3) {
+    if (params.has("query")) {
         let whereConditions = [];
         if (search.inUrl)
             whereConditions.push("url LIKE ?1");
@@ -703,6 +705,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 
     let navbar = templates.navbar.main
         .replaceAll("{URL}", entry.url)
+        .replace("{WARNING}", entry.bad ? "" : " hidden")
         .replace("{WAYBACK}", "https://web.archive.org/web/0/" + entry.url)
         .replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
         .replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
@@ -884,8 +887,8 @@ async function mimeType(filePath) {
     return (types[0].startsWith("text/") || (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))) ? types[1] : types[0];
 }
 
-// Set array to a certain length, inserting placeholder values if necessary
-function fixedArray(array, length, fill = "") { return Array(length).fill(fill).map((v, i) => array[i] || v) }
+// Merge array1 with array2 by overwriting array1's values with those of array2
+function overwriteArray(array1, array2) { return array1.map((v, i) => array2[i] || v) }
 
 /*----------------------------------+
  | General-Purpose Helper Functions |
@@ -1060,7 +1063,7 @@ function sanitizeUrl(url) {
         .replace(/^https?:\/\//, "")
         .replace(/^www\./, "")
         .replace(/^([^/]+):80(?:80)?($|\/)/, "$1$2")
-        .replace(/index.html?$/, "")
+        .replace(/index\.html?$/, "")
         .replace(/\/$/, "");
 }
 

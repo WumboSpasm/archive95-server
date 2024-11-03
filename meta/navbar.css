@@ -33,20 +33,25 @@
     flex-direction: row;
 }
 .navbar-top, .navbar-bottom {
-    gap: 16px;
+    gap: 12px;
 }
 .navbar-url {
     font-weight: bold;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    flex-grow: 1;
 }
-.navbar-bottom {
-    margin-top: auto;
+.navbar-warning {
+    color: red;
+    flex-shrink: 0;
 }
 .navbar-options {
     gap: 8px;
+    flex-grow: 1;
+    justify-content: end;
+}
+.navbar-bottom {
+    margin-top: auto;
 }
 .navbar-archives {
     gap: 6px;
