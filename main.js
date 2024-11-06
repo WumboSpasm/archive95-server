@@ -926,25 +926,30 @@ function fixMarkup(html, entry) {
             /\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/gi,
             ''
         ).replaceAll(
-            // Remove broken image URLs and non-original alt attributes
-            /<(img .*?src=)"(?:[./]+|)(?:link.gif|teufel.gif|grey.gif)"(?: alt="\[(?:image|defekt)\]"|)(.*?)>/gis,
-            '<$1"[unarchived-image]"$2>'
+            // Genericize image link placeholders
+            /(?!<img .*?src=)"(?:[./]+)?(?:teufel|grey)\.gif"(?: alt="\[defekt\]")?/gis,
+            '"[unarchived-image]"'
+        ).replaceAll(
+            // Genericize non-link image placeholders and remove added link
+            // TODO: figure out how to prevent massive slowdown when "s" flag is applied
+            /<a href=".*?">(<img .*?src=)"(?:[./]+)?link\.gif" alt="\[image\]"(.*?>)<\/a>/gi,
+            '$1"[unarchived-image]"$2'
         ).replaceAll(
             // Remove broken page warning
             /^<html><body>\n?<img src=".*?noise\.gif">\n?<strong>Vorsicht: Diese Seite k&ouml;nnte defekt sein!<\/strong>\n?\n?<hr>\n?/gi,
             ''
         ).replaceAll(
-            // Replace missing form elements with neater placeholder
+            // Update placeholder for missing forms
             /<p>\n?<strong>Hier sollte eigentlich ein Dialog stattfinden!<\/strong>\n?\[\[<a href=".*?">Net<\/a>\]\]\n?<p>\n?/gi,
             '<p>[[ Unarchived form element ]]</p>'
         ).replaceAll(
             // Move external links to original link element
-            /(<a (?:(?!<\/a>).)*?href=")(?:[./]+|)fehler.htm("(?:(?!<\/a>).)*?<\/a>) \[\[<a href="(.*?)">Net<\/a>\]\]/gis,
-            '$1$3$2'
+            /(?<=<a (?:(?!<\/a>).)*?href=")(?:[./]+)?fehler.htm("(?:(?!<\/a>).)*?<\/a>) \[\[<a href="(.*?)">Net<\/a>\]\]/gis,
+            '$2$1'
         ).replaceAll(
             // Handle extreme edge cases where an error link doesn't have an accompanying external link
-            /(<a .*?href=")(?:[./]+|)fehler.htm(".*?>.*?<\/a>)/gis,
-            '$1[unarchived-link]$2'
+            /(?<=<a .*?href=")(?:[./]+)?fehler.htm(?=".*?>.*?<\/a>)/gis,
+            '[unarchived-link]'
         );
     
     // Fix anomaly with HTML files in the Edu/ directory of the Silicon Surf Promotional CD
