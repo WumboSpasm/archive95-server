@@ -37,6 +37,7 @@ const templates = {
     error: {
         archive: await Bun.file("meta/404_archive.html").text(),
         generic: await Bun.file("meta/404_generic.html").text(),
+        server: await Bun.file("meta/404_server.html").text(),
     },
 };
 
@@ -50,7 +51,7 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
 if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const startTime = Date.now();
 
-    const sourceData = await Promise.all((await Bun.file("data/sources.txt").text()).split(/[\r\n]+/g).map(async (source, s, data) => {
+    const sourceData = (await Bun.file("data/sources.txt").text()).split(/[\r\n]+/g).map((source, s, data) => {
         source = overwriteArray([data.length, ...Array(5).fill("undefined"), "false"], source.split("\t"));
         console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
         return {
@@ -60,9 +61,9 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             author: source[2],
             date: source[3],
             link: source[4],
-            local: source[5].toLowerCase() == "true" ? 1 : 0
+            local: source[5].toLowerCase() == "true",
         };
-    }));
+    });
     const entryData = await (async () => {
         // Load entries into chunks to improve MIME type detection speed when no type cache is present
         console.log("splitting files into chunks...");
@@ -76,7 +77,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
                     entryChunks.push([]);
                     currentChunk++;
                 }
-                const entry = overwriteArray(["undefined", "undefined", "false"], entryLine.split("\t"));
+                const entry = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
                 entryChunks[currentChunk].push({
                     compare: sanitizeUrl(entry[1]),
                     url: entry[1],
@@ -84,6 +85,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
                     source: source.short,
                     type: "",
                     bad: entry[2].toLowerCase() == "true",
+                    skip: entry[3].toLowerCase() == "true",
                     title: "",
                     content: "",
                 });
@@ -105,6 +107,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             entries.push(...await Promise.all(chunk.map(async entry => {
                 const filePath = `data/sources/${entry.source}/${entry.path}`;
                 console.log(`[${++currentEntry}/${entryIndex}] loading file ${filePath}...`);
+                if (entry.skip) return entry;
 
                 const typeLine = typesList.find(typeLine => typeLine[0] == filePath);
                 if (typeLine != undefined)
@@ -160,11 +163,11 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             }
         return links;
     })();
-    const screenshotData = await Promise.all((await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map(async (screenshot, s, data) => {
+    const screenshotData = (await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map((screenshot, s, data) => {
         screenshot = screenshot.split("\t");
         console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
         return { path: screenshot[0], url: screenshot[1] };
-    }));
+    });
 
     console.log("creating new database...")
     if (await Bun.file(dbPath).exists()) await unlink(dbPath);
@@ -192,7 +195,8 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         path TEXT NOT NULL,
         source TEXT NOT NULL,
         type TEXT NOT NULL,
-        bad INTEGER NOT NULL
+        bad INTEGER NOT NULL,
+        skip INTEGER NOT NULL
     )`).run();
 
     console.log("creating text table...");
@@ -219,17 +223,17 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, local) VALUES (?, ?, ?, ?, ?, ?, ?)");
     for (let s = 0; s < sourceData.length; s++) {
         const source = sourceData[s];
-        console.log(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`)
+        console.log(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
         sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.local);
     }
     
     console.log("adding files to database...");
-    const fileQuery = db.prepare("INSERT INTO files (id, compare, url, path, source, type, bad) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const fileQuery = db.prepare("INSERT INTO files (id, compare, url, path, source, type, bad, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
     for (let e = 0; e < entryData.length; e++) {
         const entry = entryData[e];
         console.log(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
-        fileQuery.run(entry.id, entry.compare, entry.url, entry.path, entry.source, entry.type, entry.bad);
+        fileQuery.run(entry.id, entry.compare, entry.url, entry.path, entry.source, entry.type, entry.bad, entry.skip);
         if (entry.title != "" || entry.content != "")
             textQuery.run(entry.id, entry.title, entry.content);
     }
@@ -300,7 +304,8 @@ const server = Bun.serve({
         const slashIndex = requestPath.indexOf("/");
         let url, args;
         if (slashIndex != -1) {
-            url = requestPath.substring(slashIndex + 1) + requestUrl.search;
+            const search = (requestUrl.search == "" && request.url.endsWith("?")) ? "?" : requestUrl.search;
+            url = requestPath.substring(slashIndex + 1) + search;
             args = splitArgs(requestPath.substring(0, slashIndex));
         }
         else {
@@ -310,7 +315,7 @@ const server = Bun.serve({
         if (args == null) return error();
 
         if (args.mode == "random") {
-            let whereConditions = [];
+            let whereConditions = ["skip = 0"];
             let whereParameters = [];
             if (!args.flags.includes("m"))
                 whereConditions.push('type = "text/html"');
@@ -373,7 +378,7 @@ const server = Bun.serve({
         let desiredArchive = 0;
         if (args.mode == "view") {
             const compareUrl = sanitizeUrl(url);
-            archives = db.prepare("SELECT * FROM files WHERE compare = ?").all(compareUrl);
+            archives = db.prepare("SELECT * FROM files WHERE compare = ? AND skip = 0").all(compareUrl);
             if (archives.length == 0) return error(url);
             if (archives.length > 1) {
                 // Sort archives from oldest to newest
@@ -397,7 +402,7 @@ const server = Bun.serve({
         }
         else if (args.mode == "orphan" || args.mode == "raw") {
             if (args.source == "" || url == "") return error();
-            const entry = db.prepare("SELECT * FROM files WHERE source = ? AND path = ?").get(args.source, url);
+            const entry = db.prepare("SELECT * FROM files WHERE source = ? AND path = ? AND skip = 0").get(args.source, url);
             if (entry == null) return error();
             archives.push(entry);
         }
@@ -429,6 +434,9 @@ const server = Bun.serve({
             html = await injectNavbar(html, archives, desiredArchive, args.flags);
         
         return new Response(html, { headers: { "Content-Type": contentType } });
+    },
+    error() {
+        return new Response(templates.error.server, { headers: { "Content-Type": "text/html;charset=utf-8" }});
     }
 });
 console.log("server started at " + server.url);
@@ -477,7 +485,7 @@ function prepareSearch(params) {
             whereConditions.push("content LIKE ?1");
 
         let searchString = params.get("query");
-        try { searchString = decodeURIComponent(searchString); } catch { }
+        try { searchString = decodeURIComponent(searchString); } catch {}
         searchString = searchString.toLowerCase();
 
         // Escape any wildcard characters that exist in the search query
@@ -486,15 +494,16 @@ function prepareSearch(params) {
 
         let whereString = whereConditions.join(` OR `);
         if (search.formatsText)
-            whereString = `type LIKE "text/%" AND ${whereString}`;
+            whereString += ' AND type LIKE "text/%"';
         else if (search.formatsMedia)
-            whereString = `type NOT LIKE "text/%" AND ${whereString}`;
+            whereString += ' AND type NOT LIKE "text/%"';
         
         // TODO: consider adding true SQLite pagination if this causes problems
         const searchQuery = db.prepare(`
             SELECT compare, url, path, source, text.title, text.content FROM files
             LEFT JOIN text ON files.id = text.id 
-            WHERE ${whereString} ORDER BY title LIKE ?1 DESC, files.id ASC
+            WHERE ${whereString} AND skip = 0
+            ORDER BY title LIKE ?1 DESC, files.id ASC
             LIMIT 1000
         `).all(`%${searchString.replaceAll(/([%_^])/g, '^$1')}%`);
 
@@ -597,6 +606,8 @@ function prepareSearch(params) {
 
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags) {
+    const isLocal = sourceInfo.find(source => source.short == entry.source).local;
+
     let unmatchedLinks = getLinks(html, entry.url).map(link => {
         const matchStart = link.lastIndex - link.fullMatch.length;
         const matchEnd = link.lastIndex;
@@ -616,7 +627,7 @@ function redirectLinks(html, entry, flags) {
     let matchedLinks = [];
 
     // Check for path matches (needed for sources that have their own filesystems)
-    if (sourceInfo.find(source => source.short == entry.source).local) {
+    if (isLocal) {
         let comparePaths = unmatchedLinks.map(link => {
             if (!link.isWhole) {
                 const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
@@ -626,7 +637,7 @@ function redirectLinks(html, entry, flags) {
         });
         if (comparePaths.length > 0) {
             const comparePathsDeduped = [...new Set(comparePaths.filter(path => path != null))];
-            const entryQuery = db.prepare(`SELECT url, path FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
+            const entryQuery = db.prepare(`SELECT url, path, skip FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
                 Array(comparePathsDeduped.length).fill("?").join(", ")
             })`).all(entry.source, ...comparePathsDeduped);
 
@@ -635,15 +646,17 @@ function redirectLinks(html, entry, flags) {
                 const comparePath = compareEntry.path.toLowerCase();
                 for (let l = 0; l < unmatchedLinks.length; l++)
                     if (comparePaths[l] != null && comparePath == comparePaths[l]) {
-                        if (flags.includes("e"))
+                        if (flags.includes("e") || compareEntry.skip)
                             unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : `/${compareEntry.path}`;
                         else
                             unmatchedLinks[l].url = compareEntry.url != ""
                                 ? `/${joinArgs("view", entry.source, flags)}/${compareEntry.url}`
                                 : `/${joinArgs("orphan", entry.source, orphanFlags)}/${compareEntry.path}`;
-                        matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
-                        comparePaths.splice(l, 1);
-                        l -= 1;
+                        if (!compareEntry.skip) {
+                            matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
+                            comparePaths.splice(l, 1);
+                            l -= 1;
+                        }
                     }
             }
         }
@@ -653,7 +666,7 @@ function redirectLinks(html, entry, flags) {
         const compareUrls = [...new Set(unmatchedLinks.map(link => link.compareUrl))];
         const entryQuery = db.prepare(`SELECT compare, path, source FROM files WHERE compare IN (${
             Array(compareUrls.length).fill("?").join(", ")
-        })`).all(...compareUrls);
+        }) AND skip = 0`).all(...compareUrls);
 
         if (entryQuery.length > 0) {
             // Check for source-local matches first
@@ -681,10 +694,17 @@ function redirectLinks(html, entry, flags) {
 
         // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
         // We shouldn't be loading any content off of Wayback
-        for (let l = 0; l < unmatchedLinks.length; l++)
-            unmatchedLinks[l].url = /^href/i.test(unmatchedLinks[l].attribute)
-                ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
-                : `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+        for (let l = 0; l < unmatchedLinks.length; l++) {
+            const isHtml = /^href/i.test(unmatchedLinks[l].attribute);
+            if (isLocal && !unmatchedLinks[l].isWhole)
+                unmatchedLinks[l].url = isHtml
+                    ? "[unarchived-link]"
+                    : "[unarchived-image]";
+            else
+                unmatchedLinks[l].url = isHtml
+                    ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
+                    : `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+        }
     }
 
     // Update markup with new links
@@ -961,6 +981,58 @@ function fixMarkup(html, entry) {
             );
     }
 
+    // Revert markup alterations specific to RISC Disc 2
+    if (entry.source == "pcpress") {
+        html = html.replace(
+            // Remove downloader software header
+            /^<META name="download" content=".*?">\n/s,
+            ''
+        );
+        // Attempt to fix broken external links
+        let links = getLinks(html, entry.url)
+            .filter(link => link.isWhole && URL.canParse(link.rawUrl))
+            .toSorted((a, b) => a.lastIndex - b.lastIndex);
+        for (let link of links) {
+            const httpExp = /^http:(?=\/?[^/])/i;
+            const badDomainExp = /(?<=http:\/\/)[^./]+(?=\/)/i;
+            const badAnchorExp = /(?<=#[^/]+)\//i;
+            const badExtensionExp = /(?<=\.(html?|cgi|gif))\//i;
+            link.url = link.rawUrl;
+            if (httpExp.test(link.url))
+                try { link.url = new URL(link.url.replace(httpExp, ""), link.baseUrl).href; } catch {}
+            if (badDomainExp.test(link.url))
+                try {
+                    const subdomain = link.url.match(badDomainExp)[0];
+                    link.url = new URL(
+                        link.url.replace(/^http:\/\/.*?\//i, "/"),
+                        link.baseUrl.replace(/(?<=http:\/\/).*?(?=\.)/i, subdomain)
+                    ).href;
+                } catch {}
+            try {
+                link.url = new URL(link.url).href
+                    .replace(/(?<![a-z]+:)\/\//i, "/")
+                    .replace(/(?<=\.html?)\/$/i, "");
+            } catch {}
+            const hasBadAnchor = badAnchorExp.test(link.url);
+            const hasBadExtension = badExtensionExp.test(link.url);
+            if (hasBadAnchor || hasBadExtension) {
+                const splitIndex = link.url.search(hasBadAnchor ? badAnchorExp : badExtensionExp);
+                const before = link.url.substring(0, splitIndex);
+                const after = link.url.substring(splitIndex + 1);
+                link.url = new URL(after, before).href;
+            }
+        }
+        // Inject fixed links into markup
+        let offset = 0;
+        for (const link of links.filter(filterLink => filterLink.url != filterLink.rawUrl)) {
+            const start = link.lastIndex - link.fullMatch.length;
+            const inject = `${link.attribute}"${link.url}"`;
+            const end = link.lastIndex;
+            html = html.substring(0, start + offset) + inject + html.substring(end + offset);
+            offset += inject.length - link.fullMatch.length;
+        }
+    }
+
     html = html.replaceAll(
         // Fix closing title tags with missing slash
         /<(title)>((?:(?!<\/title>).)*?)<(title)>/gis,
@@ -971,12 +1043,8 @@ function fixMarkup(html, entry) {
         '<$1">'
     ).replaceAll(
         // Fix comments with missing closing sequence
-        /<!( {0,}[-]+)([^<]+[^- <])>/g,
+        /<!( {0,}[-]+)([^<]+[^- <])>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
         '<!$1$2-->'
-    ).replaceAll(
-        // Close any remaining never-ending comments
-        /<!( {0,}[-]+(?:(?!.*[-]+ {0,}>).)*?)>/gs,
-        '<!$1-->'
     ).replaceAll(
         // Add missing closing tags to link elements
         /(<a[ \n](?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=$|<a[ \n])/gis,
@@ -1058,7 +1126,7 @@ function getLinks(html, baseUrl) {
 
 // Strip the URL down to its bare components, for comparison purposes
 function sanitizeUrl(url) {
-    try { url = decodeURIComponent(url); } catch { }
+    try { url = decodeURIComponent(url); } catch {}
     return url.toLowerCase()
         .replace(/^https?:\/\//, "")
         .replace(/^www\./, "")
