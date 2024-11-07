@@ -7,6 +7,7 @@ import { unlink, mkdir } from "node:fs/promises";
  +----------------------------*/
 
 const dbPath = "data/archive95.sqlite";
+const logRequests = true;
 
 const staticFiles = [
     ["logo.png", "image/png"],
@@ -283,8 +284,10 @@ const sourceInfo = db.prepare("SELECT * FROM sources").all();
 
 const server = Bun.serve({
     port: 8989,
-    hostname: "127.0.0.1",
-    async fetch(request) {
+    hostname: "0.0.0.0",
+    async fetch(request, server) {
+        if (logRequests) console.log(server.requestIP(request).address + ": " + request.url);
+
         const requestUrl = new URL(request.url);
         const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
         if (requestPath == "")
