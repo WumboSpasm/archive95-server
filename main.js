@@ -872,14 +872,15 @@ function collectLinks(html, entry, local, entryData) {
         const comparePaths = rawLinks.map(link => {
             if (!link.isWhole) {
                 const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
-                if (parsedUrl != null) return parsedUrl.pathname.substring(1);
+                if (parsedUrl != null) return parsedUrl.pathname.substring(1).toLowerCase();
             }
             return null;
         });
         for (const compareEntry of entryData.filter(filterEntry => filterEntry.source == entry.source)) {
             if (rawLinks.length == 0) break;
+            const comparePath = compareEntry.path.toLowerCase();
             for (let l = 0; l < rawLinks.length; l++)
-                if (comparePaths[l] != null && compareEntry.path == comparePaths[l]) {
+                if (comparePaths[l] != null && comparePath == comparePaths[l]) {
                     if (compareEntry.url != "") fixedLinks.push(compareEntry.url);
                     rawLinks.splice(l, 1);
                     comparePaths.splice(l, 1);
@@ -888,7 +889,7 @@ function collectLinks(html, entry, local, entryData) {
         }
     }
 
-    for (const link of rawLinks) {
+    for (const link of rawLinks.filter(filterLink => filterLink.isWhole)) {
         const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
         if (parsedUrl != null) fixedLinks.push(parsedUrl.href);
     }
