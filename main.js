@@ -1049,7 +1049,7 @@ function fixMarkup(html, entry) {
         '<$1">'
     ).replaceAll(
         // Fix comments with missing closing sequence
-        /<!( {0,}[-]+)([^<]+[^- <])>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
+        /<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
         '<!$1$2-->'
     ).replaceAll(
         // Add missing closing tags to link elements
