@@ -582,7 +582,7 @@ function prepareSearch(params) {
         const sourceQuery = db.prepare(`
             SELECT sources.*, COUNT() AS size FROM files
             LEFT JOIN sources ON sources.short = files.source
-            WHERE url != "" GROUP BY source ORDER BY sources.id
+            WHERE url != "" AND skip = 0 GROUP BY source ORDER BY sources.id
         `).all();
         let sources = [];
         for (const source of sourceQuery)
