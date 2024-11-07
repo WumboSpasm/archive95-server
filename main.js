@@ -14,6 +14,7 @@ const staticFiles = [
     ["search.css", "text/css"],
     ["navbar.css", "text/css"],
     ["presentation.css", "text/css"],
+    ["embed.css", "text/css"],
 ];
 
 const templates = {
@@ -28,6 +29,11 @@ const templates = {
         main: await Bun.file("meta/navbar.html").text(),
         archive: await Bun.file("meta/navbar_archive.html").text(),
         screenshot: await Bun.file("meta/navbar_screenshot.html").text(),
+    },
+    embed: {
+        text: await Bun.file("meta/embed_text.html").text(),
+        audio: await Bun.file("meta/embed_audio.html").text(),
+        other: await Bun.file("meta/embed_other.html").text(),
     },
     inlinks: {
         main: await Bun.file("meta/inlinks.html").text(),
@@ -413,20 +419,38 @@ const server = Bun.serve({
 
         const entry = archives[desiredArchive];
         const filePath = `data/sources/${entry.source}/${entry.path}`;
-        const contentType = entry.type == "text/html" ? (entry.type + ";charset=utf-8") : entry.type;
-        const file = Bun.file(filePath);
+        let file = Bun.file(filePath);
+        let contentType = entry.type;
 
-        if (args.mode != "raw" && !args.flags.includes("p") && entry.type == "image/x-xbitmap")
-            // Convert XBM to PNG
-            return new Response(await $`convert ${filePath} PNG:-`.blob(), { headers: { "Content-Type": "image/png" } });
-        else if (args.mode == "raw" || entry.type != "text/html") {
-            if (entry.source == "riscdisc" && entry.type == "image/gif")
-                // Fix problematic GIFs present only in The Risc Disc Volume 2
-                return new Response(await $`convert ${filePath} +repage -`.blob(), { headers: { "Content-Type": contentType }});
-            else
-                // Display raw or non-HTML files verbatim
-                return new Response(file, { headers: { "Content-Type": contentType }});
+        if (args.mode != "raw" && !args.flags.includes("p")) {
+            if (contentType == "image/x-xbitmap") {
+                // Convert XBM to PNG
+                file = await $`convert ${filePath} PNG:-`.blob();
+                contentType = "image/png";
+            }
+            else if (entry.source == "riscdisc2" && contentType == "image/gif")
+                // Fix problematic GIFs present in The Risc Disc Volume 2
+                file = await $`convert ${filePath} +repage -`.blob();
         }
+
+        if (args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
+            // Embed non-HTML files when navbar is enabled
+            let embed;
+            if (contentType.startsWith("text/"))
+                embed = templates.embed.text
+                    .replace("{URL}", entry.compare)
+                    .replace("{TEXT}", await file.text());
+            else
+                embed = (contentType.startsWith("audio/") ? templates.embed.audio : templates.embed.other)
+                    .replace("{URL}", entry.compare)
+                    .replace("{TYPE}", contentType)
+                    .replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
+            embed = await injectNavbar(embed, archives, desiredArchive, args.flags);
+            return new Response(embed, { headers: { "Content-Type": "text/html;charset=utf-8" }});
+        }
+        else if (args.mode == "raw" || contentType != "text/html")
+            // Serve actual file data if raw or non-HTML
+            return new Response(file, { headers: { "Content-Type": contentType }});
         
         // Make adjustments to page markup before serving
         let html = await file.text();
@@ -437,9 +461,11 @@ const server = Bun.serve({
         if (args.mode == "view" && !args.flags.includes("n"))
             html = await injectNavbar(html, archives, desiredArchive, args.flags);
         
-        return new Response(html, { headers: { "Content-Type": contentType } });
+        // Serve the page
+        return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
     },
-    error() {
+    error(error) {
+        console.log(error);
         return new Response(templates.error.server, { headers: { "Content-Type": "text/html;charset=utf-8" }});
     }
 });
@@ -610,6 +636,8 @@ function prepareSearch(params) {
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags) {
     const isLocal = sourceInfo.find(source => source.short == entry.source).local;
+    const orphanFlags = flags.replace("n", "");
+    const noNavFlags = orphanFlags + "n";
 
     let unmatchedLinks = getLinks(html, entry.url).map(link => {
         const matchStart = link.lastIndex - link.fullMatch.length;
@@ -621,6 +649,7 @@ function redirectLinks(html, entry, flags) {
                 compareUrl: sanitizeUrl(parsedUrl.href),
                 start: matchStart,
                 end: matchEnd,
+                isEmbedded: !/^href/i.test(link.attribute),
             };
         else
             return null;
@@ -644,7 +673,6 @@ function redirectLinks(html, entry, flags) {
                 Array(comparePathsDeduped.length).fill("?").join(", ")
             })`).all(entry.source, ...comparePathsDeduped);
 
-            const orphanFlags = flags.replace("n", "");
             for (const compareEntry of entryQuery) {
                 const comparePath = compareEntry.path.toLowerCase();
                 for (let l = 0; l < unmatchedLinks.length; l++)
@@ -657,10 +685,12 @@ function redirectLinks(html, entry, flags) {
                         }
                         if (flags.includes("e"))
                             unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : `/${compareEntry.path}`;
+                        else if (compareEntry.url != "")
+                            unmatchedLinks[l].url = `/${
+                                joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
+                            }/${compareEntry.url}`;
                         else
-                            unmatchedLinks[l].url = compareEntry.url != ""
-                                ? `/${joinArgs("view", entry.source, flags)}/${compareEntry.url}`
-                                : `/${joinArgs("orphan", entry.source, orphanFlags)}/${compareEntry.path}`;
+                            unmatchedLinks[l].url = `/${joinArgs("orphan", entry.source, orphanFlags)}/${compareEntry.path}`;
                         matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
                         comparePaths.splice(l, 1);
                         l -= 1;
@@ -681,7 +711,9 @@ function redirectLinks(html, entry, flags) {
             for (const sourceLocalEntry of sourceLocalEntries)
                 for (let l = 0; l < unmatchedLinks.length; l++)
                     if (sourceLocalEntry.compare == unmatchedLinks[l].compareUrl) {
-                        unmatchedLinks[l].url = `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+                        unmatchedLinks[l].url = `/${
+                            joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
+                        }/${unmatchedLinks[l].url}`;
                         matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
                         l -= 1;
                     }
@@ -692,7 +724,9 @@ function redirectLinks(html, entry, flags) {
                 for (const sourceExternalEntry of sourceExternalEntries)
                     for (let l = 0; l < unmatchedLinks.length; l++)
                         if (sourceExternalEntry.compare == unmatchedLinks[l].compareUrl) {
-                            unmatchedLinks[l].url = `/${joinArgs("view", sourceExternalEntry.source, flags)}/${unmatchedLinks[l].url}`;
+                            unmatchedLinks[l].url = `/${
+                                joinArgs("view", sourceExternalEntry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
+                            }/${unmatchedLinks[l].url}`;
                             matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
                             l -= 1;
                         }
@@ -702,15 +736,14 @@ function redirectLinks(html, entry, flags) {
         // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
         // We shouldn't be loading any content off of Wayback
         for (let l = 0; l < unmatchedLinks.length; l++) {
-            const isHtml = /^href/i.test(unmatchedLinks[l].attribute);
             if (isLocal && !unmatchedLinks[l].isWhole)
-                unmatchedLinks[l].url = isHtml
-                    ? "[unarchived-link]"
-                    : "[unarchived-image]";
+                unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
+                    ? "[unarchived-media]"
+                    : "[unarchived-link]";
             else
-                unmatchedLinks[l].url = isHtml
-                    ? ("https://web.archive.org/web/0/" + unmatchedLinks[l].url)
-                    : `/${joinArgs("view", entry.source, flags)}/${unmatchedLinks[l].url}`;
+                unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
+                    ? `/${joinArgs("view", entry.source, noNavFlags)}/${unmatchedLinks[l].url}`
+                    : ("https://web.archive.org/web/0/" + unmatchedLinks[l].url);
         }
     }
 
@@ -930,12 +963,12 @@ function fixMarkup(html, entry) {
         ).replaceAll(
             // Genericize image link placeholders
             /(?!<img .*?src=)"(?:[./]+)?(?:teufel|grey)\.gif"(?: alt="\[defekt\]")?/gis,
-            '"[unarchived-image]"'
+            '"[unarchived-media]"'
         ).replaceAll(
             // Genericize non-link image placeholders and remove added link
             // TODO: figure out how to prevent massive slowdown when "s" flag is applied
             /<a href=".*?">(<img .*?src=)"(?:[./]+)?link\.gif" alt="\[image\]"(.*?>)<\/a>/gi,
-            '$1"[unarchived-image]"$2'
+            '$1"[unarchived-media]"$2'
         ).replaceAll(
             // Remove broken page warning
             /^<html><body>\n?<img src=".*?noise\.gif">\n?<strong>Vorsicht: Diese Seite k&ouml;nnte defekt sein!<\/strong>\n?\n?<hr>\n?/gi,
