@@ -651,10 +651,11 @@ function redirectLinks(html, entry, flags) {
                     if (comparePaths[l] != null && comparePath == comparePaths[l]) {
                         if (compareEntry.skip) {
                             unmatchedLinks[l].url = compareEntry.url;
+                            unmatchedLinks[l].compareUrl = sanitizeUrl(compareEntry.url);
                             unmatchedLinks[l].isWhole = true;
                             continue;
                         }
-                        if (flags.includes("e") || compareEntry.skip)
+                        if (flags.includes("e"))
                             unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : `/${compareEntry.path}`;
                         else
                             unmatchedLinks[l].url = compareEntry.url != ""
@@ -775,7 +776,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
         : style + "\n" + html;
     
     const padding = '<div style="height:120px"></div>';
-    const bodyCloseIndex = html.search(/(?:<\/body>(?:[ \n\t]+<\/html>)?|<\/html>)(?:[ \n\t]+|)$/i);
+    const bodyCloseIndex = html.search(/(?:<\/body>)?(?:[ \n\t]+)?(?:<\/noframes>)?(?:[ \n\t]+)?(?:<\/html>)?(?:[ \n\t]+)?$/i);
     html = bodyCloseIndex != -1
         ? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
         : html + "\n" + padding + "\n" + navbar;
@@ -1059,6 +1060,10 @@ function fixMarkup(html, entry) {
         // Add missing closing tags to list elements
         /(<(dt|dd)>(?:(?!<\/\1>).)*?)(?=<(?:dl|dt|dd|\/dl))/gis,
         '$1</$2>'
+    ).replaceAll(
+        // Add missing "s" to <noframe> elements
+        /(?<=<\/?)noframe(?=>)/gi,
+        match => match + (match == match.toUpperCase() ? "S" : "s")
     );
 
     return html;
