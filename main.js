@@ -166,7 +166,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const screenshotData = (await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map((screenshot, s, data) => {
         screenshot = screenshot.split("\t");
         console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
-        return { path: screenshot[0], url: screenshot[1] };
+        return { url: screenshot[1], compare: sanitizeUrl(screenshot[1]), path: screenshot[0] };
     });
 
     console.log("creating new database...")
@@ -216,6 +216,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     console.log("creating screenshots table...");
     db.prepare(`CREATE TABLE screenshots (
         url TEXT NOT NULL,
+        compare TEXT NOT NULL,
         path TEXT NOT NULL
     )`).run();
 
@@ -247,11 +248,11 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     }
 
     console.log("adding screenshots to database...");
-    const screenshotQuery = db.prepare("INSERT INTO screenshots (url, path) VALUES (?, ?)");
+    const screenshotQuery = db.prepare("INSERT INTO screenshots (url, compare, path) VALUES (?, ?, ?)");
     for (let s = 0; s < screenshotData.length; s++) {
         const screenshot = screenshotData[s];
         console.log(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
-        screenshotQuery.run(screenshot.url, screenshot.path);
+        screenshotQuery.run(screenshot.url, screenshot.compare, screenshot.path);
     }
 
     const timeElapsed = Date.now() - startTime;
@@ -305,7 +306,7 @@ const server = Bun.serve({
         let url, args;
         if (slashIndex != -1) {
             const search = (requestUrl.search == "" && request.url.endsWith("?")) ? "?" : requestUrl.search;
-            url = requestPath.substring(slashIndex + 1) + search;
+            url = safeDecode(requestPath.substring(slashIndex + 1) + search);
             args = splitArgs(requestPath.substring(0, slashIndex));
         }
         else {
@@ -406,6 +407,9 @@ const server = Bun.serve({
             if (entry == null) return error();
             archives.push(entry);
         }
+        // Encode number sign to make sure it's properly identified as part of the URL
+        for (let archive of archives)
+            archive.url = archive.url.replaceAll("#", "%23");
 
         const entry = archives[desiredArchive];
         const filePath = `data/sources/${entry.source}/${entry.path}`;
@@ -484,8 +488,7 @@ function prepareSearch(params) {
         if (search.inContent)
             whereConditions.push("content LIKE ?1");
 
-        let searchString = params.get("query");
-        try { searchString = decodeURIComponent(searchString); } catch {}
+        let searchString = safeDecode(params.get("query"));
         searchString = searchString.toLowerCase();
 
         // Escape any wildcard characters that exist in the search query
@@ -551,7 +554,7 @@ function prepareSearch(params) {
 
             results.push(
                 templates.search.result
-                    .replace("{ARCHIVE}", `/view-${result.source}/${result.url}`)
+                    .replace("{ARCHIVE}", `/view-${result.source}/${result.url.replaceAll("#", "%23")}`)
                     .replace("{TITLE}", titleString)
                     .replace("{URL}", urlString)
                     .replace("{SOURCE}", result.source)
@@ -646,17 +649,20 @@ function redirectLinks(html, entry, flags) {
                 const comparePath = compareEntry.path.toLowerCase();
                 for (let l = 0; l < unmatchedLinks.length; l++)
                     if (comparePaths[l] != null && comparePath == comparePaths[l]) {
+                        if (compareEntry.skip) {
+                            unmatchedLinks[l].url = compareEntry.url;
+                            unmatchedLinks[l].isWhole = true;
+                            continue;
+                        }
                         if (flags.includes("e") || compareEntry.skip)
                             unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : `/${compareEntry.path}`;
                         else
                             unmatchedLinks[l].url = compareEntry.url != ""
                                 ? `/${joinArgs("view", entry.source, flags)}/${compareEntry.url}`
                                 : `/${joinArgs("orphan", entry.source, orphanFlags)}/${compareEntry.path}`;
-                        if (!compareEntry.skip) {
-                            matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
-                            comparePaths.splice(l, 1);
-                            l -= 1;
-                        }
+                        matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
+                        comparePaths.splice(l, 1);
+                        l -= 1;
                     }
             }
         }
@@ -722,11 +728,12 @@ function redirectLinks(html, entry, flags) {
 // Display navigation bar
 async function injectNavbar(html, archives, desiredArchive, flags) {
     const entry = archives[desiredArchive];
+    const realUrl = entry.url.replaceAll("%23", "#");
 
     let navbar = templates.navbar.main
-        .replaceAll("{URL}", entry.url)
+        .replaceAll("{URL}", realUrl)
         .replace("{WARNING}", entry.bad ? "" : " hidden")
-        .replace("{WAYBACK}", "https://web.archive.org/web/0/" + entry.url)
+        .replace("{WAYBACK}", "https://web.archive.org/web/0/" + realUrl)
         .replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
         .replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
         .replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
@@ -747,26 +754,19 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
     }
     navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
 
-    let screenshotPath = "";
-    let screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE url = ?").get(entry.url);
-    if (screenshotQuery != null)
-        screenshotPath = screenshotQuery.path;
-    else {
-        const testUrls = [...new Set(archives.toSpliced(desiredArchive, 1).map(archive => archive.url))];
-        screenshotQuery = db.prepare(
-            `SELECT path FROM screenshots WHERE url in (${Array(testUrls.length).fill("?").join(", ")})`
-        ).get(...testUrls);
-        if (screenshotQuery != null)
-            screenshotPath = screenshotQuery.path;
-    }
-    if (screenshotPath != "") {
-        const screenshot = templates.navbar.screenshot
-            .replace("{IMAGE}", "/screenshots/" + screenshotPath)
-            .replace("{THUMB}", "/thumbnails/" + screenshotPath);
-        navbar = navbar.replace("{SCREENSHOT}", screenshot);
+    const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE compare = ?").all(entry.compare).map(screenshot => screenshot.path);
+    if (screenshotQuery.length > 0) {
+        let screenshots = [];
+        for (const screenshotPath of screenshotQuery)
+            screenshots.push(
+                templates.navbar.screenshot
+                    .replace("{IMAGE}", "/screenshots/" + screenshotPath)
+                    .replace("{THUMB}", "/thumbnails/" + screenshotPath)
+            );
+        navbar = navbar.replace("{SCREENSHOTS}", screenshots.join("\n"));
     }
     else
-        navbar = navbar.replace("{SCREENSHOT}", "");
+        navbar = navbar.replace("{SCREENSHOTS}", "");
 
     const style = '<link rel="stylesheet" href="/navbar.css">';
     const matchHead = html.match(/<head(er)?(| .*?)>/i);
@@ -1131,13 +1131,27 @@ function getLinks(html, baseUrl) {
 
 // Strip the URL down to its bare components, for comparison purposes
 function sanitizeUrl(url) {
-    try { url = decodeURIComponent(url); } catch {}
-    return url.toLowerCase()
+    return safeDecode(url).toLowerCase()
         .replace(/^https?:\/\//, "")
         .replace(/^www\./, "")
         .replace(/^([^/]+):80(?:80)?($|\/)/, "$1$2")
+        .replace(/(?<=^[^#]+)#[^#]+$/, "")
         .replace(/index\.html?$/, "")
         .replace(/\/$/, "");
+}
+
+// Decode string without throwing an error if a single encoded character is invalid
+function safeDecode(string) {
+	let chars = string.split("");
+    for (let c = 0; c < chars.length; c++) {
+        if (chars[c] == "%" && c < chars.length - 2) {
+            let decodedChar;
+            try { decodedChar = decodeURIComponent(chars.join("").substring(c, c + 3)); }
+            catch { continue; }
+            chars.splice(c, 3, decodedChar);
+        }
+    }
+    return chars.join("");
 }
 
 // Get rid of quotes surrounding a string
