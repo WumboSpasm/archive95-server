@@ -1171,6 +1171,7 @@ async function getText(filePath, source) {
                 const encoding = (await $`iconv ${filePath} -cf utf-8 -t windows-1252 | uchardet`.text()).trim();
                 text = await $`iconv ${filePath} -cf utf-8 -t windows-1252 | iconv -cf ${encoding} -t utf-8`.text();
                 break;
+            case "riscdisc":
             case "pcpress":
                 text = await $`iconv -cf $(uchardet ${filePath} | tr -d "\n") -t utf-8 ${filePath}`.text();
                 break;
