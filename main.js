@@ -59,7 +59,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const startTime = Date.now();
 
     const sourceData = (await Bun.file("data/sources.txt").text()).split(/[\r\n]+/g).map((source, s, data) => {
-        source = overwriteArray([data.length, ...Array(5).fill("undefined"), "false"], source.split("\t"));
+        source = overwriteArray([data.length, ...Array(5).fill("undefined"), 0], source.split("\t"));
         console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
         return {
             id: s,
@@ -68,38 +68,13 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             author: source[2],
             date: source[3],
             link: source[4],
-            local: source[5].toLowerCase() == "true",
+            // 0 = all links point to original locations
+            // 1 = relative paths point to local filesystem, but keep non-existent paths intact
+            // 2 = relative paths point to local filesystem, and mark non-existent paths as unarchived
+            pathMode: parseInt(source[5]) || 0,
         };
     });
     const entryData = await (async () => {
-        // Load entries into chunks to improve MIME type detection speed when no type cache is present
-        console.log("splitting files into chunks...");
-        const chunkSize = 50;
-        let entryChunks = [];
-        let currentChunk = -1;
-        let entryIndex = 0;
-        for (const source of sourceData) {
-            for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split(/[\r\n]+/g)) {
-                if (entryIndex % chunkSize == 0) {
-                    entryChunks.push([]);
-                    currentChunk++;
-                }
-                const entry = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
-                entryChunks[currentChunk].push({
-                    compare: sanitizeUrl(entry[1]),
-                    url: entry[1],
-                    path: entry[0],
-                    source: source.short,
-                    type: "",
-                    bad: entry[2].toLowerCase() == "true",
-                    skip: entry[3].toLowerCase() == "true",
-                    title: "",
-                    content: "",
-                });
-                entryIndex++;
-            }
-        }
-
         // Attempt to load type cache
         await mkdir("data/cache", { recursive: true });
         const typesFile = Bun.file("data/cache/types.txt");
@@ -107,34 +82,46 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             ? (await typesFile.text()).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
             : [];
 
-        // Detect MIME types and fill in additional entry information
+        // Load in entry data
         let entries = [];
         let currentEntry = 0;
-        for (const chunk of entryChunks)
-            entries.push(...await Promise.all(chunk.map(async entry => {
-                const filePath = `data/sources/${entry.source}/${entry.path}`;
-                console.log(`[${++currentEntry}/${entryIndex}] loading file ${filePath}...`);
-                if (entry.skip) return entry;
-
-                const typeLine = typesList.find(typeLine => typeLine[0] == filePath);
-                if (typeLine != undefined)
-                    entry.type = typeLine[1];
-                else {
-                    const t = typesList.push([filePath, await mimeType(filePath)]);
-                    entry.type = typesList[t - 1][1];
-                }
-
-                if (entry.type.startsWith("text/")) {
-                    const text = await Bun.file(filePath).text();
-                    if (entry.type == "text/html") {
-                        const html = improvePresentation(fixMarkup(text, entry), true);
-                        Object.assign(entry, textContent(html));
+        for (const source of sourceData) {
+            for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split(/[\r\n]+/g)) {
+                const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
+                const filePath = `data/sources/${source.short}/${path}`;
+                console.log(`[${++currentEntry}/??] loading file ${filePath}...`);
+                const entry = {
+                    path: path,
+                    url: url,
+                    sanitizedUrl: sanitizeUrl(url),
+                    source: source.short,
+                    type: "",
+                    warn: warn.toLowerCase() == "true",
+                    skip: skip.toLowerCase() == "true",
+                    title: "",
+                    content: "",
+                };
+                if (!entry.skip) {
+                    const typeLine = typesList.find(typeLine => typeLine[0] == filePath);
+                    if (typeLine != undefined)
+                        entry.type = typeLine[1];
+                    else {
+                        const t = typesList.push([filePath, await mimeType(filePath)]);
+                        entry.type = typesList[t - 1][1];
                     }
-                    else
-                        entry.content = text.replaceAll(/[\n\t ]+/g, " ").trim();
+                    if (entry.type.startsWith("text/")) {
+                        const text = await getText(filePath, entry.source);
+                        if (entry.type == "text/html") {
+                            const html = improvePresentation(fixMarkup(text, entry), true);
+                            Object.assign(entry, textContent(html));
+                        }
+                        else
+                            entry.content = text.replaceAll(/[\n\t ]+/g, " ").trim();
+                    }
                 }
-                return entry;
-            })));
+                entries.push(entry);
+            }
+        }
         
         // Write type cache
         Bun.write("data/cache/types.txt", typesList.map(typeLine => typeLine.join("\t")).join("\n"));
@@ -148,7 +135,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         });
         entries.sort((a, b) => {
             if (a.title != "" || b.title != "") return 0;
-            return a.compare.localeCompare(b.compare, "en", { sensitivity: "base" });
+            return a.sanitizedUrl.localeCompare(b.sanitizedUrl, "en", { sensitivity: "base" });
         });
         entries.forEach((entry, e) => Object.assign(entry, { id: e }));
 
@@ -162,8 +149,8 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
                 const filePath = `data/sources/${entry.source}/${entry.path}`;
                 console.log(`[${totalLinks}/??] loading links from ${filePath}...`);
                 const entryLinks = collectLinks(
-                    await Bun.file(filePath).text(), entry,
-                    sourceData.find(source => source.short == entry.source).local, entryData
+                    await getText(filePath, entry.source), entry,
+                    sourceData.find(source => source.short == entry.source).pathMode, entryData
                 );
                 totalLinks += entryLinks.length;
                 links.push(...entryLinks);
@@ -173,7 +160,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const screenshotData = (await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map((screenshot, s, data) => {
         screenshot = screenshot.split("\t");
         console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
-        return { url: screenshot[1], compare: sanitizeUrl(screenshot[1]), path: screenshot[0] };
+        return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
     });
 
     console.log("creating new database...")
@@ -191,18 +178,18 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         author TEXT NOT NULL,
         date TEXT NOT NULL,
         link TEXT NOT NULL,
-        local INTEGER NOT NULL
+        pathMode INTEGER NOT NULL
     )`).run();
 
     console.log("creating files table...");
     db.prepare(`CREATE TABLE files (
         id INTEGER PRIMARY KEY,
-        compare TEXT NOT NULL,
-        url TEXT NOT NULL,
         path TEXT NOT NULL,
+        url TEXT NOT NULL,
+        sanitizedUrl TEXT NOT NULL,
         source TEXT NOT NULL,
         type TEXT NOT NULL,
-        bad INTEGER NOT NULL,
+        warn INTEGER NOT NULL,
         skip INTEGER NOT NULL
     )`).run();
 
@@ -217,49 +204,49 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     db.prepare(`CREATE TABLE links (
         id TEXT NOT NULL,
         url TEXT NOT NULL,
-        compare TEXT NOT NULL
+        sanitizedUrl TEXT NOT NULL
     );`).run();
 
     console.log("creating screenshots table...");
     db.prepare(`CREATE TABLE screenshots (
+        path TEXT NOT NULL,
         url TEXT NOT NULL,
-        compare TEXT NOT NULL,
-        path TEXT NOT NULL
+        sanitizedUrl TEXT NOT NULL
     )`).run();
 
     console.log("adding sources to database...");
-    const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, local) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, pathMode) VALUES (?, ?, ?, ?, ?, ?, ?)");
     for (let s = 0; s < sourceData.length; s++) {
         const source = sourceData[s];
         console.log(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
-        sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.local);
+        sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.pathMode);
     }
     
     console.log("adding files to database...");
-    const fileQuery = db.prepare("INSERT INTO files (id, compare, url, path, source, type, bad, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
     for (let e = 0; e < entryData.length; e++) {
         const entry = entryData[e];
         console.log(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
-        fileQuery.run(entry.id, entry.compare, entry.url, entry.path, entry.source, entry.type, entry.bad, entry.skip);
+        fileQuery.run(entry.id, entry.path, entry.url, entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip);
         if (entry.title != "" || entry.content != "")
             textQuery.run(entry.id, entry.title, entry.content);
     }
 
     console.log("adding links to database...");
-    const linkQuery = db.prepare("INSERT INTO links (id, url, compare) VALUES (?, ?, ?)");
+    const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
     for (let l = 0; l < linkData.length; l++) {
         const link = linkData[l];
-        console.log(`[${l + 1}/${linkData.length}] adding link ${link.compare}...`);
-        linkQuery.run(link.id, link.url, link.compare);
+        console.log(`[${l + 1}/${linkData.length}] adding link ${link.sanitizedUrl}...`);
+        linkQuery.run(link.id, link.url, link.sanitizedUrl);
     }
 
     console.log("adding screenshots to database...");
-    const screenshotQuery = db.prepare("INSERT INTO screenshots (url, compare, path) VALUES (?, ?, ?)");
+    const screenshotQuery = db.prepare("INSERT INTO screenshots (path, url, sanitizedUrl) VALUES (?, ?, ?)");
     for (let s = 0; s < screenshotData.length; s++) {
         const screenshot = screenshotData[s];
         console.log(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
-        screenshotQuery.run(screenshot.url, screenshot.compare, screenshot.path);
+        screenshotQuery.run(screenshot.path, screenshot.url, screenshot.sanitizedUrl);
     }
 
     const timeElapsed = Date.now() - startTime;
@@ -330,14 +317,14 @@ const server = Bun.serve({
             if (!args.flags.includes("m"))
                 whereConditions.push('type = "text/html"');
             if (!args.flags.includes("o"))
-                whereConditions.push('compare != ""');
+                whereConditions.push('sanitizedUrl != ""');
             if (args.source != "") {
                 whereConditions.push("source = ?");
                 whereParameters.push(args.source);
             }
 
             const entry = db.prepare(
-                `SELECT url, path, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
+                `SELECT path, url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
             ).get(...whereParameters);
             return Response.redirect(
                 entry.url != ""
@@ -350,7 +337,7 @@ const server = Bun.serve({
             if (url == "") return error();
             const sanitizedUrl = sanitizeUrl(url);
             const inlinkQuery = db.prepare(
-                "SELECT files.compare, files.url, path, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.compare = ?"
+                "SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
             ).all(sanitizedUrl);
 
             let inlinks;
@@ -381,14 +368,14 @@ const server = Bun.serve({
                 inlinks = templates.inlinks.error
                     .replaceAll("{URL}", sanitizedUrl);
             
-            return new Response(inlinks, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+            return new Response(inlinks, { headers: { "Content-Type": "text/html" } });
         }
 
         let archives = [];
         let desiredArchive = 0;
         if (args.mode == "view") {
-            const compareUrl = sanitizeUrl(url);
-            archives = db.prepare("SELECT * FROM files WHERE compare = ? AND skip = 0").all(compareUrl);
+            const sanitizedUrl = sanitizeUrl(url);
+            archives = db.prepare("SELECT * FROM files WHERE sanitizedUrl = ? AND skip = 0").all(sanitizedUrl);
             if (archives.length == 0) return error(url);
             if (archives.length > 1) {
                 // Sort archives from oldest to newest
@@ -404,7 +391,7 @@ const server = Bun.serve({
                     );
                     if (desiredArchive == -1)
                         desiredArchive = archives.findIndex(archive => 
-                            archive.source == args.source && sanitizeUrl(archive.url) == compareUrl
+                            archive.source == args.source && sanitizeUrl(archive.url) == sanitizedUrl
                         );
                     desiredArchive = Math.max(0, desiredArchive);
                 }
@@ -441,22 +428,22 @@ const server = Bun.serve({
             let embed;
             if (contentType.startsWith("text/"))
                 embed = templates.embed.text
-                    .replace("{URL}", entry.compare)
-                    .replace("{TEXT}", await file.text());
+                    .replace("{URL}", entry.sanitizedUrl)
+                    .replace("{TEXT}", await getText(filePath, entry.source));
             else
                 embed = (contentType.startsWith("audio/") ? templates.embed.audio : templates.embed.other)
-                    .replace("{URL}", entry.compare)
+                    .replace("{URL}", entry.sanitizedUrl)
                     .replace("{TYPE}", contentType)
                     .replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
             embed = await injectNavbar(embed, archives, desiredArchive, args.flags);
-            return new Response(embed, { headers: { "Content-Type": "text/html;charset=utf-8" }});
+            return new Response(embed, { headers: { "Content-Type": "text/html" }});
         }
         else if (args.mode == "raw" || contentType != "text/html")
             // Serve actual file data if raw or non-HTML
             return new Response(file, { headers: { "Content-Type": contentType }});
         
         // Make adjustments to page markup before serving
-        let html = await file.text();
+        let html = await getText(filePath, entry.source);
         html = fixMarkup(html, entry);
         html = redirectLinks(html, entry, args.flags);
         if (!args.flags.includes("p"))
@@ -469,7 +456,7 @@ const server = Bun.serve({
     },
     error(error) {
         console.log(error);
-        return new Response(templates.error.server, { headers: { "Content-Type": "text/html;charset=utf-8" }});
+        return new Response(templates.error.server, { headers: { "Content-Type": "text/html" }});
     }
 });
 console.log("server started at " + server.url);
@@ -532,7 +519,7 @@ function prepareSearch(params) {
         
         // TODO: consider adding true SQLite pagination if this causes problems
         const searchQuery = db.prepare(`
-            SELECT compare, url, path, source, text.title, text.content FROM files
+            SELECT path, url, sanitizedUrl, source, text.title, text.content FROM files
             LEFT JOIN text ON files.id = text.id 
             WHERE ${whereString} AND skip = 0
             ORDER BY title LIKE ?1 DESC, files.id ASC
@@ -556,7 +543,7 @@ function prepareSearch(params) {
                         titleString.substring(titleMatchIndex + searchString.length);
             }
             else
-                titleString = result.compare;
+                titleString = result.sanitizedUrl;
             
             let urlString = sanitizeInject(result.url || "");
             let urlMatchIndex = -1;
@@ -638,7 +625,7 @@ function prepareSearch(params) {
 
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags) {
-    const isLocal = sourceInfo.find(source => source.short == entry.source).local;
+    const pathMode = sourceInfo.find(source => source.short == entry.source).pathMode;
     const orphanFlags = flags.replace("n", "");
     const noNavFlags = orphanFlags + "n";
 
@@ -649,7 +636,7 @@ function redirectLinks(html, entry, flags) {
         if (parsedUrl != null)
             return {...link,
                 url: parsedUrl.href,
-                compareUrl: sanitizeUrl(parsedUrl.href),
+                sanitizedUrl: sanitizeUrl(parsedUrl.href),
                 start: matchStart,
                 end: matchEnd,
                 isEmbedded: !/^href/i.test(link.attribute),
@@ -662,7 +649,7 @@ function redirectLinks(html, entry, flags) {
     let matchedLinks = [];
 
     // Check for path matches (needed for sources that have their own filesystems)
-    if (isLocal) {
+    if (pathMode > 0) {
         let comparePaths = unmatchedLinks.map(link => {
             if (!link.isWhole) {
                 const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
@@ -672,7 +659,7 @@ function redirectLinks(html, entry, flags) {
         });
         if (comparePaths.length > 0) {
             const comparePathsDeduped = [...new Set(comparePaths.filter(path => path != null))];
-            const entryQuery = db.prepare(`SELECT url, path, skip FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
+            const entryQuery = db.prepare(`SELECT path, url, skip FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
                 Array(comparePathsDeduped.length).fill("?").join(", ")
             })`).all(entry.source, ...comparePathsDeduped);
 
@@ -682,7 +669,7 @@ function redirectLinks(html, entry, flags) {
                     if (comparePaths[l] != null && comparePath == comparePaths[l]) {
                         if (compareEntry.skip) {
                             unmatchedLinks[l].url = compareEntry.url;
-                            unmatchedLinks[l].compareUrl = sanitizeUrl(compareEntry.url);
+                            unmatchedLinks[l].sanitizedUrl = sanitizeUrl(compareEntry.url);
                             unmatchedLinks[l].isWhole = true;
                             continue;
                         }
@@ -703,8 +690,8 @@ function redirectLinks(html, entry, flags) {
     }
 
     if (!flags.includes("e")) {
-        const compareUrls = [...new Set(unmatchedLinks.map(link => link.compareUrl))];
-        const entryQuery = db.prepare(`SELECT compare, path, source FROM files WHERE compare IN (${
+        const compareUrls = [...new Set(unmatchedLinks.map(link => link.sanitizedUrl))];
+        const entryQuery = db.prepare(`SELECT path, sanitizedUrl, source FROM files WHERE sanitizedUrl IN (${
             Array(compareUrls.length).fill("?").join(", ")
         }) AND skip = 0`).all(...compareUrls);
 
@@ -713,7 +700,7 @@ function redirectLinks(html, entry, flags) {
             const sourceLocalEntries = entryQuery.filter(filterEntry => filterEntry.source == entry.source);
             for (const sourceLocalEntry of sourceLocalEntries)
                 for (let l = 0; l < unmatchedLinks.length; l++)
-                    if (sourceLocalEntry.compare == unmatchedLinks[l].compareUrl) {
+                    if (sourceLocalEntry.sanitizedUrl == unmatchedLinks[l].sanitizedUrl) {
                         unmatchedLinks[l].url = `/${
                             joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
                         }/${unmatchedLinks[l].url}`;
@@ -726,7 +713,7 @@ function redirectLinks(html, entry, flags) {
                 const sourceExternalEntries = entryQuery.filter(filterEntry => filterEntry.source != entry.source);
                 for (const sourceExternalEntry of sourceExternalEntries)
                     for (let l = 0; l < unmatchedLinks.length; l++)
-                        if (sourceExternalEntry.compare == unmatchedLinks[l].compareUrl) {
+                        if (sourceExternalEntry.sanitizedUrl == unmatchedLinks[l].sanitizedUrl) {
                             unmatchedLinks[l].url = `/${
                                 joinArgs("view", sourceExternalEntry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
                             }/${unmatchedLinks[l].url}`;
@@ -739,7 +726,7 @@ function redirectLinks(html, entry, flags) {
         // Point all clickable links to the Wayback Machine, and everything else to an invalid URL
         // We shouldn't be loading any content off of Wayback
         for (let l = 0; l < unmatchedLinks.length; l++) {
-            if (isLocal && !unmatchedLinks[l].isWhole)
+            if (pathMode == 2 && !unmatchedLinks[l].isWhole)
                 unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
                     ? "[unarchived-media]"
                     : "[unarchived-link]";
@@ -769,7 +756,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 
     let navbar = templates.navbar.main
         .replaceAll("{URL}", realUrl)
-        .replace("{WARNING}", entry.bad ? "" : " hidden")
+        .replace("{WARNING}", entry.warn ? "" : " hidden")
         .replace("{WAYBACK}", "https://web.archive.org/web/0/" + realUrl)
         .replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
         .replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
@@ -791,7 +778,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
     }
     navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
 
-    const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE compare = ?").all(entry.compare).map(screenshot => screenshot.path);
+    const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
     if (screenshotQuery.length > 0) {
         let screenshots = [];
         for (const screenshotPath of screenshotQuery)
@@ -901,11 +888,11 @@ function textContent(html) {
 }
 
 // Get links from the given markup and return them as fully-formed URLs
-function collectLinks(html, entry, local, entryData) {
+function collectLinks(html, entry, pathMode, entryData) {
     let rawLinks = getLinks(html, entry.url);
 
     let fixedLinks = [];
-    if (local) {
+    if (pathMode > 0) {
         const comparePaths = rawLinks.map(link => {
             if (!link.isWhole) {
                 const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
@@ -926,14 +913,17 @@ function collectLinks(html, entry, local, entryData) {
         }
     }
 
-    for (const link of rawLinks.filter(filterLink => filterLink.isWhole)) {
+    for (const link of pathMode == 2 ? rawLinks.filter(filterLink => filterLink.isWhole) : rawLinks) {
         const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
         if (parsedUrl != null) fixedLinks.push(parsedUrl.href);
     }
 
     return fixedLinks
-        .map(link => ({ id: entry.id, url: link, compare: sanitizeUrl(link) }))
-        .filter((link, index, self) => link.compare != entry.compare && index == self.findIndex(link2 => link.compare == link2.compare));
+        .map(link => ({ id: entry.id, url: link, sanitizedUrl: sanitizeUrl(link) }))
+        .filter((link, index, self) =>
+            link.sanitizedUrl != entry.sanitizedUrl &&
+            index == self.findIndex(link2 => link.sanitizedUrl == link2.sanitizedUrl)
+        );
 }
 
 // Identify the file type by contents, or by file extension if returned type is too basic
@@ -999,8 +989,8 @@ function fixMarkup(html, entry) {
         if (entry.path.startsWith("WWW_BBCNC_ORG_UK"))
             html = html.replaceAll(
                 // In bbcnc.org.uk only, the brackets are inside the link elements
-                /(<a[ \n].*?>(?:<.*?>|[ \n]+){0,})\[(.*?)\]((?:<\/.*?>|[ \n]+){0,}<\/a>)/gis,
-                '$1$2$3'
+                /(?<=<a[ \n].*?>(?:[ \n]+)?)\[(.*?)\](?=(?:[ \n]+)?<\/a>)/gis,
+                '$1'
             );
         else
             html = html.replaceAll(
@@ -1169,6 +1159,29 @@ function getLinks(html, baseUrl) {
         });
     }
     return links;
+}
+
+// Retrieve text from file with respect to character encodings
+async function getText(filePath, source) {
+    if (Bun.file(filePath).size == 0) return "";
+    let text;
+    try {
+        switch (source) {
+            case "jamsa":
+                const encoding = (await $`iconv ${filePath} -cf utf-8 -t windows-1252 | uchardet`.text()).trim();
+                text = await $`iconv ${filePath} -cf utf-8 -t windows-1252 | iconv -cf ${encoding} -t utf-8`.text();
+                break;
+            case "pcpress":
+                text = await $`iconv -cf $(uchardet ${filePath} | tr -d "\n") -t utf-8 ${filePath}`.text();
+                break;
+            default:
+                text = await Bun.file(filePath).text();
+        }
+    }
+    catch {
+        text = await Bun.file(filePath).text();
+    }
+    return text;
 }
 
 // Strip the URL down to its bare components, for comparison purposes
