@@ -112,7 +112,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
                     if (entry.type.startsWith("text/")) {
                         const text = await getText(filePath, entry.source);
                         if (entry.type == "text/html") {
-                            const html = improvePresentation(fixMarkup(text, entry), true);
+                            const html = improvePresentation(genericizeMarkup(text, entry), true);
                             Object.assign(entry, textContent(html));
                         }
                         else
@@ -444,7 +444,7 @@ const server = Bun.serve({
         
         // Make adjustments to page markup before serving
         let html = await getText(filePath, entry.source);
-        html = fixMarkup(html, entry);
+        html = genericizeMarkup(html, entry);
         html = redirectLinks(html, entry, args.flags);
         if (!args.flags.includes("p"))
             html = improvePresentation(html);
@@ -942,128 +942,136 @@ function overwriteArray(array1, array2) { return array1.map((v, i) => array2[i] 
  | General-Purpose Helper Functions |
  +----------------------------------*/
 
-// Attempt to fix altered or poorly-written markup
-function fixMarkup(html, entry) {
-    // Remove or replace carriage return characters
-    html = html.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-
-    // Revert markup alterations specific to Einblicke ins Internet
-    if (entry.source == "einblicke")
-        html = html.replaceAll(
-            // Remove footer
-            /\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/gi,
-            ''
-        ).replaceAll(
-            // Genericize image link placeholders
-            /(?!<img .*?src=)"(?:[./]+)?(?:teufel|grey)\.gif"(?: alt="\[defekt\]")?/gis,
-            '"[unarchived-media]"'
-        ).replaceAll(
-            // Genericize non-link image placeholders and remove added link
-            // TODO: figure out how to prevent massive slowdown when "s" flag is applied
-            /<a href=".*?">(<img .*?src=)"(?:[./]+)?link\.gif" alt="\[image\]"(.*?>)<\/a>/gi,
-            '$1"[unarchived-media]"$2'
-        ).replaceAll(
-            // Remove broken page warning
-            /^<html><body>\n?<img src=".*?noise\.gif">\n?<strong>Vorsicht: Diese Seite k&ouml;nnte defekt sein!<\/strong>\n?\n?<hr>\n?/gi,
-            ''
-        ).replaceAll(
-            // Update placeholder for missing forms
-            /<p>\n?<strong>Hier sollte eigentlich ein Dialog stattfinden!<\/strong>\n?\[\[<a href=".*?">Net<\/a>\]\]\n?<p>\n?/gi,
-            '<p>[[ Unarchived form element ]]</p>'
-        ).replaceAll(
-            // Move external links to original link element
-            /(?<=<a (?:(?!<\/a>).)*?href=")(?:[./]+)?fehler.htm("(?:(?!<\/a>).)*?<\/a>) \[\[<a href="(.*?)">Net<\/a>\]\]/gis,
-            '$2$1'
-        ).replaceAll(
-            // Handle extreme edge cases where an error link doesn't have an accompanying external link
-            /(?<=<a .*?href=")(?:[./]+)?fehler.htm(?=".*?>.*?<\/a>)/gis,
-            '[unarchived-link]'
-        );
-    
-    // Fix anomaly with HTML files in the Edu/ directory of the Silicon Surf Promotional CD
-    if (entry.source == "sgi" && entry.path.startsWith("Edu/"))
-        html = html.replaceAll(/(?<!")\.\.\//g, '/');
-
-    // Revert markup alterations specific to RISC Disc 2
-    if (entry.source == "riscdisc") {
-        if (entry.path.startsWith("WWW_BBCNC_ORG_UK"))
+// Attempt to revert source-specific markup alterations
+function genericizeMarkup(html, entry) {
+    switch (entry.source) {
+        case "sgi":
+            // Fix anomaly with HTML files in the Edu/ directory
+            if (entry.path.startsWith("Edu/"))
+                html = html.replaceAll(/(?<!")\.\.\//g, '/');
+            break;
+        case "einblicke":
             html = html.replaceAll(
-                // In bbcnc.org.uk only, the brackets are inside the link elements
-                /(?<=<a[ \n].*?>(?:[ \n]+)?)\[(.*?)\](?=(?:[ \n]+)?<\/a>)/gis,
-                '$1'
-            );
-        else
-            html = html.replaceAll(
-                // Uncomment opening link tags
-                /<(?:(?:-- ?)|!(?:-- ?)?)(a[ \n].*?)(?: ?--)?>/gis,
-                '<$1>'
+                // Remove footer
+                /\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/gi,
+                ''
             ).replaceAll(
-                // Uncomment closing link tags
-                /<!?-- ?\/(a) ?-->/gi,
-                '</$1>'
+                // Replace image link placeholders
+                /(?!<img .*?src=)"(?:[./]+)?(?:teufel|grey)\.gif"(?: alt="\[defekt\]")?/gis,
+                '"[unarchived-media]"'
             ).replaceAll(
-                // Remove brackets surrounding link elements
-                /[\[]+(<a[ \n].*?>.*?<\/a>)[\]]+/gis,
-                '$1'
+                // Replace non-link image placeholders and remove added link
+                // TODO: figure out how to prevent massive slowdown when "s" flag is applied
+                /<a href=".*?">(<img .*?src=)"(?:[./]+)?link\.gif" alt="\[image\]"(.*?>)<\/a>/gi,
+                '$1"[unarchived-media]"$2'
+            ).replaceAll(
+                // Remove broken page warning
+                /^<html><body>\n?<img src=".*?noise\.gif">\n?<strong>Vorsicht: Diese Seite k&ouml;nnte defekt sein!<\/strong>\n?\n?<hr>\n?/gi,
+                ''
+            ).replaceAll(
+                // Update placeholder for missing forms
+                /<p>\n?<strong>Hier sollte eigentlich ein Dialog stattfinden!<\/strong>\n?\[\[<a href=".*?">Net<\/a>\]\]\n?<p>\n?/gi,
+                '<p>[[ Unarchived form element ]]</p>'
+            ).replaceAll(
+                // Move external links to original link element
+                /(?<=<a (?:(?!<\/a>).)*?href=")(?:[./]+)?fehler.htm("(?:(?!<\/a>).)*?<\/a>) \[\[<a href="(.*?)">Net<\/a>\]\]/gis,
+                '$2$1'
+            ).replaceAll(
+                // Handle extreme edge cases where an error link doesn't have an accompanying external link
+                /(?<=<a .*?href=")(?:[./]+)?fehler.htm(?=".*?>.*?<\/a>)/gis,
+                '[unarchived-link]'
             );
-        if (entry.path.startsWith("WWW_HOTWIRED_COM"))
-            html = html.replaceAll(
-                // Replace imagemap placeholder with unarchived link notice
-                /"[./]+no_imagemap\.htm"/gi,
-                '"[unarchived-link]"'
+            break;
+        case "riscdisc":
+            if (entry.path.startsWith("WWW_BBCNC_ORG_UK"))
+                html = html.replaceAll(
+                    // In bbcnc.org.uk only, the brackets are inside the link elements
+                    /(?<=<a[ \n].*?>(?:[ \n]+)?)\[(.*?)\](?=(?:[ \n]+)?<\/a>)/gis,
+                    '$1'
+                );
+            else
+                html = html.replaceAll(
+                    // Uncomment opening link tags
+                    /<(?:(?:-- ?)|!(?:-- ?)?)(a[ \n].*?)(?: ?--)?>/gis,
+                    '<$1>'
+                ).replaceAll(
+                    // Uncomment closing link tags
+                    /<!?-- ?\/(a) ?-->/gi,
+                    '</$1>'
+                ).replaceAll(
+                    // Remove brackets surrounding link elements
+                    /[\[]+(<a[ \n].*?>.*?<\/a>)[\]]+/gis,
+                    '$1'
+                );
+            if (entry.path.startsWith("WWW_HOTWIRED_COM"))
+                html = html.replaceAll(
+                    // Replace imagemap placeholder with unarchived link notice
+                    /"[./]+no_imagemap\.htm"/gi,
+                    '"[unarchived-link]"'
+                );
+            break;
+        case "pcpress":
+            html = html.replace(
+                // Remove downloader software header
+                /^<META name="download" content=".*?">\n/s,
+                ''
             );
-    }
-
-    // Revert markup alterations specific to RISC Disc 2
-    if (entry.source == "pcpress") {
-        html = html.replace(
-            // Remove downloader software header
-            /^<META name="download" content=".*?">\n/s,
-            ''
-        );
-        // Attempt to fix broken external links
-        let links = getLinks(html, entry.url)
-            .filter(link => link.isWhole && URL.canParse(link.rawUrl))
-            .toSorted((a, b) => a.lastIndex - b.lastIndex);
-        for (let link of links) {
-            const httpExp = /^http:(?=\/?[^/])/i;
-            const badDomainExp = /(?<=http:\/\/)[^./]+(?=\/)/i;
-            const badAnchorExp = /(?<=#[^/]+)\//i;
-            const badExtensionExp = /(?<=\.(html?|cgi|gif))\//i;
-            link.url = link.rawUrl;
-            if (httpExp.test(link.url))
-                try { link.url = new URL(link.url.replace(httpExp, ""), link.baseUrl).href; } catch {}
-            if (badDomainExp.test(link.url))
+            // Attempt to fix broken external links
+            let links = getLinks(html, entry.url)
+                .filter(link => link.isWhole && URL.canParse(link.rawUrl))
+                .toSorted((a, b) => a.lastIndex - b.lastIndex);
+            for (let link of links) {
+                const httpExp = /^http:(?=\/?[^/])/i;
+                const badDomainExp = /(?<=http:\/\/)[^./]+(?=\/)/i;
+                const badAnchorExp = /(?<=#[^/]+)\//i;
+                const badExtensionExp = /(?<=\.(html?|cgi|gif))\//i;
+                link.url = link.rawUrl;
+                if (httpExp.test(link.url))
+                    try { link.url = new URL(link.url.replace(httpExp, ""), link.baseUrl).href; } catch {}
+                if (badDomainExp.test(link.url))
+                    try {
+                        const subdomain = link.url.match(badDomainExp)[0];
+                        link.url = new URL(
+                            link.url.replace(/^http:\/\/.*?\//i, "/"),
+                            link.baseUrl.replace(/(?<=http:\/\/).*?(?=\.)/i, subdomain)
+                        ).href;
+                    } catch {}
                 try {
-                    const subdomain = link.url.match(badDomainExp)[0];
-                    link.url = new URL(
-                        link.url.replace(/^http:\/\/.*?\//i, "/"),
-                        link.baseUrl.replace(/(?<=http:\/\/).*?(?=\.)/i, subdomain)
-                    ).href;
+                    link.url = new URL(link.url).href
+                        .replace(/(?<![a-z]+:)\/\//i, "/")
+                        .replace(/(?<=\.html?)\/$/i, "");
                 } catch {}
-            try {
-                link.url = new URL(link.url).href
-                    .replace(/(?<![a-z]+:)\/\//i, "/")
-                    .replace(/(?<=\.html?)\/$/i, "");
-            } catch {}
-            const hasBadAnchor = badAnchorExp.test(link.url);
-            const hasBadExtension = badExtensionExp.test(link.url);
-            if (hasBadAnchor || hasBadExtension) {
-                const splitIndex = link.url.search(hasBadAnchor ? badAnchorExp : badExtensionExp);
-                const before = link.url.substring(0, splitIndex);
-                const after = link.url.substring(splitIndex + 1);
-                link.url = new URL(after, before).href;
+                const hasBadAnchor = badAnchorExp.test(link.url);
+                const hasBadExtension = badExtensionExp.test(link.url);
+                if (hasBadAnchor || hasBadExtension) {
+                    const splitIndex = link.url.search(hasBadAnchor ? badAnchorExp : badExtensionExp);
+                    const before = link.url.substring(0, splitIndex);
+                    const after = link.url.substring(splitIndex + 1);
+                    link.url = new URL(after, before).href;
+                }
             }
-        }
-        // Inject fixed links into markup
-        let offset = 0;
-        for (const link of links.filter(filterLink => filterLink.url != filterLink.rawUrl)) {
-            const start = link.lastIndex - link.fullMatch.length;
-            const inject = `${link.attribute}"${link.url}"`;
-            const end = link.lastIndex;
-            html = html.substring(0, start + offset) + inject + html.substring(end + offset);
-            offset += inject.length - link.fullMatch.length;
-        }
+            // Inject fixed links into markup
+            let offset = 0;
+            for (const link of links.filter(filterLink => filterLink.url != filterLink.rawUrl)) {
+                const start = link.lastIndex - link.fullMatch.length;
+                const inject = `${link.attribute}"${link.url}"`;
+                const end = link.lastIndex;
+                html = html.substring(0, start + offset) + inject + html.substring(end + offset);
+                offset += inject.length - link.fullMatch.length;
+            }
+            break;
+    }
+    return html;
+}
+
+// Fix invalid/deprecated/non-standard markup so it displays correctly on modern browsers
+function improvePresentation(html, buildMode = false) {
+    if (!buildMode) {
+        const style = '<link rel="stylesheet" href="/presentation.css">';
+        const matchHead = html.match(/<head(er)?(| .*?)>/i);
+        html = matchHead != null
+            ? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
+            : style + "\n" + html;
     }
 
     html = html.replaceAll(
@@ -1079,6 +1087,14 @@ function fixMarkup(html, entry) {
         /<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
         '<!$1$2-->'
     ).replaceAll(
+        // Remove spaces from comment closing sequences
+        /(?<=<! {0,}[-]+(?:(?!<! {0,}[-]+).)*?[-]+) {1,}(?=>)/gs,
+        '',
+    ).replaceAll(
+        // Fix non-standard <marquee> syntax
+        /<(marquee)[ ]+text {0,}= {0,}"(.*?)".*?>/gis,
+        '<$1>$2</$1>'
+    ).replaceAll(
         // Add missing closing tags to link elements
         /(<a[ \n](?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=$|<a[ \n])/gis,
         '$1</a>'
@@ -1090,25 +1106,6 @@ function fixMarkup(html, entry) {
         // Add missing "s" to <noframe> elements
         /(?<=<\/?)noframe(?=>)/gi,
         match => match + (match == match.toUpperCase() ? "S" : "s")
-    );
-
-    return html;
-}
-
-// Fix elements that do not display correctly on modern browsers
-function improvePresentation(html, buildMode = false) {
-    if (!buildMode) {
-        const style = '<link rel="stylesheet" href="/presentation.css">';
-        const matchHead = html.match(/<head(er)?(| .*?)>/i);
-        html = matchHead != null
-            ? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
-            : style + "\n" + html;
-    }
-
-    // Fix non-standard <marquee> syntax
-    html = html.replaceAll(
-        /<(marquee)[ ]+text {0,}= {0,}"(.*?)".*?>/gis,
-        '<$1>$2</$1>'
     );
 
     // Restore <isindex> on modern browsers
@@ -1182,7 +1179,7 @@ async function getText(filePath, source) {
     catch {
         text = await Bun.file(filePath).text();
     }
-    return text;
+    return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }
 
 // Strip the URL down to its bare components, for comparison purposes
