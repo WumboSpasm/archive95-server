@@ -932,7 +932,16 @@ async function mimeType(filePath) {
         $`mimetype -bM "${filePath}"`.text(),
         $`mimetype -b "${filePath}"`.text()
     ])).map(t => t.trim());
-    return (types[0].startsWith("text/") || (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))) ? types[1] : types[0];
+    if (types[0] == "text/plain") {
+        if (types[1] != "image/x-bitmap" && (await $`file -b "${filePath}"`.text()).startsWith("xbm image"))
+            return "image/x-xbitmap";
+        else
+            return types[1];
+    }
+    else if (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))
+        return types[1];
+    else
+        return types[0];
 }
 
 // Merge array1 with array2 by overwriting array1's values with those of array2
