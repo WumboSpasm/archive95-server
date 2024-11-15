@@ -418,7 +418,7 @@ const server = Bun.serve({
                 file = await $`convert ${filePath} PNG:-`.blob();
                 contentType = "image/png";
             }
-            else if (entry.source == "riscdisc2" && contentType == "image/gif")
+            else if (entry.source == "riscdisc" && contentType == "image/gif")
                 // Fix problematic GIFs present in The Risc Disc Volume 2
                 file = await $`convert ${filePath} +repage -`.blob();
         }
