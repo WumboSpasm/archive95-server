@@ -1092,8 +1092,8 @@ function improvePresentation(html, buildMode = false) {
         '<$1>$2</$3>'
     ).replaceAll(
         // Fix attributes with missing end quote
-        /<([^!].*?= {0,}"(?:(?!").)*?)>/gs,
-        '<$1">'
+        /([a-z]+ {0,}= {0,}"[^"\n]+)(?=>(?!".*?>))/gis,
+        '$1"'
     ).replaceAll(
         // Fix comments with missing closing sequence
         /<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
