@@ -1069,6 +1069,9 @@ function genericizeMarkup(html, entry) {
                 offset += inject.length - link.fullMatch.length;
             }
             break;
+        case "amigaplus":
+            html = html.replaceAll("file:///d:/Amiga_HTML/", "/");
+            break;
     }
     return html;
 }
@@ -1172,16 +1175,15 @@ async function getText(filePath, source) {
     if (Bun.file(filePath).size == 0) return "";
     let text;
     try {
-        switch (source) {
-            case "jamsa":
-                const encoding = (await $`iconv ${filePath} -cf utf-8 -t windows-1252 | uchardet`.text()).trim();
-                text = await $`iconv ${filePath} -cf utf-8 -t windows-1252 | iconv -cf ${encoding} -t utf-8`.text();
-                break;
-            case "riscdisc":
-            case "pcpress":
-                text = await $`iconv -cf $(uchardet ${filePath} | tr -d "\n") -t utf-8 ${filePath}`.text();
-                break;
-            default:
+        if (source == "jamsa") {
+            const encoding = (await $`iconv ${filePath} -cf utf-8 -t windows-1252 | uchardet`.text()).trim();
+            text = await $`iconv ${filePath} -cf utf-8 -t windows-1252 | iconv -cf ${encoding} -t utf-8`.text();
+        }
+        else {
+            const encoding = (await $`uchardet ${filePath}`.text()).trim();
+            if (encoding != "ASCII" && encoding != "UTF-8")
+                text = await $`iconv -cf ${encoding} -t utf-8 ${filePath}`.text();
+            else
                 text = await Bun.file(filePath).text();
         }
     }
