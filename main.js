@@ -1218,5 +1218,5 @@ function safeDecode(string) {
     return chars.join("");
 }
 
-// Get rid of quotes surrounding a string
-function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1"); }
+// Remove any quotes or whitespace surrounding a string
+function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
