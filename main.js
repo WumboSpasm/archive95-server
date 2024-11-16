@@ -292,7 +292,7 @@ const server = Bun.serve({
                 if (requestPath.startsWith("screenshots/"))
                     return new Response(Bun.file("data/screenshots/" + screenshot.path), { headers: { "Content-Type": "image/png" } });
                 else {
-                    const thumbnail = await $`convert ${"data/screenshots/" + screenshot.path} -geometry x64 -`.blob();
+                    const thumbnail = await $`convert "${"data/screenshots/" + screenshot.path}" -geometry x64 -`.blob();
                     return new Response(thumbnail, { headers: { "Content-Type": "image/png" } });
                 }
             }
@@ -415,12 +415,12 @@ const server = Bun.serve({
         if (args.mode != "raw" && !args.flags.includes("p")) {
             if (contentType == "image/x-xbitmap") {
                 // Convert XBM to PNG
-                file = await $`convert ${filePath} PNG:-`.blob();
+                file = await $`convert "${filePath}" PNG:-`.blob();
                 contentType = "image/png";
             }
             else if (entry.source == "riscdisc" && contentType == "image/gif")
                 // Fix problematic GIFs present in The Risc Disc Volume 2
-                file = await $`convert ${filePath} +repage -`.blob();
+                file = await $`convert "${filePath}" +repage -`.blob();
         }
 
         if (args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
@@ -1020,11 +1020,8 @@ function genericizeMarkup(html, entry) {
                 );
             break;
         case "pcpress":
-            html = html.replace(
-                // Remove downloader software header
-                /^<META name="download" content=".*?">\n/s,
-                ''
-            );
+            // Remove downloader software header
+            html = html.replace(/^<META name="download" content=".*?">\n/s, '');
             // Attempt to fix broken external links
             let links = getLinks(html, entry.url)
                 .filter(link => link.isWhole && URL.canParse(link.rawUrl))
@@ -1070,7 +1067,12 @@ function genericizeMarkup(html, entry) {
             }
             break;
         case "amigaplus":
+            // Convert CD-ROM local links into path links
             html = html.replaceAll("file:///d:/Amiga_HTML/", "/");
+            break;
+        case "netonacd":
+            // Move real URLs back to original attribute
+            html = html.replaceAll(/"([^"]+)"?[ \n]+tppabs="(.*?)"/g, '"$1"');
             break;
     }
     return html;
@@ -1175,14 +1177,14 @@ async function getText(filePath, source) {
     if (Bun.file(filePath).size == 0) return "";
     let text;
     try {
-        if (source == "jamsa") {
-            const encoding = (await $`iconv ${filePath} -cf utf-8 -t windows-1252 | uchardet`.text()).trim();
-            text = await $`iconv ${filePath} -cf utf-8 -t windows-1252 | iconv -cf ${encoding} -t utf-8`.text();
+        if (source == "wwwdir") {
+            const encoding = (await $`iconv "${filePath}" -cf UTF-8 -t WINDOWS-1252 | uchardet`.text()).trim();
+            text = await $`iconv "${filePath}" -cf UTF-8 -t WINDOWS-1252 | iconv -cf ${encoding} -t UTF-8`.text();
         }
         else {
-            const encoding = (await $`uchardet ${filePath}`.text()).trim();
+            const encoding = (await $`uchardet "${filePath}"`.text()).trim();
             if (encoding != "ASCII" && encoding != "UTF-8")
-                text = await $`iconv -cf ${encoding} -t utf-8 ${filePath}`.text();
+                text = await $`iconv -cf ${encoding} -t UTF-8 "${filePath}"`.text();
             else
                 text = await Bun.file(filePath).text();
         }
