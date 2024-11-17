@@ -1109,7 +1109,7 @@ function genericizeMarkup(html, entry) {
             break;
         case "netonacd":
             // Move real URLs back to original attribute
-            html = html.replaceAll(/"([^"]+)"?[ \n]+tppabs="(.*?)"/g, '"$1"');
+            html = html.replaceAll(/"([^"]+)"?[ \n]+tppabs="(.*?)"/g, '"$2"');
             break;
     }
     return html;
