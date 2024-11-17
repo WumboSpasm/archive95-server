@@ -8,6 +8,7 @@ import { unlink, mkdir } from "node:fs/promises";
 
 const dbPath = "data/archive95.sqlite";
 const logRequests = true;
+const doInlinks = true;
 
 const staticFiles = [
     ["logo.png", "image/png"],
@@ -58,6 +59,26 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
 if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const startTime = Date.now();
 
+    console.log("creating new database...")
+    if (await Bun.file(dbPath).exists()) await unlink(dbPath);
+    if (await Bun.file(dbPath + "-shm").exists()) await unlink(dbPath + "-shm");
+    if (await Bun.file(dbPath + "-wal").exists()) await unlink(dbPath + "-wal");
+    const db = new Database(dbPath, { create: true, strict: true });
+    db.exec("PRAGMA journal_mode = WAL;");
+
+    /* Sources */
+
+    console.log("creating sources table...");
+    db.prepare(`CREATE TABLE sources (
+        id INTEGER PRIMARY KEY,
+        short TEXT NOT NULL,
+        title TEXT NOT NULL,
+        author TEXT NOT NULL,
+        date TEXT NOT NULL,
+        link TEXT NOT NULL,
+        pathMode INTEGER NOT NULL
+    )`).run();
+
     const sourceData = (await Bun.file("data/sources.txt").text()).split(/[\r\n]+/g).map((source, s, data) => {
         source = overwriteArray([data.length, ...Array(5).fill("undefined"), 0], source.split("\t"));
         console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
@@ -74,6 +95,36 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             pathMode: parseInt(source[5]) || 0,
         };
     });
+
+    console.log("adding sources to database...");
+    const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, pathMode) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    for (let s = 0; s < sourceData.length; s++) {
+        const source = sourceData[s];
+        console.log(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
+        sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.pathMode);
+    }
+
+    /* Entries and Text Content */
+
+    console.log("creating files table...");
+    db.prepare(`CREATE TABLE files (
+        id INTEGER PRIMARY KEY,
+        path TEXT NOT NULL,
+        url TEXT NOT NULL,
+        sanitizedUrl TEXT NOT NULL,
+        source TEXT NOT NULL,
+        type TEXT NOT NULL,
+        warn INTEGER NOT NULL,
+        skip INTEGER NOT NULL
+    )`).run();
+
+    console.log("creating text table...");
+    db.prepare(`CREATE TABLE text (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL
+    )`).run();
+
     const entryData = await (async () => {
         // Attempt to load type cache
         await mkdir("data/cache", { recursive: true });
@@ -141,71 +192,19 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 
         return entries;
     })();
-    const linkData = await (async () => {
-        let links = [];
-        let totalLinks = 0;
-        for (const entry of entryData)
-            if (entry.type == "text/html") {
-                const filePath = `data/sources/${entry.source}/${entry.path}`;
-                console.log(`[${totalLinks}/??] loading links from ${filePath}...`);
-                const entryLinks = collectLinks(
-                    await getText(filePath, entry.source), entry,
-                    sourceData.find(source => source.short == entry.source).pathMode, entryData
-                );
-                totalLinks += entryLinks.length;
-                links.push(...entryLinks);
-            }
-        return links;
-    })();
-    const screenshotData = (await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map((screenshot, s, data) => {
-        screenshot = screenshot.split("\t");
-        console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
-        return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
-    });
 
-    console.log("creating new database...")
-    if (await Bun.file(dbPath).exists()) await unlink(dbPath);
-    if (await Bun.file(dbPath + "-shm").exists()) await unlink(dbPath + "-shm");
-    if (await Bun.file(dbPath + "-wal").exists()) await unlink(dbPath + "-wal");
-    const db = new Database(dbPath, { create: true, strict: true });
-    db.exec("PRAGMA journal_mode = WAL;");
+    console.log("adding files to database...");
+    const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
+    for (let e = 0; e < entryData.length; e++) {
+        const entry = entryData[e];
+        console.log(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
+        fileQuery.run(entry.id, entry.path, safeDecode(entry.url), entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip);
+        if (entry.title != "" || entry.content != "")
+            textQuery.run(entry.id, entry.title, entry.content);
+    }
 
-    console.log("creating sources table...");
-    db.prepare(`CREATE TABLE sources (
-        id INTEGER PRIMARY KEY,
-        short TEXT NOT NULL,
-        title TEXT NOT NULL,
-        author TEXT NOT NULL,
-        date TEXT NOT NULL,
-        link TEXT NOT NULL,
-        pathMode INTEGER NOT NULL
-    )`).run();
-
-    console.log("creating files table...");
-    db.prepare(`CREATE TABLE files (
-        id INTEGER PRIMARY KEY,
-        path TEXT NOT NULL,
-        url TEXT NOT NULL,
-        sanitizedUrl TEXT NOT NULL,
-        source TEXT NOT NULL,
-        type TEXT NOT NULL,
-        warn INTEGER NOT NULL,
-        skip INTEGER NOT NULL
-    )`).run();
-
-    console.log("creating text table...");
-    db.prepare(`CREATE TABLE text (
-        id INTEGER PRIMARY KEY,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL
-    )`).run();
-
-    console.log("creating links table...");
-    db.prepare(`CREATE TABLE links (
-        id TEXT NOT NULL,
-        url TEXT NOT NULL,
-        sanitizedUrl TEXT NOT NULL
-    );`).run();
+    /* Screenshots */
 
     console.log("creating screenshots table...");
     db.prepare(`CREATE TABLE screenshots (
@@ -214,39 +213,54 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         sanitizedUrl TEXT NOT NULL
     )`).run();
 
-    console.log("adding sources to database...");
-    const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, pathMode) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    for (let s = 0; s < sourceData.length; s++) {
-        const source = sourceData[s];
-        console.log(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
-        sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.pathMode);
-    }
-    
-    console.log("adding files to database...");
-    const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-    const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
-    for (let e = 0; e < entryData.length; e++) {
-        const entry = entryData[e];
-        console.log(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
-        fileQuery.run(entry.id, entry.path, entry.url, entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip);
-        if (entry.title != "" || entry.content != "")
-            textQuery.run(entry.id, entry.title, entry.content);
-    }
-
-    console.log("adding links to database...");
-    const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
-    for (let l = 0; l < linkData.length; l++) {
-        const link = linkData[l];
-        console.log(`[${l + 1}/${linkData.length}] adding link ${link.sanitizedUrl}...`);
-        linkQuery.run(link.id, link.url, link.sanitizedUrl);
-    }
+    const screenshotData = (await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map((screenshot, s, data) => {
+        screenshot = screenshot.split("\t");
+        console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
+        return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
+    });
 
     console.log("adding screenshots to database...");
     const screenshotQuery = db.prepare("INSERT INTO screenshots (path, url, sanitizedUrl) VALUES (?, ?, ?)");
     for (let s = 0; s < screenshotData.length; s++) {
         const screenshot = screenshotData[s];
         console.log(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
-        screenshotQuery.run(screenshot.path, screenshot.url, screenshot.sanitizedUrl);
+        screenshotQuery.run(screenshot.path, safeDecode(screenshot.url), screenshot.sanitizedUrl);
+    }
+
+    /* Inlinks */
+
+    if (doInlinks) {
+        console.log("creating links table...");
+        db.prepare(`CREATE TABLE links (
+            id TEXT NOT NULL,
+            url TEXT NOT NULL,
+            sanitizedUrl TEXT NOT NULL
+        );`).run();
+
+        const linkData = await (async () => {
+            let links = [];
+            let totalLinks = 0;
+            for (const entry of entryData)
+                if (entry.type == "text/html") {
+                    const filePath = `data/sources/${entry.source}/${entry.path}`;
+                    console.log(`[${totalLinks}/??] loading links from ${filePath}...`);
+                    const entryLinks = collectLinks(
+                        await getText(filePath, entry.source), entry,
+                        sourceData.find(source => source.short == entry.source).pathMode, entryData
+                    );
+                    totalLinks += entryLinks.length;
+                    links.push(...entryLinks);
+                }
+            return links;
+        })();
+
+        console.log("adding links to database...");
+        const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
+        for (let l = 0; l < linkData.length; l++) {
+            const link = linkData[l];
+            console.log(`[${l + 1}/${linkData.length}] adding link ${link.sanitizedUrl}...`);
+            linkQuery.run(link.id, safeDecode(link.url), link.sanitizedUrl);
+        }
     }
 
     const timeElapsed = Date.now() - startTime;
@@ -334,7 +348,7 @@ const server = Bun.serve({
         }
 
         if (args.mode == "inlinks") {
-            if (url == "") return error();
+            if (url == "" || !doInlinks) return error();
             const sanitizedUrl = sanitizeUrl(url);
             const inlinkQuery = db.prepare(
                 "SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
@@ -650,41 +664,63 @@ function redirectLinks(html, entry, flags) {
 
     // Check for path matches (needed for sources that have their own filesystems)
     if (pathMode > 0) {
-        let comparePaths = unmatchedLinks.map(link => {
+        let comparePaths = [];
+        let comparePathsQuery = [];
+        for (const link of unmatchedLinks) {
             if (!link.isWhole) {
                 const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
-                if (parsedUrl != null) return parsedUrl.pathname.substring(1).toLowerCase();
+                if (parsedUrl != null) {
+                    const comparePath = parsedUrl.pathname.substring(1).toLowerCase();
+                    comparePaths.push(comparePath + parsedUrl.hash);
+                    if (!comparePathsQuery.includes(comparePath + parsedUrl.hash)) {
+                        comparePathsQuery.push(comparePath + parsedUrl.hash);
+                        // Make sure database query takes into account anchored and anchorless variations of path
+                        if (parsedUrl.hash != "" && !comparePathsQuery.includes(comparePath))
+                            comparePathsQuery.push(comparePath);
+                    }
+                    continue;
+                }
             }
-            return null;
-        });
+            comparePaths.push(null);
+        }
+
         if (comparePaths.length > 0) {
-            const comparePathsDeduped = [...new Set(comparePaths.filter(path => path != null))];
             const entryQuery = db.prepare(`SELECT path, url, skip FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
-                Array(comparePathsDeduped.length).fill("?").join(", ")
-            })`).all(entry.source, ...comparePathsDeduped);
+                Array(comparePathsQuery.length).fill("?").join(", ")
+            })`).all(entry.source, ...comparePathsQuery);
 
             for (const compareEntry of entryQuery) {
-                const comparePath = compareEntry.path.toLowerCase();
-                for (let l = 0; l < unmatchedLinks.length; l++)
-                    if (comparePaths[l] != null && comparePath == comparePaths[l]) {
+                const entryComparePath = compareEntry.path.toLowerCase();
+                for (let l = 0; l < unmatchedLinks.length; l++) {
+                    if (comparePaths[l] == null) continue;
+                    let pathVariations = [comparePaths[l]];
+                    let pathAnchor = "";
+                    const anchorIndex = comparePaths[l].lastIndexOf("#");
+                    if (anchorIndex != -1) {
+                        pathVariations.push(comparePaths[l].substring(0, anchorIndex));
+                        pathAnchor = comparePaths[l].substring(anchorIndex);
+                    }
+                    if (pathVariations.some(path => path == entryComparePath)) {
                         if (compareEntry.skip) {
                             unmatchedLinks[l].url = compareEntry.url;
                             unmatchedLinks[l].sanitizedUrl = sanitizeUrl(compareEntry.url);
                             unmatchedLinks[l].isWhole = true;
                             continue;
                         }
+                        const entryUrl = compareEntry.url + pathAnchor;
                         if (flags.includes("e"))
-                            unmatchedLinks[l].url = compareEntry.url != "" ? compareEntry.url : `/${compareEntry.path}`;
-                        else if (compareEntry.url != "")
+                            unmatchedLinks[l].url = entryUrl != "" ? entryUrl : `/${compareEntry.path}`;
+                        else if (entryUrl != "")
                             unmatchedLinks[l].url = `/${
                                 joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
-                            }/${compareEntry.url}`;
+                            }/${entryUrl}`;
                         else
                             unmatchedLinks[l].url = `/${joinArgs("orphan", entry.source, orphanFlags)}/${compareEntry.path}`;
                         matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
                         comparePaths.splice(l, 1);
                         l -= 1;
                     }
+                }
             }
         }
     }
@@ -756,9 +792,10 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 
     let navbar = templates.navbar.main
         .replaceAll("{URL}", realUrl)
-        .replace("{WARNING}", entry.warn ? "" : " hidden")
+        .replace("{HIDEWARNING}", entry.warn ? "" : " hidden")
         .replace("{WAYBACK}", "https://web.archive.org/web/0/" + realUrl)
         .replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
+        .replace("{HIDEINLINKS}", doInlinks ? "" : " hidden")
         .replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
         .replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
         .replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
