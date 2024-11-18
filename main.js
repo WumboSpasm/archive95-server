@@ -356,6 +356,8 @@ const server = Bun.serve({
 			);
 		}
 
+		if (url == "") return error();
+
 		if (args.mode == "inlinks") {
 			if (url == "" || !config.doInlinks) return error();
 			const sanitizedUrl = sanitizeUrl(url);
