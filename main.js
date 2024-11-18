@@ -1,14 +1,20 @@
 import { $ } from "bun";
 import { Database } from "bun:sqlite";
-import { unlink, mkdir } from "node:fs/promises";
+import { unlink, mkdir, appendFile } from "node:fs/promises";
 
 /*----------------------------+
  | Important Global Constants |
  +----------------------------*/
 
-const dbPath = "data/archive95.sqlite";
-const logRequests = true;
-const doInlinks = true;
+const defaultConfig = {
+    port: 8989,
+    primaryHost: "",
+    databasePath: "data/archive95.sqlite",
+    logFile: "archive95.log",
+    logToConsole: true,
+    doInlinks: true,
+};
+const config = Object.assign({}, defaultConfig, await Bun.file("archive95.json").json() || {});
 
 const staticFiles = [
     ["logo.png", "image/png"],
@@ -59,16 +65,16 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
 if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const startTime = Date.now();
 
-    console.log("creating new database...")
-    if (await Bun.file(dbPath).exists()) await unlink(dbPath);
-    if (await Bun.file(dbPath + "-shm").exists()) await unlink(dbPath + "-shm");
-    if (await Bun.file(dbPath + "-wal").exists()) await unlink(dbPath + "-wal");
-    const db = new Database(dbPath, { create: true, strict: true });
+    logMessage("creating new database...")
+    if (await Bun.file(config.databasePath).exists()) await unlink(config.databasePath);
+    if (await Bun.file(config.databasePath + "-shm").exists()) await unlink(config.databasePath + "-shm");
+    if (await Bun.file(config.databasePath + "-wal").exists()) await unlink(config.databasePath + "-wal");
+    const db = new Database(config.databasePath, { create: true, strict: true });
     db.exec("PRAGMA journal_mode = WAL;");
 
     /* Sources */
 
-    console.log("creating sources table...");
+    logMessage("creating sources table...");
     db.prepare(`CREATE TABLE sources (
         id INTEGER PRIMARY KEY,
         short TEXT NOT NULL,
@@ -81,7 +87,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 
     const sourceData = (await Bun.file("data/sources.txt").text()).split(/[\r\n]+/g).map((source, s, data) => {
         source = overwriteArray([data.length, ...Array(5).fill("undefined"), 0], source.split("\t"));
-        console.log(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
+        logMessage(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
         return {
             id: s,
             short: source[0],
@@ -96,17 +102,17 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         };
     });
 
-    console.log("adding sources to database...");
+    logMessage("adding sources to database...");
     const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, pathMode) VALUES (?, ?, ?, ?, ?, ?, ?)");
     for (let s = 0; s < sourceData.length; s++) {
         const source = sourceData[s];
-        console.log(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
+        logMessage(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
         sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.pathMode);
     }
 
     /* Entries and Text Content */
 
-    console.log("creating files table...");
+    logMessage("creating files table...");
     db.prepare(`CREATE TABLE files (
         id INTEGER PRIMARY KEY,
         path TEXT NOT NULL,
@@ -118,7 +124,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         skip INTEGER NOT NULL
     )`).run();
 
-    console.log("creating text table...");
+    logMessage("creating text table...");
     db.prepare(`CREATE TABLE text (
         id INTEGER PRIMARY KEY,
         title TEXT NOT NULL,
@@ -140,7 +146,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split(/[\r\n]+/g)) {
                 const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
                 const filePath = `data/sources/${source.short}/${path}`;
-                console.log(`[${++currentEntry}/??] loading file ${filePath}...`);
+                logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
                 const entry = {
                     path: path,
                     url: url,
@@ -178,7 +184,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         Bun.write("data/cache/types.txt", typesList.map(typeLine => typeLine.join("\t")).join("\n"));
 
         // Sort entries and give them IDs based on the new order
-        console.log("sorting files...");
+        logMessage("sorting files...");
         entries.sort((a, b) => {
             if (a.title == "") return 1;
             if (b.title == "") return -1;
@@ -193,12 +199,12 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
         return entries;
     })();
 
-    console.log("adding files to database...");
+    logMessage("adding files to database...");
     const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
     for (let e = 0; e < entryData.length; e++) {
         const entry = entryData[e];
-        console.log(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
+        logMessage(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
         fileQuery.run(entry.id, entry.path, safeDecode(entry.url), entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip);
         if (entry.title != "" || entry.content != "")
             textQuery.run(entry.id, entry.title, entry.content);
@@ -206,7 +212,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 
     /* Screenshots */
 
-    console.log("creating screenshots table...");
+    logMessage("creating screenshots table...");
     db.prepare(`CREATE TABLE screenshots (
         path TEXT NOT NULL,
         url TEXT NOT NULL,
@@ -215,22 +221,22 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 
     const screenshotData = (await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map((screenshot, s, data) => {
         screenshot = screenshot.split("\t");
-        console.log(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
+        logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
         return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
     });
 
-    console.log("adding screenshots to database...");
+    logMessage("adding screenshots to database...");
     const screenshotQuery = db.prepare("INSERT INTO screenshots (path, url, sanitizedUrl) VALUES (?, ?, ?)");
     for (let s = 0; s < screenshotData.length; s++) {
         const screenshot = screenshotData[s];
-        console.log(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
+        logMessage(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
         screenshotQuery.run(screenshot.path, safeDecode(screenshot.url), screenshot.sanitizedUrl);
     }
 
     /* Inlinks */
 
-    if (doInlinks) {
-        console.log("creating links table...");
+    if (config.doInlinks) {
+        logMessage("creating links table...");
         db.prepare(`CREATE TABLE links (
             id TEXT NOT NULL,
             url TEXT NOT NULL,
@@ -243,7 +249,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             for (const entry of entryData)
                 if (entry.type == "text/html") {
                     const filePath = `data/sources/${entry.source}/${entry.path}`;
-                    console.log(`[${totalLinks}/??] loading links from ${filePath}...`);
+                    logMessage(`[${totalLinks}/??] loading links from ${filePath}...`);
                     const entryLinks = collectLinks(
                         await getText(filePath, entry.source), entry,
                         sourceData.find(source => source.short == entry.source).pathMode, entryData
@@ -254,11 +260,11 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
             return links;
         })();
 
-        console.log("adding links to database...");
+        logMessage("adding links to database...");
         const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
         for (let l = 0; l < linkData.length; l++) {
             const link = linkData[l];
-            console.log(`[${l + 1}/${linkData.length}] adding link ${link.sanitizedUrl}...`);
+            logMessage(`[${l + 1}/${linkData.length}] adding link ${link.sanitizedUrl}...`);
             linkQuery.run(link.id, safeDecode(link.url), link.sanitizedUrl);
         }
     }
@@ -267,7 +273,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
     const secondsElapsed = Math.floor(timeElapsed / 1000);
     const minutesElapsed = Math.floor(secondsElapsed / 60);
     const hoursElapsed = Math.floor(minutesElapsed / 60);
-    console.log(`built database in ${hoursElapsed} hours, ${minutesElapsed % 60} minutes, and ${secondsElapsed % 60} seconds`);
+    logMessage(`built database in ${hoursElapsed} hours, ${minutesElapsed % 60} minutes, and ${secondsElapsed % 60} seconds`);
 
     db.close();
     process.exit();
@@ -277,19 +283,22 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
  | Server Initialization |
  +-----------------------*/
 
-console.log("initializing database...");
-const db = new Database(dbPath, { strict: true, readonly: true });
+logMessage("initializing database...");
+const db = new Database(config.databasePath, { strict: true, readonly: true });
 db.exec("PRAGMA journal_mode = WAL;");
 
 const sourceInfo = db.prepare("SELECT * FROM sources").all();
 
 const server = Bun.serve({
-    port: 8989,
+    port: config.port,
     hostname: "0.0.0.0",
     async fetch(request, server) {
-        if (logRequests) console.log(server.requestIP(request).address + ": " + request.url);
+        logMessage(server.requestIP(request).address + ": " + request.url);
 
         const requestUrl = new URL(request.url);
+        if (config.primaryHost != "" && requestUrl.hostname != config.primaryHost)
+            throw new Error("Connections through this host are not allowed.");
+        
         const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
         if (requestPath == "")
             return new Response(prepareSearch(requestUrl.searchParams), { headers: { "Content-Type": "text/html;charset=utf-8" } });
@@ -348,7 +357,7 @@ const server = Bun.serve({
         }
 
         if (args.mode == "inlinks") {
-            if (url == "" || !doInlinks) return error();
+            if (url == "" || !config.doInlinks) return error();
             const sanitizedUrl = sanitizeUrl(url);
             const inlinkQuery = db.prepare(
                 "SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
@@ -469,11 +478,17 @@ const server = Bun.serve({
         return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
     },
     error(error) {
-        console.log(error);
-        return new Response(templates.error.server, { headers: { "Content-Type": "text/html" }});
+        let errorHtml = templates.error.server;
+        if (error.name == "Error")
+            errorHtml = errorHtml.replace("{MESSAGE}", error.message);
+        else {
+            logMessage(error);
+            errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
+        }
+        return new Response(errorHtml, { headers: { "Content-Type": "text/html" }});
     }
 });
-console.log("server started at " + server.url);
+logMessage("server started at " + server.url);
 
 /*-------------------------+
  | Server Helper Functions |
@@ -795,7 +810,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
         .replace("{HIDEWARNING}", entry.warn ? "" : " hidden")
         .replace("{WAYBACK}", "https://web.archive.org/web/0/" + realUrl)
         .replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
-        .replace("{HIDEINLINKS}", doInlinks ? "" : " hidden")
+        .replace("{HIDEINLINKS}", config.doInlinks ? "" : " hidden")
         .replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
         .replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
         .replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
@@ -1259,3 +1274,10 @@ function safeDecode(string) {
 
 // Remove any quotes or whitespace surrounding a string
 function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
+
+// Log to the appropriate locations
+function logMessage(message) {
+    message = `[${new Date().toLocaleString()}] ${message}`;
+    if (config.logFile != "") appendFile(config.logFile, message + "\n");
+    if (config.logToConsole) console.log(message);
+}
