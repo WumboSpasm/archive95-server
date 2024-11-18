@@ -1,83 +1,83 @@
  .navbar {
-    width: 100%;
-    color: black;
-    background-color: white;
-    border-top: 1px solid black;
-    font-family: serif;
-    font-size: initial;
-    font-weight: normal;
-    font-style: normal;
-    text-align: left;
-    box-sizing: border-box;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+	width: 100%;
+	color: black;
+	background-color: white;
+	border-top: 1px solid black;
+	font-family: serif;
+	font-size: initial;
+	font-weight: normal;
+	font-style: normal;
+	text-align: left;
+	box-sizing: border-box;
+	position: fixed;
+	bottom: 0;
+	left: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 }
 .navbar a:link {
-    color: blue;
+	color: blue;
 }
 .navbar a:active {
-    color: red;
+	color: red;
 }
 .navbar a:visited {
-    color: purple;
+	color: purple;
 }
 .navbar-top, .navbar-bottom,
 .navbar-options, .navbar-archives,
 .navbar-extras, .navbar-extras a {
-    display: flex;
-    flex-direction: row;
+	display: flex;
+	flex-direction: row;
 }
 .navbar-top, .navbar-bottom {
-    gap: 12px;
+	gap: 12px;
 }
 .navbar-top {
-    padding: 4px 8px 0;
+	padding: 4px 8px 0;
 }
 .navbar-url {
-    font-weight: bold;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+	font-weight: bold;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .navbar-warning {
-    color: red;
-    flex-shrink: 0;
+	color: red;
+	flex-shrink: 0;
 }
 .navbar-options {
-    gap: 8px;
-    flex-grow: 1;
-    justify-content: end;
+	gap: 8px;
+	flex-grow: 1;
+	justify-content: end;
 }
 .navbar-bottom {
-    padding: 2px 8px 4px;
-    overflow-x: auto;
+	padding: 2px 8px 4px;
+	overflow-x: auto;
 }
 .navbar-archives {
-    gap: 6px;
-    flex-grow: 1;
+	gap: 6px;
+	flex-grow: 1;
 }
 .navbar-archives > div {
-    width: 80px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+	width: 80px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
 }
 .navbar-archives > div > div {
-    font-weight: bold;
+	font-weight: bold;
 }
 .navbar-archives a {
-    display: inline-flex;
+	display: inline-flex;
 }
 .navbar-active {
-    outline: 2px solid blue;
+	outline: 2px solid blue;
 }
 .navbar-extras {
-    gap: 12px;
+	gap: 12px;
 }
 .navbar-extras a {
-    align-items: center;
+	align-items: center;
 }

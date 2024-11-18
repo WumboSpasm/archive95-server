@@ -1,17 +1,17 @@
 :not([class^=navbar-]) > a img[border] {
-    border-color: #00f;
+	border-color: #00f;
 }
 :not([class^=navbar-]) > a img:not([border]):is([width], [height]) {
-    border: 2px solid #00f;
+	border: 2px solid #00f;
 }
 dl > dl {
-    margin: 0 0 0 40px;
+	margin: 0 0 0 40px;
 }
 blink {
-    animation: blink 1s step-start infinite;
+	animation: blink 1s step-start infinite;
 }
 @keyframes blink {
-    25% {
-        opacity: 0;
-    }
+	25% {
+		opacity: 0;
+	}
 }

@@ -1,49 +1,49 @@
 <!DOCTYPE html>
 <html>
-    <head>
-        <title>Archive95</title>
-        <link rel="stylesheet" href="search.css">
-    </head>
-    <body>
-        <a href="/" title="Go home"><img src="logo.png"></a>
-        <form action="/" method="get">
-            <input type="text" name="query" value="{QUERY}" placeholder="Search ye olde web...">
-            <button type="submit">Search</button>
-            <div class="lower">
-                <div class="options">
-                    <fieldset>
-                        <legend>Search in</legend>
-                        <input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}>
-                        <label for="inTitle">Title</label>
-                        <br>
-                        <input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}>
-                        <label for="inContent">Content</label>
-                        <br>
-                        <input type="checkbox" id="inUrl" name="in" value="url"{INURL}>
-                        <label for="inUrl">URL</label>
-                    </fieldset>
-                    <fieldset>
-                        <legend>Search formats</legend>
-                        <input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}>
-                        <label for="formatsAll">All formats</label>
-                        <br>
-                        <input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}>
-                        <label for="formatsText">Text only</label>
-                        <br>
-                        <input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}>
-                        <label for="formatsMedia">Media only</label>
-                    </fieldset>
-                    <div class="random">
-                        <a href="/random/"><img src="dice.png" title="Take me to a random file"></a>
-                    </div>
-                </div>
-                <div class="content">
-                    <fieldset>
-                        <legend>{HEADER}</legend>
+	<head>
+		<title>Archive95</title>
+		<link rel="stylesheet" href="search.css">
+	</head>
+	<body>
+		<a href="/" title="Go home"><img src="logo.png"></a>
+		<form action="/" method="get">
+			<input type="text" name="query" value="{QUERY}" placeholder="Search ye olde web...">
+			<button type="submit">Search</button>
+			<div class="lower">
+				<div class="options">
+					<fieldset>
+						<legend>Search in</legend>
+						<input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}>
+						<label for="inTitle">Title</label>
+						<br>
+						<input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}>
+						<label for="inContent">Content</label>
+						<br>
+						<input type="checkbox" id="inUrl" name="in" value="url"{INURL}>
+						<label for="inUrl">URL</label>
+					</fieldset>
+					<fieldset>
+						<legend>Search formats</legend>
+						<input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}>
+						<label for="formatsAll">All formats</label>
+						<br>
+						<input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}>
+						<label for="formatsText">Text only</label>
+						<br>
+						<input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}>
+						<label for="formatsMedia">Media only</label>
+					</fieldset>
+					<div class="random">
+						<a href="/random/"><img src="dice.png" title="Take me to a random file"></a>
+					</div>
+				</div>
+				<div class="content">
+					<fieldset>
+						<legend>{HEADER}</legend>
 {CONTENT}
-                    </fieldset>
-                </div>
-            </div>
-        </form>
-    </body>
+					</fieldset>
+				</div>
+			</div>
+		</form>
+	</body>
 </html>
