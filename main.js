@@ -887,7 +887,7 @@ function splitArgs(argsStr) {
 function joinArgs(mode = null, source = null, flags = null) {
 	let argsStr = mode || "";
 	if (source != null && source != "") argsStr += "-" + source;
-	if (flags != null && flags != "") argsStr += "_" + flags;
+	if (flags != null && flags != "") argsStr += "_" + flags.split("").toSorted().join("");
 	return argsStr;
 }
 
