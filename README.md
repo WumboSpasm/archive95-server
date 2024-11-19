@@ -3,15 +3,15 @@ Archive95 is an unorthodox web archive.
 
 ## Dependencies
 - A Linux environment with the `file`, `mimetype` and `iconv` utilities
-- [Bun](https://bun.sh/)
+- [Deno](https://deno.com/)
 - [ImageMagick](https://imagemagick.org/) (specifically `convert`)
 - [uchardet](https://www.freedesktop.org/wiki/Software/uchardet/)
 
 ## Instructions
 1. Clone repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
 2. Make `data` folder and put archive files in it (download coming soon)
-3. Build database with `bun run main.js build`
-4. Run server with `bun run main.js`
+3. Build database with `deno run -A main.js build`
+4. Run server with `deno run -A main.js`
 
 ## Endpoints
 - `view`: View archived file in repaired form by supplying URL

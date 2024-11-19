@@ -1,6 +1,4 @@
-import { $ } from "bun";
-import { Database } from "bun:sqlite";
-import { unlink, mkdir, appendFile } from "node:fs/promises";
+import { Database } from "jsr:@db/sqlite@0.12";
 
 /*----------------------------+
  | Important Global Constants |
@@ -14,7 +12,11 @@ const defaultConfig = {
 	logToConsole: true,
 	doInlinks: true,
 };
-const config = Object.assign({}, defaultConfig, await Bun.file("archive95.json").json() || {});
+const config = Object.assign({}, defaultConfig, JSON.parse(
+	await validFile("archive95.json")
+		? await Deno.readTextFile("archive95.json")
+		: "{}"
+));
 
 const staticFiles = [
 	["logo.png", "image/png"],
@@ -27,31 +29,31 @@ const staticFiles = [
 
 const templates = {
 	search: {
-		main: await Bun.file("meta/search.html").text(),
-		about: await Bun.file("meta/search_about.html").text(),
-		source: await Bun.file("meta/search_source.html").text(),
-		result: await Bun.file("meta/search_result.html").text(),
-		navigate: await Bun.file("meta/search_navigate.html").text(),
+		main: await Deno.readTextFile("meta/search.html"),
+		about: await Deno.readTextFile("meta/search_about.html"),
+		source: await Deno.readTextFile("meta/search_source.html"),
+		result: await Deno.readTextFile("meta/search_result.html"),
+		navigate: await Deno.readTextFile("meta/search_navigate.html"),
 	},
 	navbar: {
-		main: await Bun.file("meta/navbar.html").text(),
-		archive: await Bun.file("meta/navbar_archive.html").text(),
-		screenshot: await Bun.file("meta/navbar_screenshot.html").text(),
+		main: await Deno.readTextFile("meta/navbar.html"),
+		archive: await Deno.readTextFile("meta/navbar_archive.html"),
+		screenshot: await Deno.readTextFile("meta/navbar_screenshot.html"),
 	},
 	embed: {
-		text: await Bun.file("meta/embed_text.html").text(),
-		audio: await Bun.file("meta/embed_audio.html").text(),
-		other: await Bun.file("meta/embed_other.html").text(),
+		text: await Deno.readTextFile("meta/embed_text.html"),
+		audio: await Deno.readTextFile("meta/embed_audio.html"),
+		other: await Deno.readTextFile("meta/embed_other.html"),
 	},
 	inlinks: {
-		main: await Bun.file("meta/inlinks.html").text(),
-		link: await Bun.file("meta/inlinks_link.html").text(),
-		error: await Bun.file("meta/inlinks_error.html").text(),
+		main: await Deno.readTextFile("meta/inlinks.html"),
+		link: await Deno.readTextFile("meta/inlinks_link.html"),
+		error: await Deno.readTextFile("meta/inlinks_error.html"),
 	},
 	error: {
-		archive: await Bun.file("meta/404_archive.html").text(),
-		generic: await Bun.file("meta/404_generic.html").text(),
-		server: await Bun.file("meta/404_server.html").text(),
+		archive: await Deno.readTextFile("meta/404_archive.html"),
+		generic: await Deno.readTextFile("meta/404_generic.html"),
+		server: await Deno.readTextFile("meta/404_server.html"),
 	},
 };
 
@@ -62,14 +64,15 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
  | Build Database |
  +----------------*/
 
-if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
+const buildDatabase = Deno.args.length > 0 && Deno.args[0] == "build";
+if (buildDatabase) {
 	const startTime = Date.now();
 
 	logMessage("creating new database...")
-	if (await Bun.file(config.databasePath).exists()) await unlink(config.databasePath);
-	if (await Bun.file(config.databasePath + "-shm").exists()) await unlink(config.databasePath + "-shm");
-	if (await Bun.file(config.databasePath + "-wal").exists()) await unlink(config.databasePath + "-wal");
-	const db = new Database(config.databasePath, { create: true, strict: true });
+	if (await validFile(config.databasePath)) await Deno.remove(config.databasePath);
+	if (await validFile(config.databasePath + "-shm")) await Deno.remove(config.databasePath + "-shm");
+	if (await validFile(config.databasePath + "-wal")) await Deno.remove(config.databasePath + "-wal");
+	const db = new Database(config.databasePath, { create: true });
 	db.exec("PRAGMA journal_mode = WAL;");
 
 	/* Sources */
@@ -85,7 +88,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 		pathMode INTEGER NOT NULL
 	)`).run();
 
-	const sourceData = (await Bun.file("data/sources.txt").text()).split(/[\r\n]+/g).map((source, s, data) => {
+	const sourceData = (await Deno.readTextFile("data/sources.txt")).split(/[\r\n]+/g).map((source, s, data) => {
 		source = overwriteArray([data.length, ...Array(5).fill("undefined"), 0], source.split("\t"));
 		logMessage(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
 		return {
@@ -133,17 +136,17 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 
 	const entryData = await (async () => {
 		// Attempt to load type cache
-		await mkdir("data/cache", { recursive: true });
-		const typesFile = Bun.file("data/cache/types.txt");
-		let typesList = await typesFile.exists()
-			? (await typesFile.text()).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
+		await Deno.mkdir("data/cache", { recursive: true });
+		const typesPath = "data/cache/types.txt";
+		const typesList = await validFile(typesPath)
+			? (await Deno.readTextFile(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
 			: [];
 
 		// Load in entry data
-		let entries = [];
+		const entries = [];
 		let currentEntry = 0;
 		for (const source of sourceData) {
-			for (const entryLine of (await Bun.file(`data/sources/${source.short}.txt`).text()).split(/[\r\n]+/g)) {
+			for (const entryLine of (await Deno.readTextFile(`data/sources/${source.short}.txt`)).split(/[\r\n]+/g)) {
 				const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
 				const filePath = `data/sources/${source.short}/${path}`;
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
@@ -169,7 +172,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 					if (entry.type.startsWith("text/")) {
 						const text = await getText(filePath, entry.source);
 						if (entry.type == "text/html") {
-							const html = improvePresentation(genericizeMarkup(text, entry), true);
+							const html = improvePresentation(genericizeMarkup(text, entry));
 							Object.assign(entry, textContent(html));
 						}
 						else
@@ -181,7 +184,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 		}
 
 		// Write type cache
-		Bun.write("data/cache/types.txt", typesList.map(typeLine => typeLine.join("\t")).join("\n"));
+		Deno.writeTextFile("data/cache/types.txt", typesList.map(typeLine => typeLine.join("\t")).join("\n"));
 
 		// Sort entries and give them IDs based on the new order
 		logMessage("sorting files...");
@@ -219,7 +222,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 		sanitizedUrl TEXT NOT NULL
 	)`).run();
 
-	const screenshotData = (await Bun.file("data/screenshots.txt").text()).split(/[\r\n]+/g).map((screenshot, s, data) => {
+	const screenshotData = (await Deno.readTextFile("data/screenshots.txt")).split(/[\r\n]+/g).map((screenshot, s, data) => {
 		screenshot = screenshot.split("\t");
 		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
 		return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
@@ -244,7 +247,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 		);`).run();
 
 		const linkData = await (async () => {
-			let links = [];
+			const links = [];
 			let totalLinks = 0;
 			for (const entry of entryData)
 				if (entry.type == "text/html") {
@@ -276,7 +279,7 @@ if (Bun.argv.length > 2 && Bun.argv[2] == "build") {
 	logMessage(`built database in ${hoursElapsed} hours, ${minutesElapsed % 60} minutes, and ${secondsElapsed % 60} seconds`);
 
 	db.close();
-	process.exit();
+	Deno.exit();
 }
 
 /*-----------------------+
@@ -289,15 +292,27 @@ db.exec("PRAGMA journal_mode = WAL;");
 
 const sourceInfo = db.prepare("SELECT * FROM sources").all();
 
-const server = Bun.serve({
-	port: config.port,
-	hostname: "0.0.0.0",
-	async fetch(request, server) {
-		logMessage(server.requestIP(request).address + ": " + request.url);
+Deno.serve(
+	{
+		port: config.port,
+		hostname: "0.0.0.0",
+		onError: (error) => {
+			let errorHtml = templates.error.server;
+			if (error.message == "")
+				errorHtml = errorHtml.replace("{MESSAGE}", "Connections through this host are not allowed.");
+			else {
+				logMessage(error);
+				errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
+			}
+			return new Response(errorHtml, { headers: { "Content-Type": "text/html" }});
+		}
+	},
+	async (request, info) => {
+		logMessage(info.remoteAddr.hostname + ": " + request.url);
 
 		const requestUrl = new URL(request.url);
 		if (config.primaryHost != "" && requestUrl.hostname != config.primaryHost)
-			throw new Error("Connections through this host are not allowed.");
+			throw new Error();
 
 		const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
 		if (requestPath == "")
@@ -306,16 +321,18 @@ const server = Bun.serve({
 		// Serve static files
 		for (const exception of staticFiles.concat(sourceInfo.map(source => [source.short + ".png", "image/png"])))
 			if (requestPath == exception[0])
-				return new Response(Bun.file("meta/" + exception[0]), { headers: { "Content-Type": exception[1] } });
+				return new Response(await Deno.readFile("meta/" + exception[0]), { headers: { "Content-Type": exception[1] } });
 
 		// Serve page screenshots
 		if (["screenshots/", "thumbnails/"].some(dir => requestPath.startsWith(dir))) {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
 			if (screenshot != null) {
 				if (requestPath.startsWith("screenshots/"))
-					return new Response(Bun.file("data/screenshots/" + screenshot.path), { headers: { "Content-Type": "image/png" } });
+					return new Response(await Deno.readFile("data/screenshots/" + screenshot.path), { headers: { "Content-Type": "image/png" } });
 				else {
-					const thumbnail = await $`convert "${"data/screenshots/" + screenshot.path}" -geometry x64 -`.blob();
+					const thumbnail = (await new Deno.Command("convert",
+						{ args: ["data/screenshots/" + screenshot.path, "-geometry", "x64", "-"], stdout: "piped" }
+					).output()).stdout;
 					return new Response(thumbnail, { headers: { "Content-Type": "image/png" } });
 				}
 			}
@@ -335,12 +352,12 @@ const server = Bun.serve({
 		if (args == null) return error();
 
 		if (args.mode == "random") {
-			let whereConditions = ["skip = 0"];
-			let whereParameters = [];
+			const whereConditions = ["skip = 0"];
+			const whereParameters = [];
 			if (!args.flags.includes("m"))
-				whereConditions.push('type = "text/html"');
+				whereConditions.push("type = 'text/html'");
 			if (!args.flags.includes("o"))
-				whereConditions.push('sanitizedUrl != ""');
+				whereConditions.push("sanitizedUrl != ''");
 			if (args.source != "") {
 				whereConditions.push("source = ?");
 				whereParameters.push(args.source);
@@ -349,11 +366,11 @@ const server = Bun.serve({
 			const entry = db.prepare(
 				`SELECT path, url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
 			).get(...whereParameters);
-			return Response.redirect(
+			return Response.redirect(requestUrl.origin + (
 				entry.url != ""
 					? `/${joinArgs("view", entry.source, args.flags)}/${entry.url}`
 					: `/${joinArgs("orphan", entry.source, args.flags)}/${entry.path}`
-			);
+			));
 		}
 
 		if (url == "") return error();
@@ -429,23 +446,23 @@ const server = Bun.serve({
 			archives.push(entry);
 		}
 		// Encode number sign to make sure it's properly identified as part of the URL
-		for (let archive of archives)
+		for (const archive of archives)
 			archive.url = archive.url.replaceAll("#", "%23");
 
 		const entry = archives[desiredArchive];
 		const filePath = `data/sources/${entry.source}/${entry.path}`;
-		let file = Bun.file(filePath);
+		let file;
 		let contentType = entry.type;
 
 		if (args.mode != "raw" && !args.flags.includes("p")) {
 			if (contentType == "image/x-xbitmap") {
 				// Convert XBM to PNG
-				file = await $`convert "${filePath}" PNG:-`.blob();
+				file = (await new Deno.Command("convert", { args: [filePath, "PNG:-"], stdout: "piped" }).output()).stdout;
 				contentType = "image/png";
 			}
 			else if (entry.source == "riscdisc" && contentType == "image/gif")
 				// Fix problematic GIFs present in The Risc Disc Volume 2
-				file = await $`convert "${filePath}" +repage -`.blob();
+				file = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
 		}
 
 		if (args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
@@ -460,12 +477,12 @@ const server = Bun.serve({
 					.replace("{URL}", entry.sanitizedUrl)
 					.replace("{TYPE}", contentType)
 					.replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
-			embed = await injectNavbar(embed, archives, desiredArchive, args.flags);
+			embed = injectNavbar(embed, archives, desiredArchive, args.flags);
 			return new Response(embed, { headers: { "Content-Type": "text/html" }});
 		}
 		else if (args.mode == "raw" || contentType != "text/html")
 			// Serve actual file data if raw or non-HTML
-			return new Response(file, { headers: { "Content-Type": contentType }});
+			return new Response(file || await Deno.readFile(filePath), { headers: { "Content-Type": contentType }});
 
 		// Make adjustments to page markup before serving
 		let html = await getText(filePath, entry.source);
@@ -474,23 +491,12 @@ const server = Bun.serve({
 		if (!args.flags.includes("p"))
 			html = improvePresentation(html);
 		if (args.mode == "view" && !args.flags.includes("n"))
-			html = await injectNavbar(html, archives, desiredArchive, args.flags);
+			html = injectNavbar(html, archives, desiredArchive, args.flags);
 
 		// Serve the page
 		return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
-	},
-	error(error) {
-		let errorHtml = templates.error.server;
-		if (error.name == "Error")
-			errorHtml = errorHtml.replace("{MESSAGE}", error.message);
-		else {
-			logMessage(error);
-			errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
-		}
-		return new Response(errorHtml, { headers: { "Content-Type": "text/html" }});
 	}
-});
-logMessage("server started at " + server.url);
+);
 
 /*-------------------------+
  | Server Helper Functions |
@@ -544,12 +550,12 @@ function prepareSearch(params) {
 
 		let whereString = whereConditions.join(` OR `);
 		if (search.formatsText)
-			whereString += ' AND type LIKE "text/%"';
+			whereString += " AND type LIKE 'text/%'";
 		else if (search.formatsMedia)
-			whereString += ' AND type NOT LIKE "text/%"';
+			whereString += " AND type NOT LIKE 'text/%'";
 
 		// TODO: consider adding true SQLite pagination if this causes problems
-		const searchQuery = db.prepare(`
+		const searchQuery = searchString.length < 3 ? [] : db.prepare(`
 			SELECT path, url, sanitizedUrl, source, text.title, text.content FROM files
 			LEFT JOIN text ON files.id = text.id
 			WHERE ${whereString} AND skip = 0
@@ -562,7 +568,7 @@ function prepareSearch(params) {
 		const currentPage = Math.max(1, Math.min(totalPages, parseInt(params.get("page")) || 1));
 		const entryOffset = (currentPage - 1) * entriesPerPage;
 
-		let results = [];
+		const results = [];
 		for (const result of searchQuery.slice(entryOffset, entryOffset + entriesPerPage)) {
 			let titleString = sanitizeInject(result.title || "");
 			let titleMatchIndex = -1;
@@ -629,9 +635,9 @@ function prepareSearch(params) {
 		const sourceQuery = db.prepare(`
 			SELECT sources.*, COUNT() AS size FROM files
 			LEFT JOIN sources ON sources.short = files.source
-			WHERE url != "" AND skip = 0 GROUP BY source ORDER BY sources.id
+			WHERE url != '' AND skip = 0 GROUP BY source ORDER BY sources.id
 		`).all();
-		let sources = [];
+		const sources = [];
 		for (const source of sourceQuery)
 			sources.push(
 				templates.search.source
@@ -660,7 +666,7 @@ function redirectLinks(html, entry, flags) {
 	const orphanFlags = flags.replace("n", "");
 	const noNavFlags = orphanFlags + "n";
 
-	let unmatchedLinks = getLinks(html, entry.url).map(link => {
+	const unmatchedLinks = getLinks(html, entry.url).map(link => {
 		const matchStart = link.lastIndex - link.fullMatch.length;
 		const matchEnd = link.lastIndex;
 		const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
@@ -677,12 +683,12 @@ function redirectLinks(html, entry, flags) {
 	}).filter(link => link != null);
 	if (unmatchedLinks.length == 0) return html;
 
-	let matchedLinks = [];
+	const matchedLinks = [];
 
 	// Check for path matches (needed for sources that have their own filesystems)
 	if (pathMode > 0) {
-		let comparePaths = [];
-		let comparePathsQuery = [];
+		const comparePaths = [];
+		const comparePathsQuery = [];
 		for (const link of unmatchedLinks) {
 			if (!link.isWhole) {
 				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
@@ -710,7 +716,7 @@ function redirectLinks(html, entry, flags) {
 				const entryComparePath = compareEntry.path.toLowerCase();
 				for (let l = 0; l < unmatchedLinks.length; l++) {
 					if (comparePaths[l] == null) continue;
-					let pathVariations = [comparePaths[l]];
+					const pathVariations = [comparePaths[l]];
 					let pathAnchor = "";
 					const anchorIndex = comparePaths[l].lastIndexOf("#");
 					if (anchorIndex != -1) {
@@ -803,7 +809,7 @@ function redirectLinks(html, entry, flags) {
 }
 
 // Display navigation bar
-async function injectNavbar(html, archives, desiredArchive, flags) {
+function injectNavbar(html, archives, desiredArchive, flags) {
 	const entry = archives[desiredArchive];
 	const realUrl = entry.url.replaceAll("%23", "#");
 
@@ -817,7 +823,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 		.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
 		.replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
 
-	let archiveButtons = [];
+	const archiveButtons = [];
 	for (let a = 0; a < archives.length; a++) {
 		const archive = archives[a];
 		const source = sourceInfo.find(source => source.short == archive.source);
@@ -834,7 +840,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 
 	const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
 	if (screenshotQuery.length > 0) {
-		let screenshots = [];
+		const screenshots = [];
 		for (const screenshotPath of screenshotQuery)
 			screenshots.push(
 				templates.navbar.screenshot
@@ -863,7 +869,7 @@ async function injectNavbar(html, archives, desiredArchive, flags) {
 
 // Split string of arguments into an object
 function splitArgs(argsStr) {
-	let args = {
+	const args = {
 		mode: "",
 		source: "",
 		flags: "",
@@ -943,9 +949,9 @@ function textContent(html) {
 
 // Get links from the given markup and return them as fully-formed URLs
 function collectLinks(html, entry, pathMode, entryData) {
-	let rawLinks = getLinks(html, entry.url);
+	const rawLinks = getLinks(html, entry.url);
 
-	let fixedLinks = [];
+	const fixedLinks = [];
 	if (pathMode > 0) {
 		const comparePaths = rawLinks.map(link => {
 			if (!link.isWhole) {
@@ -982,15 +988,17 @@ function collectLinks(html, entry, pathMode, entryData) {
 
 // Identify the file type by contents, or by file extension if returned type is too basic
 async function mimeType(filePath) {
+	const decoder = new TextDecoder();
 	const types = (await Promise.all([
-		$`mimetype -bM "${filePath}"`.text(),
-		$`mimetype -b "${filePath}"`.text()
-	])).map(t => t.trim());
+		new Deno.Command("mimetype", { args: ["-bM", filePath], stdout: "piped" }).output(),
+		new Deno.Command("mimetype", { args: ["-b",  filePath], stdout: "piped" }).output(),
+	])).map(type => decoder.decode(type.stdout).trim());
 	if (types[0] == "text/plain") {
-		if (types[1] != "image/x-bitmap" && (await $`file -b "${filePath}"`.text()).startsWith("xbm image"))
-			return "image/x-xbitmap";
-		else
-			return types[1];
+		if (types[1] != "image/x-bitmap") {
+			const fileInfo = decoder.decode((await new Deno.Command("file", { args: ["-b", filePath], stdout: "piped" }).output()).stdout);
+			if (fileInfo.startsWith("xbm image")) return "image/x-bitmap";
+		}
+		return types[1];
 	}
 	else if (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))
 		return types[1];
@@ -1008,12 +1016,13 @@ function overwriteArray(array1, array2) { return array1.map((v, i) => array2[i] 
 // Attempt to revert source-specific markup alterations
 function genericizeMarkup(html, entry) {
 	switch (entry.source) {
-		case "sgi":
+		case "sgi": {
 			// Fix anomaly with HTML files in the Edu/ directory
 			if (entry.path.startsWith("Edu/"))
 				html = html.replaceAll(/(?<!")\.\.\//g, '/');
 			break;
-		case "einblicke":
+		}
+		case "einblicke": {
 			html = html.replaceAll(
 				// Remove footer
 				/\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/gi,
@@ -1045,7 +1054,8 @@ function genericizeMarkup(html, entry) {
 				'[unarchived-link]'
 			);
 			break;
-		case "riscdisc":
+		}
+		case "riscdisc": {
 			if (entry.path.startsWith("WWW_BBCNC_ORG_UK"))
 				html = html.replaceAll(
 					// In bbcnc.org.uk only, the brackets are inside the link elements
@@ -1073,14 +1083,15 @@ function genericizeMarkup(html, entry) {
 					'"[unarchived-link]"'
 				);
 			break;
-		case "pcpress":
+		}
+		case "pcpress": {
 			// Remove downloader software header
 			html = html.replace(/^<META name="download" content=".*?">\n/s, '');
 			// Attempt to fix broken external links
-			let links = getLinks(html, entry.url)
+			const links = getLinks(html, entry.url)
 				.filter(link => link.isWhole && URL.canParse(link.rawUrl))
 				.toSorted((a, b) => a.lastIndex - b.lastIndex);
-			for (let link of links) {
+			for (const link of links) {
 				const httpExp = /^http:(?=\/?[^/])/i;
 				const badDomainExp = /(?<=http:\/\/)[^./]+(?=\/)/i;
 				const badAnchorExp = /(?<=#[^/]+)\//i;
@@ -1120,21 +1131,24 @@ function genericizeMarkup(html, entry) {
 				offset += inject.length - link.fullMatch.length;
 			}
 			break;
-		case "amigaplus":
+		}
+		case "amigaplus": {
 			// Convert CD-ROM local links into path links
 			html = html.replaceAll("file:///d:/Amiga_HTML/", "/");
 			break;
-		case "netonacd":
+		}
+		case "netonacd": {
 			// Move real URLs back to original attribute
 			html = html.replaceAll(/"([^"]+)"?[ \n]+tppabs="(.*?)"/g, '"$2"');
 			break;
+		}
 	}
 	return html;
 }
 
 // Fix invalid/deprecated/non-standard markup so it displays correctly on modern browsers
-function improvePresentation(html, buildMode = false) {
-	if (!buildMode) {
+function improvePresentation(html) {
+	if (!buildDatabase) {
 		const style = '<link rel="stylesheet" href="/presentation.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
 		html = matchHead != null
@@ -1156,8 +1170,8 @@ function improvePresentation(html, buildMode = false) {
 		'<!$1$2-->'
 	).replaceAll(
 		// Remove spaces from comment closing sequences
-		/(?<=<! {0,}[-]+(?:(?!<! {0,}[-]+).)*?[-]+) {1,}(?=>)/gs,
-		'',
+		/(<! {0,}[-]+(?:(?!<! {0,}[-]+).)*?[-]+) {1,}>/gs,
+		'$1>',
 	).replaceAll(
 		// Fix non-standard <marquee> syntax
 		/<(marquee)[ ]+text {0,}= {0,}"(.*?)".*?>/gis,
@@ -1206,7 +1220,7 @@ function getLinks(html, baseUrl) {
 	const baseExp = /<base[ \n]+h?ref {0,}= {0,}("(?:(?!>).)*?"|[^ >]+)/is;
 	if (baseExp.test(html)) baseUrl = trimQuotes(html.match(baseExp)[1]);
 	const linkExp = /((?:href|src|action|background) {0,}= {0,})("(?:(?!>).)*?"|[^ >]+)/gis;
-	let links = [];
+	const links = [];
 	for (let match; (match = linkExp.exec(html)) !== null;) {
 		const rawUrl = trimQuotes(match[2]);
 		const isWhole = /^https?:\/\//i.test(rawUrl);
@@ -1228,24 +1242,44 @@ function getLinks(html, baseUrl) {
 
 // Retrieve text from file with respect to character encodings
 async function getText(filePath, source) {
-	if (Bun.file(filePath).size == 0) return "";
+	if (!await validFile(filePath) || Deno.stat(filePath).size == 0) return "";
 	let text;
 	try {
+		const decoder = new TextDecoder();
 		if (source == "wwwdir") {
-			const encoding = (await $`iconv "${filePath}" -cf UTF-8 -t WINDOWS-1252 | uchardet`.text()).trim();
-			text = await $`iconv "${filePath}" -cf UTF-8 -t WINDOWS-1252 | iconv -cf ${encoding} -t UTF-8`.text();
+			const iconvOut = (
+				await new Deno.Command("iconv", { args: [filePath, "-cf", "UTF-8", "-t", "WINDOWS-1252"], stdout: "piped" }).output()
+			).stdout;
+
+			const uchardetProcess = new Deno.Command("uchardet", { stdin: "piped", stdout: "piped" }).spawn();
+			const uchardetWriter = uchardetProcess.stdin.getWriter();
+			await uchardetWriter.write(iconvOut);
+			await uchardetWriter.ready;
+			await uchardetWriter.close();
+			const uchardetStr = decoder.decode((await uchardetProcess.output()).stdout).trim();
+			uchardetProcess.unref();
+
+			const iconv2Process = new Deno.Command("iconv", { args: ["-cf", uchardetStr, "-t", "UTF-8"], stdin: "piped", stdout: "piped" }).spawn();
+			const iconv2Writer = iconv2Process.stdin.getWriter();
+			await iconv2Writer.write(iconvOut);
+			await iconv2Writer.ready;
+			await iconv2Writer.close();
+			const iconv2Str = decoder.decode((await iconv2Process.output()).stdout);
+			iconv2Process.unref();
+
+			text = iconv2Str;
 		}
 		else {
-			const encoding = (await $`uchardet "${filePath}"`.text()).trim();
-			if (encoding != "ASCII" && encoding != "UTF-8")
-				text = await $`iconv -cf ${encoding} -t UTF-8 "${filePath}"`.text();
+			const uchardetStr = decoder.decode((await new Deno.Command("uchardet", { args: [filePath], stdout: "piped" }).output()).stdout).trim();
+			if (uchardetStr != "ASCII" && uchardetStr != "UTF-8")
+				text = decoder.decode((
+					await new Deno.Command("iconv", { args: [filePath, "-cf", uchardetStr, "-t", "UTF-8"], stdout: "piped" }).output()
+				).stdout);
 			else
-				text = await Bun.file(filePath).text();
+				text = await Deno.readTextFile(filePath);
 		}
 	}
-	catch {
-		text = await Bun.file(filePath).text();
-	}
+	catch { text = await Deno.readTextFile(filePath); }
 	return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }
 
@@ -1262,7 +1296,7 @@ function sanitizeUrl(url) {
 
 // Decode string without throwing an error if a single encoded character is invalid
 function safeDecode(string) {
-	let chars = string.split("");
+	const chars = string.split("");
 	for (let c = 0; c < chars.length; c++) {
 		if (chars[c] == "%" && c < chars.length - 2) {
 			let decodedChar;
@@ -1280,6 +1314,12 @@ function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1")
 // Log to the appropriate locations
 function logMessage(message) {
 	message = `[${new Date().toLocaleString()}] ${message}`;
-	if (config.logFile != "") appendFile(config.logFile, message + "\n");
+	if (config.logFile != "") Deno.writeTextFile(config.logFile, message + "\n", { append: true });
 	if (config.logToConsole) console.log(message);
+}
+
+// Check if a file exists and is accessible
+async function validFile(path) {
+	try { await Deno.lstat(path); } catch { return false; }
+	return true;
 }
