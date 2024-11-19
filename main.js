@@ -19,41 +19,40 @@ const config = Object.assign({}, defaultConfig, JSON.parse(
 ));
 
 const staticFiles = [
-	["logo.png", "image/png"],
-	["dice.png", "image/png"],
-	["search.css", "text/css"],
-	["navbar.css", "text/css"],
-	["presentation.css", "text/css"],
-	["embed.css", "text/css"],
+	["meta/images/logo.png", "logo.png", "image/png"],
+	["meta/images/dice.png", "dice.png", "image/png"],
+	["meta/css/search.css", "search.css", "text/css"],
+	["meta/css/navbar.css", "navbar.css", "text/css"],
+	["meta/css/presentation.css", "presentation.css", "text/css"],
 ];
 
 const templates = {
 	search: {
-		main: await Deno.readTextFile("meta/search.html"),
-		about: await Deno.readTextFile("meta/search_about.html"),
-		source: await Deno.readTextFile("meta/search_source.html"),
-		result: await Deno.readTextFile("meta/search_result.html"),
-		navigate: await Deno.readTextFile("meta/search_navigate.html"),
+		main: await Deno.readTextFile("meta/templates/search.html"),
+		about: await Deno.readTextFile("meta/templates/search_about.html"),
+		source: await Deno.readTextFile("meta/templates/search_source.html"),
+		result: await Deno.readTextFile("meta/templates/search_result.html"),
+		navigate: await Deno.readTextFile("meta/templates/search_navigate.html"),
 	},
 	navbar: {
-		main: await Deno.readTextFile("meta/navbar.html"),
-		archive: await Deno.readTextFile("meta/navbar_archive.html"),
-		screenshot: await Deno.readTextFile("meta/navbar_screenshot.html"),
+		main: await Deno.readTextFile("meta/templates/navbar.html"),
+		archive: await Deno.readTextFile("meta/templates/navbar_archive.html"),
+		screenshot: await Deno.readTextFile("meta/templates/navbar_screenshot.html"),
 	},
 	embed: {
-		text: await Deno.readTextFile("meta/embed_text.html"),
-		audio: await Deno.readTextFile("meta/embed_audio.html"),
-		other: await Deno.readTextFile("meta/embed_other.html"),
+		text: await Deno.readTextFile("meta/templates/embed_text.html"),
+		audio: await Deno.readTextFile("meta/templates/embed_audio.html"),
+		other: await Deno.readTextFile("meta/templates/embed_other.html"),
 	},
 	inlinks: {
-		main: await Deno.readTextFile("meta/inlinks.html"),
-		link: await Deno.readTextFile("meta/inlinks_link.html"),
-		error: await Deno.readTextFile("meta/inlinks_error.html"),
+		main: await Deno.readTextFile("meta/templates/inlinks.html"),
+		link: await Deno.readTextFile("meta/templates/inlinks_link.html"),
+		error: await Deno.readTextFile("meta/templates/inlinks_error.html"),
 	},
 	error: {
-		archive: await Deno.readTextFile("meta/404_archive.html"),
-		generic: await Deno.readTextFile("meta/404_generic.html"),
-		server: await Deno.readTextFile("meta/404_server.html"),
+		archive: await Deno.readTextFile("meta/templates/404_archive.html"),
+		generic: await Deno.readTextFile("meta/templates/404_generic.html"),
+		server: await Deno.readTextFile("meta/templates/404_server.html"),
 	},
 };
 
@@ -319,9 +318,9 @@ Deno.serve(
 			return new Response(prepareSearch(requestUrl.searchParams), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
 		// Serve static files
-		for (const exception of staticFiles.concat(sourceInfo.map(source => [source.short + ".png", "image/png"])))
-			if (requestPath == exception[0])
-				return new Response(await Deno.readFile("meta/" + exception[0]), { headers: { "Content-Type": exception[1] } });
+		for (const exception of staticFiles.concat(sourceInfo.map(source => ["meta/images/" + source.short + ".png", source.short + ".png", "image/png"])))
+			if (requestPath == exception[1])
+				return new Response(await Deno.readFile(exception[0]), { headers: { "Content-Type": exception[2] } });
 
 		// Serve page screenshots
 		if (["screenshots/", "thumbnails/"].some(dir => requestPath.startsWith(dir))) {
