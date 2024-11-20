@@ -297,13 +297,17 @@ Deno.serve(
 		hostname: "0.0.0.0",
 		onError: (error) => {
 			let errorHtml = templates.error.server;
-			if (error.message == "")
+			let status;
+			if (error.message == "") {
 				errorHtml = errorHtml.replace("{MESSAGE}", "Connections through this host are not allowed.");
+				status = 400;
+			}
 			else {
 				logMessage(error);
 				errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
+				status = 500;
 			}
-			return new Response(errorHtml, { headers: { "Content-Type": "text/html" }});
+			return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" }});
 		}
 	},
 	async (request, info) => {
@@ -909,7 +913,7 @@ function error(url) {
 		errorHtml = templates.error.generic;
 		status = 400;
 	}
-	return new Response(errorHtml, { headers: { "Content-Type": "text/html" }, status: status });
+	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" } });
 }
 
 /*------------------------+
