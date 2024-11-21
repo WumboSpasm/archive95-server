@@ -6,6 +6,8 @@ import { Database } from "jsr:@db/sqlite@0.12";
 
 const defaultConfig = {
 	port: 8989,
+	certificate: "",
+	key: "",
 	primaryHost: "",
 	databasePath: "data/archive95.sqlite",
 	logFile: "archive95.log",
@@ -294,6 +296,8 @@ const sourceInfo = db.prepare("SELECT * FROM sources").all();
 Deno.serve(
 	{
 		port: config.port,
+		cert: config.certificate ? Deno.readTextFileSync(config.certificate) : undefined,
+		key: config.key ? Deno.readTextFileSync(config.key) : undefined,
 		hostname: "0.0.0.0",
 		onError: (error) => {
 			let errorHtml = templates.error.server;
