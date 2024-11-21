@@ -13,9 +13,12 @@ const args = parseArgs(Deno.args, {
 
 const defaultConfig = {
 	port: 8989,
-	certificate: "",
-	key: "",
-	primaryHost: "",
+	https: {
+		port: 8990,
+		certificate: "",
+		key: "",
+	},
+	accessHost: "",
 	databasePath: "data/archive95.sqlite",
 	logFile: "archive95.log",
 	logToConsole: true,
@@ -299,217 +302,226 @@ db.exec("PRAGMA journal_mode = WAL;");
 
 const sourceInfo = db.prepare("SELECT * FROM sources").all();
 
-Deno.serve(
-	{
-		port: config.port,
-		cert: config.certificate ? Deno.readTextFileSync(config.certificate) : undefined,
-		key: config.key ? Deno.readTextFileSync(config.key) : undefined,
-		hostname: "0.0.0.0",
-		onError: (error) => {
-			let errorHtml = templates.error.server;
-			let status;
-			if (error.message == "") {
-				errorHtml = errorHtml.replace("{MESSAGE}", "Connections through this host are not allowed.");
-				status = 400;
-			}
+const serverHandler = async (request, info) => {
+	logMessage(info.remoteAddr.hostname + ": " + request.url);
+
+	const requestUrl = new URL(request.url);
+	if (config.accessHost != "" && requestUrl.hostname != config.accessHost)
+		throw new Error();
+
+	const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
+	if (requestPath == "")
+		return new Response(prepareSearch(requestUrl.searchParams), { headers: { "Content-Type": "text/html;charset=utf-8" } });
+
+	// Serve static files
+	for (const exception of staticFiles.concat(sourceInfo.map(source => ["meta/images/" + source.short + ".png", source.short + ".png", "image/png"])))
+		if (requestPath == exception[1])
+			return new Response(await Deno.readFile(exception[0]), { headers: { "Content-Type": exception[2] } });
+
+	// Serve page screenshots
+	if (["screenshots/", "thumbnails/"].some(dir => requestPath.startsWith(dir))) {
+		const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
+		if (screenshot != null) {
+			if (requestPath.startsWith("screenshots/"))
+				return new Response(await Deno.readFile("data/screenshots/" + screenshot.path), { headers: { "Content-Type": "image/png" } });
 			else {
-				logMessage(error);
-				errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
-				status = 500;
-			}
-			return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" }});
-		}
-	},
-	async (request, info) => {
-		logMessage(info.remoteAddr.hostname + ": " + request.url);
-
-		const requestUrl = new URL(request.url);
-		if (config.primaryHost != "" && requestUrl.hostname != config.primaryHost)
-			throw new Error();
-
-		const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
-		if (requestPath == "")
-			return new Response(prepareSearch(requestUrl.searchParams), { headers: { "Content-Type": "text/html;charset=utf-8" } });
-
-		// Serve static files
-		for (const exception of staticFiles.concat(sourceInfo.map(source => ["meta/images/" + source.short + ".png", source.short + ".png", "image/png"])))
-			if (requestPath == exception[1])
-				return new Response(await Deno.readFile(exception[0]), { headers: { "Content-Type": exception[2] } });
-
-		// Serve page screenshots
-		if (["screenshots/", "thumbnails/"].some(dir => requestPath.startsWith(dir))) {
-			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
-			if (screenshot != null) {
-				if (requestPath.startsWith("screenshots/"))
-					return new Response(await Deno.readFile("data/screenshots/" + screenshot.path), { headers: { "Content-Type": "image/png" } });
-				else {
-					const thumbnail = (await new Deno.Command("convert",
-						{ args: ["data/screenshots/" + screenshot.path, "-geometry", "x64", "-"], stdout: "piped" }
-					).output()).stdout;
-					return new Response(thumbnail, { headers: { "Content-Type": "image/png" } });
-				}
+				const thumbnail = (await new Deno.Command("convert",
+					{ args: ["data/screenshots/" + screenshot.path, "-geometry", "x64", "-"], stdout: "piped" }
+				).output()).stdout;
+				return new Response(thumbnail, { headers: { "Content-Type": "image/png" } });
 			}
 		}
-
-		const slashIndex = requestPath.indexOf("/");
-		let url, args;
-		if (slashIndex != -1) {
-			const search = (requestUrl.search == "" && request.url.endsWith("?")) ? "?" : requestUrl.search;
-			url = safeDecode(requestPath.substring(slashIndex + 1) + search);
-			args = splitArgs(requestPath.substring(0, slashIndex));
-		}
-		else {
-			url = "";
-			args = splitArgs(requestPath);
-		}
-		if (args == null) return error();
-
-		if (args.mode == "random") {
-			const whereConditions = ["skip = 0"];
-			const whereParameters = [];
-			if (!args.flags.includes("m"))
-				whereConditions.push("type = 'text/html'");
-			if (!args.flags.includes("o"))
-				whereConditions.push("sanitizedUrl != ''");
-			if (args.source != "") {
-				whereConditions.push("source = ?");
-				whereParameters.push(args.source);
-			}
-
-			const entry = db.prepare(
-				`SELECT path, url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
-			).get(...whereParameters);
-			return Response.redirect(requestUrl.origin + (
-				entry.url != ""
-					? `/${joinArgs("view", entry.source, args.flags)}/${entry.url}`
-					: `/${joinArgs("orphan", entry.source, args.flags)}/${entry.path}`
-			));
-		}
-
-		if (url == "") return error();
-
-		if (args.mode == "inlinks") {
-			if (url == "" || !config.doInlinks) return error();
-			const sanitizedUrl = sanitizeUrl(url);
-			const inlinkQuery = db.prepare(
-				"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
-			).all(sanitizedUrl);
-
-			let inlinks;
-			if (inlinkQuery.length > 0) {
-				const links = inlinkQuery.map(inlink => {
-					let linkBullet = templates.inlinks.link;
-
-					if (inlink.url != "")
-						linkBullet = linkBullet
-							.replace("{LINK}", !args.flags.includes("e")
-								? `/${joinArgs("view", inlink.source, args.flags)}/${inlink.url}`
-								: inlink.url)
-							.replace("{ORIGINAL}", inlink.url);
-					else
-						linkBullet = linkBullet
-							.replace("{LINK}", !args.flags.includes("e")
-								? `/${joinArgs("orphan", inlink.source, args.flags.replace("n", ""))}/${inlink.path}`
-								: `/${inlink.path}`)
-							.replace("{ORIGINAL}", inlink.path);
-
-					return linkBullet.replace("{SOURCE}", inlink.source);
-				});
-				inlinks = templates.inlinks.main
-					.replaceAll("{URL}", sanitizedUrl)
-					.replace("{LINKS}", links.join("\n"));
-			}
-			else
-				inlinks = templates.inlinks.error
-					.replaceAll("{URL}", sanitizedUrl);
-
-			return new Response(inlinks, { headers: { "Content-Type": "text/html" } });
-		}
-
-		let archives = [];
-		let desiredArchive = 0;
-		if (args.mode == "view") {
-			const sanitizedUrl = sanitizeUrl(url);
-			archives = db.prepare("SELECT * FROM files WHERE sanitizedUrl = ? AND skip = 0").all(sanitizedUrl);
-			if (archives.length == 0) return error(url);
-			if (archives.length > 1) {
-				// Sort archives from oldest to newest
-				archives.sort((a, b) => {
-					const asort = sourceInfo.find(source => source.short == a.source).id;
-					const bsort = sourceInfo.find(source => source.short == b.source).id;
-					return asort - bsort;
-				});
-				// Get desired archive by first looking for exact URL match, then sanitized URL if there are no exact matches
-				if (args.source != "") {
-					desiredArchive = archives.findIndex(archive =>
-						archive.source == args.source && archive.url == url
-					);
-					if (desiredArchive == -1)
-						desiredArchive = archives.findIndex(archive =>
-							archive.source == args.source && sanitizeUrl(archive.url) == sanitizedUrl
-						);
-					desiredArchive = Math.max(0, desiredArchive);
-				}
-			}
-		}
-		else if (args.mode == "orphan" || args.mode == "raw") {
-			if (args.source == "" || url == "") return error();
-			const entry = db.prepare("SELECT * FROM files WHERE source = ? AND path = ? AND skip = 0").get(args.source, url);
-			if (entry == null) return error();
-			archives.push(entry);
-		}
-		// Encode number sign to make sure it's properly identified as part of the URL
-		for (const archive of archives)
-			archive.url = archive.url.replaceAll("#", "%23");
-
-		const entry = archives[desiredArchive];
-		const filePath = `data/sources/${entry.source}/${entry.path}`;
-		let file;
-		let contentType = entry.type;
-
-		if (args.mode != "raw" && !args.flags.includes("p")) {
-			if (contentType == "image/x-xbitmap") {
-				// Convert XBM to PNG
-				file = (await new Deno.Command("convert", { args: [filePath, "PNG:-"], stdout: "piped" }).output()).stdout;
-				contentType = "image/png";
-			}
-			else if (entry.source == "riscdisc" && contentType == "image/gif")
-				// Fix problematic GIFs present in The Risc Disc Volume 2
-				file = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
-		}
-
-		if (args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
-			// Embed non-HTML files when navbar is enabled
-			let embed;
-			if (contentType.startsWith("text/"))
-				embed = templates.embed.text
-					.replace("{URL}", entry.sanitizedUrl)
-					.replace("{TEXT}", await getText(filePath, entry.source));
-			else
-				embed = (contentType.startsWith("audio/") ? templates.embed.audio : templates.embed.other)
-					.replace("{URL}", entry.sanitizedUrl)
-					.replace("{TYPE}", contentType)
-					.replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
-			embed = injectNavbar(embed, archives, desiredArchive, args.flags);
-			return new Response(embed, { headers: { "Content-Type": "text/html" }});
-		}
-		else if (args.mode == "raw" || contentType != "text/html")
-			// Serve actual file data if raw or non-HTML
-			return new Response(file || await Deno.readFile(filePath), { headers: { "Content-Type": contentType }});
-
-		// Make adjustments to page markup before serving
-		let html = await getText(filePath, entry.source);
-		html = genericizeMarkup(html, entry);
-		html = redirectLinks(html, entry, args.flags);
-		if (!args.flags.includes("p"))
-			html = improvePresentation(html);
-		if (args.mode == "view" && !args.flags.includes("n"))
-			html = injectNavbar(html, archives, desiredArchive, args.flags);
-
-		// Serve the page
-		return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 	}
-);
+
+	const slashIndex = requestPath.indexOf("/");
+	let url, args;
+	if (slashIndex != -1) {
+		const search = (requestUrl.search == "" && request.url.endsWith("?")) ? "?" : requestUrl.search;
+		url = safeDecode(requestPath.substring(slashIndex + 1) + search);
+		args = splitArgs(requestPath.substring(0, slashIndex));
+	}
+	else {
+		url = "";
+		args = splitArgs(requestPath);
+	}
+	if (args == null) return error();
+
+	if (args.mode == "random") {
+		const whereConditions = ["skip = 0"];
+		const whereParameters = [];
+		if (!args.flags.includes("m"))
+			whereConditions.push("type = 'text/html'");
+		if (!args.flags.includes("o"))
+			whereConditions.push("sanitizedUrl != ''");
+		if (args.source != "") {
+			whereConditions.push("source = ?");
+			whereParameters.push(args.source);
+		}
+
+		const entry = db.prepare(
+			`SELECT path, url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
+		).get(...whereParameters);
+		return Response.redirect(requestUrl.origin + (
+			entry.url != ""
+				? `/${joinArgs("view", entry.source, args.flags)}/${entry.url}`
+				: `/${joinArgs("orphan", entry.source, args.flags)}/${entry.path}`
+		));
+	}
+
+	if (url == "") return error();
+
+	if (args.mode == "inlinks") {
+		if (url == "" || !config.doInlinks) return error();
+		const sanitizedUrl = sanitizeUrl(url);
+		const inlinkQuery = db.prepare(
+			"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
+		).all(sanitizedUrl);
+
+		let inlinks;
+		if (inlinkQuery.length > 0) {
+			const links = inlinkQuery.map(inlink => {
+				let linkBullet = templates.inlinks.link;
+
+				if (inlink.url != "")
+					linkBullet = linkBullet
+						.replace("{LINK}", !args.flags.includes("e")
+							? `/${joinArgs("view", inlink.source, args.flags)}/${inlink.url}`
+							: inlink.url)
+						.replace("{ORIGINAL}", inlink.url);
+				else
+					linkBullet = linkBullet
+						.replace("{LINK}", !args.flags.includes("e")
+							? `/${joinArgs("orphan", inlink.source, args.flags.replace("n", ""))}/${inlink.path}`
+							: `/${inlink.path}`)
+						.replace("{ORIGINAL}", inlink.path);
+
+				return linkBullet.replace("{SOURCE}", inlink.source);
+			});
+			inlinks = templates.inlinks.main
+				.replaceAll("{URL}", sanitizedUrl)
+				.replace("{LINKS}", links.join("\n"));
+		}
+		else
+			inlinks = templates.inlinks.error
+				.replaceAll("{URL}", sanitizedUrl);
+
+		return new Response(inlinks, { headers: { "Content-Type": "text/html" } });
+	}
+
+	let archives = [];
+	let desiredArchive = 0;
+	if (args.mode == "view") {
+		const sanitizedUrl = sanitizeUrl(url);
+		archives = db.prepare("SELECT * FROM files WHERE sanitizedUrl = ? AND skip = 0").all(sanitizedUrl);
+		if (archives.length == 0) return error(url);
+		if (archives.length > 1) {
+			// Sort archives from oldest to newest
+			archives.sort((a, b) => {
+				const asort = sourceInfo.find(source => source.short == a.source).id;
+				const bsort = sourceInfo.find(source => source.short == b.source).id;
+				return asort - bsort;
+			});
+			// Get desired archive by first looking for exact URL match, then sanitized URL if there are no exact matches
+			if (args.source != "") {
+				desiredArchive = archives.findIndex(archive =>
+					archive.source == args.source && archive.url == url
+				);
+				if (desiredArchive == -1)
+					desiredArchive = archives.findIndex(archive =>
+						archive.source == args.source && sanitizeUrl(archive.url) == sanitizedUrl
+					);
+				desiredArchive = Math.max(0, desiredArchive);
+			}
+		}
+	}
+	else if (args.mode == "orphan" || args.mode == "raw") {
+		if (args.source == "" || url == "") return error();
+		const entry = db.prepare("SELECT * FROM files WHERE source = ? AND path = ? AND skip = 0").get(args.source, url);
+		if (entry == null) return error();
+		archives.push(entry);
+	}
+	// Encode number sign to make sure it's properly identified as part of the URL
+	for (const archive of archives)
+		archive.url = archive.url.replaceAll("#", "%23");
+
+	const entry = archives[desiredArchive];
+	const filePath = `data/sources/${entry.source}/${entry.path}`;
+	let file;
+	let contentType = entry.type;
+
+	if (args.mode != "raw" && !args.flags.includes("p")) {
+		if (contentType == "image/x-xbitmap") {
+			// Convert XBM to PNG
+			file = (await new Deno.Command("convert", { args: [filePath, "PNG:-"], stdout: "piped" }).output()).stdout;
+			contentType = "image/png";
+		}
+		else if (entry.source == "riscdisc" && contentType == "image/gif")
+			// Fix problematic GIFs present in The Risc Disc Volume 2
+			file = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
+	}
+
+	if (args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
+		// Embed non-HTML files when navbar is enabled
+		let embed;
+		if (contentType.startsWith("text/"))
+			embed = templates.embed.text
+				.replace("{URL}", entry.sanitizedUrl)
+				.replace("{TEXT}", await getText(filePath, entry.source));
+		else
+			embed = (contentType.startsWith("audio/") ? templates.embed.audio : templates.embed.other)
+				.replace("{URL}", entry.sanitizedUrl)
+				.replace("{TYPE}", contentType)
+				.replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
+		embed = injectNavbar(embed, archives, desiredArchive, args.flags);
+		return new Response(embed, { headers: { "Content-Type": "text/html" }});
+	}
+	else if (args.mode == "raw" || contentType != "text/html")
+		// Serve actual file data if raw or non-HTML
+		return new Response(file || await Deno.readFile(filePath), { headers: { "Content-Type": contentType }});
+
+	// Make adjustments to page markup before serving
+	let html = await getText(filePath, entry.source);
+	html = genericizeMarkup(html, entry);
+	html = redirectLinks(html, entry, args.flags);
+	if (!args.flags.includes("p"))
+		html = improvePresentation(html);
+	if (args.mode == "view" && !args.flags.includes("n"))
+		html = injectNavbar(html, archives, desiredArchive, args.flags);
+
+	// Serve the page
+	return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+};
+const serverError = (error) => {
+	let errorHtml = templates.error.server;
+	let status;
+	if (error.message == "") {
+		errorHtml = errorHtml.replace("{MESSAGE}", "Connections through this host are not allowed.");
+		status = 400;
+	}
+	else {
+		logMessage(error);
+		errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
+		status = 500;
+	}
+	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" }});
+};
+
+// Start server on HTTP, and if configured to do so, HTTPS
+Deno.serve({
+	port: config.port,
+	hostname: config.hostName,
+	onError: serverError,
+}, serverHandler);
+if (config.https.certificate && config.https.key)
+	try {
+		Deno.serve({
+			port: config.https.port,
+			cert: Deno.readTextFileSync(config.https.certificate),
+			key: Deno.readTextFileSync(config.https.key),
+			hostName: config.hostName,
+			onError: serverError,
+		}, serverHandler);
+	} catch {}
 
 /*-------------------------+
  | Server Helper Functions |
