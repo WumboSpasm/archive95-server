@@ -10,7 +10,7 @@ Archive95 is an unorthodox web archive.
 ## Instructions
 1. Clone repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
 2. Make `data` folder and put archive files in it (download coming soon)
-3. Build database with `deno run -A main.js build`
+3. Build database with `deno run -A main.js --build`
 4. Run server with `deno run -A main.js`
 
 ## Endpoints

@@ -1,4 +1,11 @@
 import { Database } from "jsr:@db/sqlite@0.12";
+import { parseArgs } from "jsr:@std/cli/parse-args";
+
+const args = parseArgs(Deno.args, {
+	boolean: ["build"],
+	string: ["config"],
+	default: { build: false, config: "archive95.json" }
+});
 
 /*----------------------------+
  | Important Global Constants |
@@ -15,8 +22,8 @@ const defaultConfig = {
 	doInlinks: true,
 };
 const config = Object.assign({}, defaultConfig, JSON.parse(
-	await validFile("archive95.json")
-		? await Deno.readTextFile("archive95.json")
+	await validFile(args.config)
+		? await Deno.readTextFile(args.config)
 		: "{}"
 ));
 
@@ -65,8 +72,7 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
  | Build Database |
  +----------------*/
 
-const buildDatabase = Deno.args.length > 0 && Deno.args[0] == "build";
-if (buildDatabase) {
+if (args.build) {
 	const startTime = Date.now();
 
 	logMessage("creating new database...")
@@ -1155,7 +1161,7 @@ function genericizeMarkup(html, entry) {
 
 // Fix invalid/deprecated/non-standard markup so it displays correctly on modern browsers
 function improvePresentation(html) {
-	if (!buildDatabase) {
+	if (!args.build) {
 		const style = '<link rel="stylesheet" href="/presentation.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
 		html = matchHead != null
