@@ -1,4 +1,5 @@
 import { Database } from "jsr:@db/sqlite@0.12";
+import { join as joinPath } from "jsr:@std/path";
 import { parseArgs } from "jsr:@std/cli/parse-args";
 
 const args = parseArgs(Deno.args, {
@@ -19,7 +20,7 @@ const defaultConfig = {
 		key: "",
 	},
 	accessHost: "",
-	databasePath: "data/archive95.sqlite",
+	dataPath: "data",
 	logFile: "archive95.log",
 	logToConsole: true,
 	doInlinks: true,
@@ -71,6 +72,8 @@ const templates = {
 const possibleModes = ["view", "orphan", "raw", "inlinks", "random"];
 const possibleFlags = ["e", "m", "n", "o", "p"];
 
+const databasePath = joinPath(config.dataPath, "archive95.sqlite");
+
 /*----------------+
  | Build Database |
  +----------------*/
@@ -78,11 +81,11 @@ const possibleFlags = ["e", "m", "n", "o", "p"];
 if (args.build) {
 	const startTime = Date.now();
 
-	logMessage("creating new database...")
-	if (await validFile(config.databasePath)) await Deno.remove(config.databasePath);
-	if (await validFile(config.databasePath + "-shm")) await Deno.remove(config.databasePath + "-shm");
-	if (await validFile(config.databasePath + "-wal")) await Deno.remove(config.databasePath + "-wal");
-	const db = new Database(config.databasePath, { create: true });
+	logMessage("creating new database...");
+	if (await validFile(databasePath)) await Deno.remove(databasePath);
+	if (await validFile(databasePath + "-shm")) await Deno.remove(databasePath + "-shm");
+	if (await validFile(databasePath + "-wal")) await Deno.remove(databasePath + "-wal");
+	const db = new Database(databasePath, { create: true });
 	db.exec("PRAGMA journal_mode = WAL;");
 
 	/* Sources */
@@ -98,7 +101,7 @@ if (args.build) {
 		pathMode INTEGER NOT NULL
 	)`).run();
 
-	const sourceData = (await Deno.readTextFile("data/sources.txt")).split(/[\r\n]+/g).map((source, s, data) => {
+	const sourceData = (await Deno.readTextFile(joinPath(config.dataPath, "sources.txt"))).split(/[\r\n]+/g).map((source, s, data) => {
 		source = overwriteArray([data.length, ...Array(5).fill("undefined"), 0], source.split("\t"));
 		logMessage(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
 		return {
@@ -146,8 +149,8 @@ if (args.build) {
 
 	const entryData = await (async () => {
 		// Attempt to load type cache
-		await Deno.mkdir("data/cache", { recursive: true });
-		const typesPath = "data/cache/types.txt";
+		await Deno.mkdir(joinPath(config.dataPath, "cache"), { recursive: true });
+		const typesPath = joinPath(config.dataPath, "cache/types.txt");
 		const typesList = await validFile(typesPath)
 			? (await Deno.readTextFile(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
 			: [];
@@ -156,9 +159,9 @@ if (args.build) {
 		const entries = [];
 		let currentEntry = 0;
 		for (const source of sourceData) {
-			for (const entryLine of (await Deno.readTextFile(`data/sources/${source.short}.txt`)).split(/[\r\n]+/g)) {
+			for (const entryLine of (await Deno.readTextFile(joinPath(config.dataPath, `sources/${source.short}.txt`))).split(/[\r\n]+/g)) {
 				const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
-				const filePath = `data/sources/${source.short}/${path}`;
+				const filePath = joinPath(config.dataPath, `sources/${source.short}/${path}`);
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
 				const entry = {
 					path: path,
@@ -194,7 +197,7 @@ if (args.build) {
 		}
 
 		// Write type cache
-		Deno.writeTextFile("data/cache/types.txt", typesList.map(typeLine => typeLine.join("\t")).join("\n"));
+		Deno.writeTextFile(joinPath(config.dataPath, "cache/types.txt"), typesList.map(typeLine => typeLine.join("\t")).join("\n"));
 
 		// Sort entries and give them IDs based on the new order
 		logMessage("sorting files...");
@@ -217,7 +220,7 @@ if (args.build) {
 	const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
 	for (let e = 0; e < entryData.length; e++) {
 		const entry = entryData[e];
-		logMessage(`[${e + 1}/${entryData.length}] adding file data/sources/${entry.source}/${entry.path}...`);
+		logMessage(`[${e + 1}/${entryData.length}] adding file sources/${entry.source}/${entry.path}...`);
 		fileQuery.run(entry.id, entry.path, safeDecode(entry.url), entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip);
 		if (entry.title != "" || entry.content != "")
 			textQuery.run(entry.id, entry.title, entry.content);
@@ -232,7 +235,7 @@ if (args.build) {
 		sanitizedUrl TEXT NOT NULL
 	)`).run();
 
-	const screenshotData = (await Deno.readTextFile("data/screenshots.txt")).split(/[\r\n]+/g).map((screenshot, s, data) => {
+	const screenshotData = (await Deno.readTextFile(joinPath(config.dataPath, "screenshots.txt"))).split(/[\r\n]+/g).map((screenshot, s, data) => {
 		screenshot = screenshot.split("\t");
 		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
 		return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
@@ -261,7 +264,7 @@ if (args.build) {
 			let totalLinks = 0;
 			for (const entry of entryData)
 				if (entry.type == "text/html") {
-					const filePath = `data/sources/${entry.source}/${entry.path}`;
+					const filePath = joinPath(config.dataPath, `sources/${entry.source}/${entry.path}`);
 					logMessage(`[${totalLinks}/??] loading links from ${filePath}...`);
 					const entryLinks = collectLinks(
 						await getText(filePath, entry.source), entry,
@@ -297,7 +300,7 @@ if (args.build) {
  +-----------------------*/
 
 logMessage("initializing database...");
-const db = new Database(config.databasePath, { strict: true, readonly: true });
+const db = new Database(databasePath, { strict: true, readonly: true });
 db.exec("PRAGMA journal_mode = WAL;");
 
 const sourceInfo = db.prepare("SELECT * FROM sources").all();
@@ -323,10 +326,10 @@ const serverHandler = async (request, info) => {
 		const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
 		if (screenshot != null) {
 			if (requestPath.startsWith("screenshots/"))
-				return new Response(await Deno.readFile("data/screenshots/" + screenshot.path), { headers: { "Content-Type": "image/png" } });
+				return new Response(await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: { "Content-Type": "image/png" } });
 			else {
 				const thumbnail = (await new Deno.Command("convert",
-					{ args: ["data/screenshots/" + screenshot.path, "-geometry", "x64", "-"], stdout: "piped" }
+					{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
 				).output()).stdout;
 				return new Response(thumbnail, { headers: { "Content-Type": "image/png" } });
 			}
@@ -445,7 +448,7 @@ const serverHandler = async (request, info) => {
 		archive.url = archive.url.replaceAll("#", "%23");
 
 	const entry = archives[desiredArchive];
-	const filePath = `data/sources/${entry.source}/${entry.path}`;
+	const filePath = joinPath(config.dataPath, "sources", entry.source, entry.path);
 	let file;
 	let contentType = entry.type;
 
