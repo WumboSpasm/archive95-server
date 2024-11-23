@@ -1,0 +1,22 @@
+<html>
+	<head>
+		<title>Archive95</title>
+	</head>
+	<body>
+		<form action="/" method="get">
+			<a href="/"><img src="/compat/logo.gif" alt="Archive95" title="Go home" border="0"></a><br>
+			<input type="text" name="query" value="{QUERY}" size="40"> <input type="submit" value="Search">
+			<br>
+			<b>Search in:</b>
+			<input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}> <label for="inTitle">Title</label>
+			<input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}> <label for="inContent">Content</label>
+			<input type="checkbox" id="inUrl" name="in" value="url"{INURL}> <label for="inUrl">URL</label>
+			<br>
+			<b>Search formats:</b>
+			<input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}> <label for="formatsAll">All formats</label>
+			<input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}> <label for="formatsText">Text only</label>
+			<input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}> <label for="formatsMedia">Media only</label>
+		</form>
+{CONTENT}
+	</body>
+</html>

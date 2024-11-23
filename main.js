@@ -2,7 +2,7 @@ import { Database } from "jsr:@db/sqlite@0.12";
 import { join as joinPath } from "jsr:@std/path";
 import { parseArgs } from "jsr:@std/cli/parse-args";
 
-const args = parseArgs(Deno.args, {
+const flags = parseArgs(Deno.args, {
 	boolean: ["build"],
 	string: ["config"],
 	default: { build: false, config: "archive95.json" }
@@ -23,17 +23,24 @@ const defaultConfig = {
 	dataPath: "data",
 	logFile: "archive95.log",
 	logToConsole: true,
+	doCompatMode: true,
 	doInlinks: true,
 };
 const config = Object.assign({}, defaultConfig, JSON.parse(
-	await validFile(args.config)
-		? await Deno.readTextFile(args.config)
+	await validFile(flags.config)
+		? await Deno.readTextFile(flags.config)
 		: "{}"
 ));
 
 const staticFiles = [
-	["meta/images/logo.png", "logo.png", "image/png"],
-	["meta/images/dice.png", "dice.png", "image/png"],
+	["meta/images/logo.gif", "logo.gif", "image/gif"],
+	["meta/images/dice.gif", "dice.gif", "image/gif"],
+	["meta/images/compat/logo.gif", "compat/logo.gif", "image/gif"],
+	["meta/images/compat/dice.gif", "compat/dice.gif", "image/gif"],
+	["meta/images/compat/hide.gif", "compat/hide.gif", "image/gif"],
+	["meta/images/compat/random.gif", "compat/random.gif", "image/gif"],
+	["meta/images/compat/home.gif", "compat/home.gif", "image/gif"],
+	["meta/images/compat/screenshot.gif", "compat/screenshot.gif", "image/gif"],
 	["meta/css/search.css", "search.css", "text/css"],
 	["meta/css/navbar.css", "navbar.css", "text/css"],
 	["meta/css/presentation.css", "presentation.css", "text/css"],
@@ -46,11 +53,21 @@ const templates = {
 		source: await Deno.readTextFile("meta/templates/search_source.html"),
 		result: await Deno.readTextFile("meta/templates/search_result.html"),
 		navigate: await Deno.readTextFile("meta/templates/search_navigate.html"),
+		compat: {
+			main: await Deno.readTextFile("meta/templates/compat/search.html"),
+			about: await Deno.readTextFile("meta/templates/compat/search_about.html"),
+			source: await Deno.readTextFile("meta/templates/compat/search_source.html"),
+			result: await Deno.readTextFile("meta/templates/compat/search_result.html"),
+		},
 	},
 	navbar: {
 		main: await Deno.readTextFile("meta/templates/navbar.html"),
 		archive: await Deno.readTextFile("meta/templates/navbar_archive.html"),
 		screenshot: await Deno.readTextFile("meta/templates/navbar_screenshot.html"),
+		compat: {
+			main: await Deno.readTextFile("meta/templates/compat/navbar.html"),
+			screenshot: await Deno.readTextFile("meta/templates/compat/navbar_screenshot.html"),
+		},
 	},
 	embed: {
 		text: await Deno.readTextFile("meta/templates/embed_text.html"),
@@ -63,9 +80,9 @@ const templates = {
 		error: await Deno.readTextFile("meta/templates/inlinks_error.html"),
 	},
 	error: {
-		archive: await Deno.readTextFile("meta/templates/404_archive.html"),
-		generic: await Deno.readTextFile("meta/templates/404_generic.html"),
-		server: await Deno.readTextFile("meta/templates/404_server.html"),
+		archive: await Deno.readTextFile("meta/templates/error_archive.html"),
+		generic: await Deno.readTextFile("meta/templates/error_generic.html"),
+		server: await Deno.readTextFile("meta/templates/error_server.html"),
 	},
 };
 
@@ -78,7 +95,7 @@ const databasePath = joinPath(config.dataPath, "archive95.sqlite");
  | Build Database |
  +----------------*/
 
-if (args.build) {
+if (flags.build) {
 	const startTime = Date.now();
 
 	logMessage("creating new database...");
@@ -307,17 +324,23 @@ const sourceInfo = db.prepare("SELECT * FROM sources").all();
 
 const serverHandler = async (request, info) => {
 	logMessage(info.remoteAddr.hostname + ": " + request.url);
-
 	const requestUrl = new URL(request.url);
-	if (config.accessHost != "" && requestUrl.hostname != config.accessHost)
+
+	// Render search page and navbar in basic markup if user agent is not considered modern
+	const compatMode = config.doCompatMode && !isModern(request.headers.get("User-Agent") || "");
+
+	// If access host is configured, do not allow connections through any other hostname
+	// (requests with missing Host header are exempt from this, to satisfy some ancient browsers)
+	if (config.accessHost != "" && requestUrl.hostname != config.accessHost && (!config.doCompatMode || request.headers.has("Host")))
 		throw new Error();
 
+	// Serve homepage/search results
 	const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
 	if (requestPath == "")
-		return new Response(prepareSearch(requestUrl.searchParams), { headers: { "Content-Type": "text/html;charset=utf-8" } });
+		return new Response(prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
 	// Serve static files
-	for (const exception of staticFiles.concat(sourceInfo.map(source => ["meta/images/" + source.short + ".png", source.short + ".png", "image/png"])))
+	for (const exception of staticFiles.concat(sourceInfo.map(source => ["meta/images/" + source.short + ".gif", source.short + ".gif", "image/gif"])))
 		if (requestPath == exception[1])
 			return new Response(await Deno.readFile(exception[0]), { headers: { "Content-Type": exception[2] } });
 
@@ -326,12 +349,12 @@ const serverHandler = async (request, info) => {
 		const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
 		if (screenshot != null) {
 			if (requestPath.startsWith("screenshots/"))
-				return new Response(await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: { "Content-Type": "image/png" } });
+				return new Response(await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: { "Content-Type": "image/gif" } });
 			else {
 				const thumbnail = (await new Deno.Command("convert",
 					{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
 				).output()).stdout;
-				return new Response(thumbnail, { headers: { "Content-Type": "image/png" } });
+				return new Response(thumbnail, { headers: { "Content-Type": "image/gif" } });
 			}
 		}
 	}
@@ -350,20 +373,7 @@ const serverHandler = async (request, info) => {
 	if (args == null) return error();
 
 	if (args.mode == "random") {
-		const whereConditions = ["skip = 0"];
-		const whereParameters = [];
-		if (!args.flags.includes("m"))
-			whereConditions.push("type = 'text/html'");
-		if (!args.flags.includes("o"))
-			whereConditions.push("sanitizedUrl != ''");
-		if (args.source != "") {
-			whereConditions.push("source = ?");
-			whereParameters.push(args.source);
-		}
-
-		const entry = db.prepare(
-			`SELECT path, url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
-		).get(...whereParameters);
+		const entry = getRandom(args.flags, args.source);
 		return Response.redirect(requestUrl.origin + (
 			entry.url != ""
 				? `/${joinArgs("view", entry.source, args.flags)}/${entry.url}`
@@ -454,16 +464,16 @@ const serverHandler = async (request, info) => {
 
 	if (args.mode != "raw" && !args.flags.includes("p")) {
 		if (contentType == "image/x-xbitmap") {
-			// Convert XBM to PNG
-			file = (await new Deno.Command("convert", { args: [filePath, "PNG:-"], stdout: "piped" }).output()).stdout;
-			contentType = "image/png";
+			// Convert XBM to GIF
+			file = (await new Deno.Command("convert", { args: [filePath, "GIF:-"], stdout: "piped" }).output()).stdout;
+			contentType = "image/gif";
 		}
 		else if (entry.source == "riscdisc" && contentType == "image/gif")
 			// Fix problematic GIFs present in The Risc Disc Volume 2
 			file = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
 	}
 
-	if (args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
+	if (!compatMode && args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
 		// Embed non-HTML files when navbar is enabled
 		let embed;
 		if (contentType.startsWith("text/"))
@@ -487,9 +497,9 @@ const serverHandler = async (request, info) => {
 	html = genericizeMarkup(html, entry);
 	html = redirectLinks(html, entry, args.flags);
 	if (!args.flags.includes("p"))
-		html = improvePresentation(html);
+		html = improvePresentation(html, compatMode);
 	if (args.mode == "view" && !args.flags.includes("n"))
-		html = injectNavbar(html, archives, desiredArchive, args.flags);
+		html = injectNavbar(html, archives, desiredArchive, args.flags, compatMode);
 
 	// Serve the page
 	return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
@@ -541,7 +551,7 @@ const charMapExp = new RegExp(`[${Object.keys(charMap).join("")}]`, "g");
 const sanitizeInject = str => str.replace(charMapExp, m => charMap[m]);
 
 // Build home/search pages based on query strings
-function prepareSearch(params) {
+function prepareSearch(params, compatMode = false) {
 	const search = {
 		inUrl: !params.has("in") || params.has("in", "url"),
 		inTitle: !params.has("in") || params.has("in", "title"),
@@ -551,7 +561,7 @@ function prepareSearch(params) {
 		formatsMedia: params.get("formats") == "media",
 	};
 
-	let html = templates.search.main
+	let html = (!compatMode ? templates.search.main : templates.search.compat.main)
 		.replace("{QUERY}", sanitizeInject((params.get("query") || "").replaceAll("&", "&amp;")))
 		.replace("{INURL}", search.inUrl ? " checked" : "")
 		.replace("{INTITLE}", search.inTitle ? " checked" : "")
@@ -576,7 +586,7 @@ function prepareSearch(params) {
 		if (/[%_^]/g.test(searchString))
 			whereConditions = whereConditions.map(condition => `(${condition} ESCAPE "^")`);
 
-		let whereString = whereConditions.join(` OR `);
+		let whereString = whereConditions.join(" OR ");
 		if (search.formatsText)
 			whereString += " AND type LIKE 'text/%'";
 		else if (search.formatsMedia)
@@ -586,7 +596,7 @@ function prepareSearch(params) {
 		const searchQuery = searchString.length < 3 ? [] : db.prepare(`
 			SELECT path, url, sanitizedUrl, source, text.title, text.content FROM files
 			LEFT JOIN text ON files.id = text.id
-			WHERE ${whereString} AND skip = 0
+			WHERE (${whereString}) AND skip = 0
 			ORDER BY title LIKE ?1 DESC, files.id ASC
 			LIMIT 1000
 		`).all(`%${searchString.replaceAll(/([%_^])/g, '^$1')}%`);
@@ -596,68 +606,97 @@ function prepareSearch(params) {
 		const currentPage = Math.max(1, Math.min(totalPages, parseInt(params.get("page")) || 1));
 		const entryOffset = (currentPage - 1) * entriesPerPage;
 
-		const results = [];
+		const resultSegments = [];
 		for (const result of searchQuery.slice(entryOffset, entryOffset + entriesPerPage)) {
-			let titleString = sanitizeInject(result.title || "");
+			let titleInject = sanitizeInject(result.title || "");
 			let titleMatchIndex = -1;
-			if (titleString != "") {
-				if (search.inTitle && (titleMatchIndex = titleString.toLowerCase().indexOf(searchString)) != -1)
-					titleString =
-						titleString.substring(0, titleMatchIndex) +
-						"<b>" + titleString.substring(titleMatchIndex, titleMatchIndex + searchString.length) + "</b>" +
-						titleString.substring(titleMatchIndex + searchString.length);
+			if (titleInject != "") {
+				if (search.inTitle && (titleMatchIndex = titleInject.toLowerCase().indexOf(searchString)) != -1)
+					titleInject =
+						titleInject.substring(0, titleMatchIndex) +
+						"<b>" + titleInject.substring(titleMatchIndex, titleMatchIndex + searchString.length) + "</b>" +
+						titleInject.substring(titleMatchIndex + searchString.length);
 			}
 			else
-				titleString = result.sanitizedUrl;
+				titleInject = result.sanitizedUrl;
 
-			let urlString = sanitizeInject(result.url || "");
+			let urlInject = sanitizeInject(result.url || "");
 			let urlMatchIndex = -1;
-			if (search.inUrl && (urlMatchIndex = urlString.toLowerCase().indexOf(searchString)) != -1)
-				urlString =
-					urlString.substring(0, urlMatchIndex) +
-					"<b>" + urlString.substring(urlMatchIndex, urlMatchIndex + searchString.length) + "</b>" +
-					urlString.substring(urlMatchIndex + searchString.length);
+			if (search.inUrl && (urlMatchIndex = urlInject.toLowerCase().indexOf(searchString)) != -1)
+				urlInject =
+					urlInject.substring(0, urlMatchIndex) +
+					"<b>" + urlInject.substring(urlMatchIndex, urlMatchIndex + searchString.length) + "</b>" +
+					urlInject.substring(urlMatchIndex + searchString.length);
 
-			let contentString = result.content || "";
+			let contentInject = result.content || "";
 			let contentMatchIndex = -1;
-			if (search.inContent && (contentMatchIndex = contentString.toLowerCase().indexOf(searchString)) != -1) {
+			if (search.inContent && (contentMatchIndex = contentInject.toLowerCase().indexOf(searchString)) != -1) {
 				const minBound = contentMatchIndex - 30;
 				const maxBound = minBound + 200;
-				contentString = sanitizeInject(
-					contentString.substring(minBound, contentMatchIndex) +
-					"<b>" + contentString.substring(contentMatchIndex, contentMatchIndex + searchString.length) + "</b>" +
-					contentString.substring(contentMatchIndex + searchString.length, maxBound)
+				contentInject = sanitizeInject(
+					contentInject.substring(minBound, contentMatchIndex) +
+					"<b>" + contentInject.substring(contentMatchIndex, contentMatchIndex + searchString.length) + "</b>" +
+					contentInject.substring(contentMatchIndex + searchString.length, maxBound)
 				).trim();
-				if (minBound > 0) contentString = "&hellip;" + contentString;
+				if (!compatMode) {
+					if (minBound > 0) contentInject = "&hellip;" + contentInject;
+				}
+				else {
+					if (minBound > 0) contentInject = "..." + contentInject;
+					if (maxBound < result.content.length) contentInject += "...";
+				}
 			}
 			else
-				contentString = sanitizeInject(contentString.substring(0, 200));
+				contentInject = sanitizeInject(contentInject.substring(0, 200) + (compatMode && contentInject.length > 200 ? "..." : ""));
 
-			results.push(
-				templates.search.result
+			resultSegments.push(
+				(!compatMode ? templates.search.result : templates.search.compat.result)
 					.replace("{ARCHIVE}", `/view-${result.source}/${result.url.replaceAll("#", "%23")}`)
-					.replace("{TITLE}", titleString)
-					.replace("{URL}", urlString)
+					.replace("{TITLE}", titleInject)
+					.replace("{URL}", urlInject)
 					.replace("{SOURCE}", result.source)
-					.replace("{TEXT}", contentString)
+					.replace("{TEXT}", contentInject)
 			);
+			if (compatMode) resultSegments.push("\t\t<hr>");
 		}
 
 		params.delete("page");
-		const navigate = templates.search.navigate
-			.replace("{TOTAL}", searchQuery.length)
-			.replace("{PREVIOUS}", currentPage == 1 ? "&lt;&lt;" : `<a href="?${params.toString()}&page=${currentPage - 1}">&lt;&lt;</a>`)
-			.replace("{CURRENT}", currentPage)
-			.replace("{TOTAL}", totalPages)
-			.replace("{NEXT}", currentPage == totalPages ? "&gt;&gt;" : `<a href="?${params.toString()}&page=${currentPage + 1}">&gt;&gt;</a>`);
-		results.unshift(navigate);
-		if (totalPages > 1 && currentPage != totalPages)
-			results.push(navigate);
 
-		const resultsString = searchQuery.length == 0 ? "No results were found for the given query." : results.join("\n");
-		html = html
-			.replace("{HEADER}", "Search results")
-			.replace("{CONTENT}", resultsString);
+		if (!compatMode) {
+			const navigate = templates.search.navigate
+				.replace("{TOTAL}", searchQuery.length)
+				.replace("{PAGE}", currentPage)
+				.replace("{PAGES}", totalPages)
+				.replace("{PREVIOUS}", currentPage == 1 ? "&lt;&lt;" : `<a href="?${params.toString()}&page=${currentPage - 1}">&lt;&lt;</a>`)
+				.replace("{NEXT}", currentPage == totalPages ? "&gt;&gt;" : `<a href="?${params.toString()}&page=${currentPage + 1}">&gt;&gt;</a>`);
+
+			resultSegments.unshift(navigate);
+			if (totalPages > 1 && currentPage != totalPages)
+				resultSegments.push(navigate);
+
+			const resultsString = searchQuery.length == 0 ? "No results were found for the given query." : resultSegments.join("\n");
+			html = html
+				.replace("{HEADER}", "Search results")
+				.replace("{CONTENT}", resultsString);
+		}
+		else {
+			const prevButton = currentPage == 1 ? "Prev" : `<a href="?${params.toString()}&page=${currentPage - 1}">Prev</a>`;
+			const nextButton = currentPage == totalPages ? "Next" : `<a href="?${params.toString()}&page=${currentPage + 1}">Next</a>`;
+			const queryInject = sanitizeInject(params.get("query")).replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+			if (searchQuery.length > 0) {
+				resultSegments.unshift("\t\t<hr>");
+				if (totalPages > 1) {
+					const navigate = `\t\tPage ${currentPage} of ${totalPages} - ${prevButton} ${nextButton}`;
+					resultSegments.unshift(navigate);
+					if (currentPage != totalPages)
+						resultSegments.push(navigate);
+				}
+			}
+
+			resultSegments.unshift(`\t\t<h2>${searchQuery.length} results for "${queryInject}"</h2>`);
+			html = html.replace("{CONTENT}", resultSegments.join("\n"));
+		}
 	}
 	else {
 		const sourceQuery = db.prepare(`
@@ -668,7 +707,7 @@ function prepareSearch(params) {
 		const sources = [];
 		for (const source of sourceQuery)
 			sources.push(
-				templates.search.source
+				(!compatMode ? templates.search.source : templates.search.compat.source)
 					.replace("{LINK}", source.link)
 					.replace("{TITLE}", source.title)
 					.replace("{AUTHOR}", source.author)
@@ -676,13 +715,19 @@ function prepareSearch(params) {
 					.replace("{COUNT}", source.size.toLocaleString())
 			);
 
-		const about = templates.search.about
+		let about = (!compatMode ? templates.search.about : templates.search.compat.about)
 			.replace("{SOURCES}", sources.join("\n"))
 			.replace("{TOTAL}", sourceQuery.reduce((total, source) => total + source.size, 0).toLocaleString());
 
-		html = html
-			.replace("{HEADER}", "About this website")
-			.replace("{CONTENT}", about);
+		if (compatMode) {
+			const randomEntry = getRandom();
+			about = about.replace("{RANDOM}", `/view-${randomEntry.source}/${randomEntry.url}`);
+			html = html.replace("{CONTENT}", about);
+		}
+		else
+			html = html
+				.replace("{HEADER}", "About this website")
+				.replace("{CONTENT}", about);
 	}
 
 	return html;
@@ -837,62 +882,114 @@ function redirectLinks(html, entry, flags) {
 }
 
 // Display navigation bar
-function injectNavbar(html, archives, desiredArchive, flags) {
+function injectNavbar(html, archives, desiredArchive, flags, compatMode = false) {
 	const entry = archives[desiredArchive];
 	const realUrl = entry.url.replaceAll("%23", "#");
 
-	let navbar = templates.navbar.main
-		.replaceAll("{URL}", realUrl)
-		.replace("{HIDEWARNING}", entry.warn ? "" : " hidden")
-		.replace("{WAYBACK}", "https://web.archive.org/web/0/" + realUrl)
-		.replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
-		.replace("{HIDEINLINKS}", config.doInlinks ? "" : " hidden")
-		.replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
-		.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
-		.replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
+	if (!compatMode) {
+		let navbar = templates.navbar.main
+			.replaceAll("{URL}", realUrl)
+			.replace("{SHOWWARNING}", entry.warn ? "" : " hidden")
+			.replace("{WAYBACK}", "https://web.archive.org/web/0/" + realUrl)
+			.replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
+			.replace("{SHOWINLINKS}", config.doInlinks ? "" : " hidden")
+			.replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
+			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
+			.replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
 
-	const archiveButtons = [];
-	for (let a = 0; a < archives.length; a++) {
-		const archive = archives[a];
-		const source = sourceInfo.find(source => source.short == archive.source);
-		archiveButtons.push(
-			templates.navbar.archive
-				.replace("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
-				.replace("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
-				.replace("{ICON}", `/${source.short}.png`)
-				.replace("{TITLE}", source.title)
-				.replace("{DATE}", source.date)
-		);
-	}
-	navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
-
-	const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
-	if (screenshotQuery.length > 0) {
-		const screenshots = [];
-		for (const screenshotPath of screenshotQuery)
-			screenshots.push(
-				templates.navbar.screenshot
-					.replace("{IMAGE}", "/screenshots/" + screenshotPath)
-					.replace("{THUMB}", "/thumbnails/" + screenshotPath)
+		const archiveButtons = [];
+		for (let a = 0; a < archives.length; a++) {
+			const archive = archives[a];
+			const source = sourceInfo.find(source => source.short == archive.source);
+			archiveButtons.push(
+				templates.navbar.archive
+					.replace("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
+					.replace("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
+					.replace("{ICON}", `/${source.short}.gif`)
+					.replace("{TITLE}", source.title)
+					.replace("{DATE}", source.date)
 			);
-		navbar = navbar.replace("{SCREENSHOTS}", screenshots.join("\n"));
+		}
+		navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
+
+		const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
+		if (screenshotQuery.length > 0) {
+			const screenshots = [];
+			for (const screenshotPath of screenshotQuery)
+				screenshots.push(
+					templates.navbar.screenshot
+						.replace("{IMAGE}", "/screenshots/" + screenshotPath)
+						.replace("{THUMB}", "/thumbnails/" + screenshotPath)
+				);
+			navbar = navbar.replace("{SCREENSHOTS}", screenshots.join("\n"));
+		}
+		else
+			navbar = navbar.replace("{SCREENSHOTS}", "");
+
+		const style = '<link rel="stylesheet" href="/navbar.css">';
+		const matchHead = html.match(/<head(er)?(| .*?)>/i);
+		html = matchHead != null
+			? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
+			: style + "\n" + html;
+
+		const padding = '<div style="height:120px"></div>';
+		const bodyCloseIndex = html.search(/(?:<\/body>)?[ \n\t]*(?:<\/noframes>)?[ \n\t]*(?:<\/html>)?[ \n\t]*$/i);
+		html = bodyCloseIndex != -1
+			? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
+			: html + "\n" + padding + "\n" + navbar;
+
+		return html;
 	}
-	else
-		navbar = navbar.replace("{SCREENSHOTS}", "");
+	else {
+		const source = sourceInfo.find(source => source.short == entry.source);
+		const randomEntry = getRandom(flags);
+		let navbar = templates.navbar.compat.main
+			.replace("{URL}", realUrl)
+			.replace("{SOURCE}", source.title)
+			.replace("{DATE}", source.date)
+			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
+			.replace("{RANDOM}", `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`);
 
-	const style = '<link rel="stylesheet" href="/navbar.css">';
-	const matchHead = html.match(/<head(er)?(| .*?)>/i);
-	html = matchHead != null
-		? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
-		: style + "\n" + html;
+		if (archives.length > 1) {
+			const archiveButtons = [];
+			for (let a = 0; a < archives.length; a++)
+				if (a != desiredArchive)
+					archiveButtons.push(`<a href="/${joinArgs("view", archives[a].source, flags)}/${archives[a].url}">${archives[a].source}</a>`);
+			navbar = navbar.replace("{ARCHIVES}", "Other archives: " + archiveButtons.join(", "));
+		}
+		else
+			navbar = navbar.replace("{ARCHIVES}", "");
 
-	const padding = '<div style="height:120px"></div>';
-	const bodyCloseIndex = html.search(/(?:<\/body>)?(?:[ \n\t]+)?(?:<\/noframes>)?(?:[ \n\t]+)?(?:<\/html>)?(?:[ \n\t]+)?$/i);
-	html = bodyCloseIndex != -1
-		? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
-		: html + "\n" + padding + "\n" + navbar;
+		const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
+		if (screenshotQuery.length > 0) {
+			const screenshots = [];
+			for (const screenshotPath of screenshotQuery)
+				screenshots.push(templates.navbar.compat.screenshot.replace("{IMAGE}", "/screenshots/" + screenshotPath));
+			navbar = navbar.replace("{SCREENSHOTS}", screenshots.join("\n"));
+		}
+		else
+			navbar = navbar.replace("{SCREENSHOTS}", "");
 
-	return html;
+		html = navbar + "\n" + html;
+		return html;
+	}
+}
+
+// Return a random entry
+function getRandom(flags = "", source = "") {
+	const whereConditions = ["skip = 0"];
+	const whereParameters = [];
+	if (!flags.includes("m"))
+		whereConditions.push("type = 'text/html'");
+	if (!flags.includes("o"))
+		whereConditions.push("sanitizedUrl != ''");
+	if (source != "") {
+		whereConditions.push("source = ?");
+		whereParameters.push(source);
+	}
+	return db.prepare(
+		`SELECT path, url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
+	).get(...whereParameters);
 }
 
 // Split string of arguments into an object
@@ -925,6 +1022,22 @@ function joinArgs(mode = null, source = null, flags = null) {
 	if (source != null && source != "") argsStr += "-" + source;
 	if (flags != null && flags != "") argsStr += "_" + flags.split("").toSorted().join("");
 	return argsStr;
+}
+
+// Make an educated guess of the requesting browser's recency
+function isModern(userAgent) {
+	const fieldMatch = userAgent.match(/(?:Chrome|Firefox|Safari)\/[0-9.]+/) || [];
+	if (fieldMatch.length > 0) {
+		const splitField = fieldMatch[0].split("/");
+		const browser = {
+			name: splitField[0],
+			version: parseFloat(splitField[1]),
+		};
+		return (browser.name == "Chrome"  && browser.version >= 80)
+			|| (browser.name == "Firefox" && browser.version >= 72)
+			|| (browser.name == "Safari"  && browser.version >= 604);
+	}
+	return false;
 }
 
 // Display error page
@@ -1174,9 +1287,9 @@ function genericizeMarkup(html, entry) {
 	return html;
 }
 
-// Fix invalid/deprecated/non-standard markup so it displays correctly on modern browsers
-function improvePresentation(html) {
-	if (!args.build) {
+// Attempt to fix invalid/deprecated/non-standard markup
+function improvePresentation(html, compatMode = false) {
+	if (!compatMode && !flags.build) {
 		const style = '<link rel="stylesheet" href="/presentation.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
 		html = matchHead != null
@@ -1219,25 +1332,27 @@ function improvePresentation(html) {
 	);
 
 	// Restore <isindex> on modern browsers
-	const isindexExp = /<isindex.*?>/gis;
-	for (let match; (match = isindexExp.exec(html)) !== null;) {
-		const isindex = match[0];
-		const matchPrompt = [...isindex.matchAll(/prompt {0,}= {0,}(".*?"|[^ >]+)/gis)];
-		const matchAction = [...isindex.matchAll(/action {0,}= {0,}(".*?"|[^ >]+)/gis)];
+	if (!compatMode) {
+		const isindexExp = /<isindex.*?>/gis;
+		for (let match; (match = isindexExp.exec(html)) !== null;) {
+			const isindex = match[0];
+			const matchPrompt = [...isindex.matchAll(/prompt {0,}= {0,}(".*?"|[^ >]+)/gis)];
+			const matchAction = [...isindex.matchAll(/action {0,}= {0,}(".*?"|[^ >]+)/gis)];
 
-		let formStart = "";
-		let formEnd = "";
-		let prompt = "This is a searchable index. Enter search keywords: ";
-		if (matchPrompt.length > 0 && matchPrompt[0].length > 0)
-			prompt = trimQuotes(matchPrompt[0][1]);
-		if (matchAction.length > 0 && matchAction[0].length > 0) {
-			formStart = `<form action=${trimQuotes(matchAction[0][1])}>`;
-			formEnd = "</form>";
+			let formStart = "";
+			let formEnd = "";
+			let prompt = "This is a searchable index. Enter search keywords: ";
+			if (matchPrompt.length > 0 && matchPrompt[0].length > 0)
+				prompt = trimQuotes(matchPrompt[0][1]);
+			if (matchAction.length > 0 && matchAction[0].length > 0) {
+				formStart = `<form action=${trimQuotes(matchAction[0][1])}>`;
+				formEnd = "</form>";
+			}
+
+			html = html.substring(0, isindexExp.lastIndex - isindex.length)
+				+ formStart + "<hr>" + prompt + "<input><hr>" + formEnd
+				+ html.substring(isindexExp.lastIndex);
 		}
-
-		html = html.substring(0, isindexExp.lastIndex - isindex.length)
-			+ formStart + "<hr>" + prompt + "<input><hr>" + formEnd
-			+ html.substring(isindexExp.lastIndex);
 	}
 
 	return html;
