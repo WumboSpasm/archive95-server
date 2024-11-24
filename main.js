@@ -3,9 +3,9 @@ import { join as joinPath } from "jsr:@std/path";
 import { parseArgs } from "jsr:@std/cli/parse-args";
 
 const flags = parseArgs(Deno.args, {
-	boolean: ["build"],
+	boolean: ["build", "wipe-cache"],
 	string: ["config"],
-	default: { build: false, config: "archive95.json" }
+	default: { "build": false, "wipe-cache": false, "config": "archive95.json" }
 });
 
 /*----------------------------+
@@ -23,12 +23,13 @@ const defaultConfig = {
 	dataPath: "data",
 	logFile: "archive95.log",
 	logToConsole: true,
+	doCaching: false,
 	doCompatMode: true,
 	doInlinks: true,
 };
 const config = Object.assign({}, defaultConfig, JSON.parse(
-	await validFile(flags.config)
-		? await Deno.readTextFile(flags.config)
+	await validFile(flags["config"])
+		? await Deno.readTextFile(flags["config"])
 		: "{}"
 ));
 
@@ -95,8 +96,14 @@ const databasePath = joinPath(config.dataPath, "archive95.sqlite");
  | Build Database |
  +----------------*/
 
-if (flags.build) {
+if (flags["build"]) {
 	const startTime = Date.now();
+
+	const cachePath = joinPath(config.dataPath, "cache");
+	if (flags["wipe-cache"]) {
+		logMessage("wiping cache...");
+		await Deno.remove(cachePath, { recursive: true });
+	}
 
 	logMessage("creating new database...");
 	if (await validFile(databasePath)) await Deno.remove(databasePath);
@@ -166,8 +173,8 @@ if (flags.build) {
 
 	const entryData = await (async () => {
 		// Attempt to load type cache
-		await Deno.mkdir(joinPath(config.dataPath, "cache"), { recursive: true });
-		const typesPath = joinPath(config.dataPath, "cache/types.txt");
+		await Deno.mkdir(cachePath, { recursive: true });
+		const typesPath = joinPath(cachePath, "types.txt");
 		const typesList = await validFile(typesPath)
 			? (await Deno.readTextFile(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
 			: [];
@@ -214,7 +221,7 @@ if (flags.build) {
 		}
 
 		// Write type cache
-		Deno.writeTextFile(joinPath(config.dataPath, "cache/types.txt"), typesList.map(typeLine => typeLine.join("\t")).join("\n"));
+		Deno.writeTextFile(joinPath(cachePath, "types.txt"), typesList.map(typeLine => typeLine.join("\t")).join("\n"));
 
 		// Sort entries and give them IDs based on the new order
 		logMessage("sorting files...");
@@ -462,6 +469,12 @@ const serverHandler = async (request, info) => {
 	let file;
 	let contentType = entry.type;
 
+	// If the requested entry is an HTML page, serve from cache if possible
+	if (contentType == "text/html") {
+		const cachedHtml = await getCachedPage(entry.id, args);
+		if (cachedHtml != null) return new Response(cachedHtml, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+	}
+
 	if (args.mode != "raw" && !args.flags.includes("p")) {
 		if (contentType == "image/x-xbitmap") {
 			// Convert XBM to GIF
@@ -486,11 +499,12 @@ const serverHandler = async (request, info) => {
 				.replace("{TYPE}", contentType)
 				.replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
 		embed = injectNavbar(embed, archives, desiredArchive, args.flags);
-		return new Response(embed, { headers: { "Content-Type": "text/html" }});
+		await cachePage(entry.id, args, embed);
+		return new Response(embed, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 	}
 	else if (args.mode == "raw" || contentType != "text/html")
 		// Serve actual file data if raw or non-HTML
-		return new Response(file || await Deno.readFile(filePath), { headers: { "Content-Type": contentType }});
+		return new Response(file || await Deno.readFile(filePath), { headers: { "Content-Type": contentType } });
 
 	// Make adjustments to page markup before serving
 	let html = await getText(filePath, entry.source);
@@ -501,7 +515,8 @@ const serverHandler = async (request, info) => {
 	if (args.mode == "view" && !args.flags.includes("n"))
 		html = injectNavbar(html, archives, desiredArchive, args.flags, compatMode);
 
-	// Serve the page
+	// Cache and serve the page
+	await cachePage(entry.id, args, html);
 	return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 };
 const serverError = (error) => {
@@ -516,7 +531,7 @@ const serverError = (error) => {
 		errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
 		status = 500;
 	}
-	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" }});
+	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" } });
 };
 
 // Start server on HTTP, and if configured to do so, HTTPS
@@ -1020,8 +1035,36 @@ function splitArgs(argsStr) {
 function joinArgs(mode = null, source = null, flags = null) {
 	let argsStr = mode || "";
 	if (source != null && source != "") argsStr += "-" + source;
-	if (flags != null && flags != "") argsStr += "_" + flags.split("").toSorted().join("");
+	if (flags != null && flags != "") argsStr += "_" + sortFlags(flags);
 	return argsStr;
+}
+
+// Sort flags in alphabetical order
+function sortFlags(flags) { return flags.split("").toSorted().join(""); }
+
+// Return directory of cached page based on its flags
+function getCachedPageDir(args) {
+	let flags = args.flags || "";
+	if (args.mode == "orphan") flags = sortFlags(flags + "n");
+	if (flags.includes("n")) flags = flags.replace(/[mo]/g, "");
+	return joinPath(config.dataPath, "cache/html/" + flags);
+}
+
+// Return cached page data, or null if none exists
+async function getCachedPage(id, args) {
+	if (!config.doCaching) return null;
+	const cachedPageFile = joinPath(getCachedPageDir(args), `${id}`);
+	return await validFile(cachedPageFile) ? await Deno.readFile(cachedPageFile) : null;
+}
+
+// Add page data to the cache, if no cache exists already
+async function cachePage(id, args, html) {
+	if (!config.doCaching) return;
+	const cachedPageDir = getCachedPageDir(args);
+	const cachedPageFile = joinPath(cachedPageDir, `${id}`);
+	if (await validFile(cachedPageFile)) return;
+	await Deno.mkdir(cachedPageDir, { recursive: true });
+	await Deno.writeTextFile(cachedPageFile, html);
 }
 
 // Make an educated guess of the requesting browser's recency
@@ -1289,7 +1332,7 @@ function genericizeMarkup(html, entry) {
 
 // Attempt to fix invalid/deprecated/non-standard markup
 function improvePresentation(html, compatMode = false) {
-	if (!compatMode && !flags.build) {
+	if (!compatMode && !flags["build"]) {
 		const style = '<link rel="stylesheet" href="/presentation.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
 		html = matchHead != null
