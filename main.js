@@ -984,7 +984,13 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		else
 			navbar = navbar.replace("{SCREENSHOTS}", "");
 
-		html = navbar + "\n" + html;
+		if (!/<frameset.*?>/i.test(html)) {
+			const bodyOpenIndex = (html.match(
+				/^[ \n\t]*(?:<!DOCTYPE.*?>)?[ \n\t]*(?:<html.*?>)?[ \n\t]*(?:<head(?:er)?.*?>.*?<\/head(?:er)?>)?[ \n\t]*(?:<body.*?>)?[ \n\t]*/is
+			) || [""])[0].length;
+			html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
+		}
+
 		return html;
 	}
 }
