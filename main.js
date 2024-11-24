@@ -457,7 +457,7 @@ const serverHandler = async (request, info) => {
 
 	// If the requested entry is an HTML page, serve from cache if possible
 	if (contentType == "text/html") {
-		const cachedHtml = await getCachedPage(entry.id, args);
+		const cachedHtml = await getCachedPage(entry.id, args, compatMode);
 		if (cachedHtml != null) return new Response(cachedHtml, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 	}
 
@@ -485,7 +485,7 @@ const serverHandler = async (request, info) => {
 				.replace("{TYPE}", contentType)
 				.replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
 		embed = injectNavbar(embed, archives, desiredArchive, args.flags);
-		await cachePage(entry.id, args, embed);
+		await cachePage(entry.id, args, false, embed);
 		return new Response(embed, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 	}
 	else if (args.mode == "raw" || contentType != "text/html")
@@ -502,7 +502,7 @@ const serverHandler = async (request, info) => {
 		html = injectNavbar(html, archives, desiredArchive, args.flags, compatMode);
 
 	// Cache and serve the page
-	await cachePage(entry.id, args, html);
+	await cachePage(entry.id, args, compatMode, html);
 	return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 };
 const serverError = (error) => {
@@ -1042,24 +1042,26 @@ function joinArgs(mode = null, source = null, flags = null) {
 function sortFlags(flags) { return flags.split("").toSorted().join(""); }
 
 // Return directory of cached page based on its flags
-function getCachedPageDir(args) {
+function getCachedPageDir(args, compatMode) {
 	let flags = args.flags || "";
+	let compatPath = "";
 	if (args.mode == "orphan") flags = sortFlags(flags + "n");
 	if (flags.includes("n")) flags = flags.replace(/[mo]/g, "");
-	return joinPath(config.dataPath, "cache/html/" + flags);
+	if (compatMode && (!flags.includes("n") || !flags.includes("p"))) compatPath = "compat";
+	return joinPath(config.dataPath, "cache/html/", flags, compatPath);
 }
 
 // Return cached page data, or null if none exists
-async function getCachedPage(id, args) {
+async function getCachedPage(id, args, compatMode) {
 	if (!config.doCaching) return null;
-	const cachedPageFile = joinPath(getCachedPageDir(args), `${id}`);
+	const cachedPageFile = joinPath(getCachedPageDir(args, compatMode), `${id}`);
 	return await validFile(cachedPageFile) ? await Deno.readFile(cachedPageFile) : null;
 }
 
 // Add page data to the cache, if no cache exists already
-async function cachePage(id, args, html) {
+async function cachePage(id, args, compatMode, html) {
 	if (!config.doCaching) return;
-	const cachedPageDir = getCachedPageDir(args);
+	const cachedPageDir = getCachedPageDir(args, compatMode);
 	const cachedPageFile = joinPath(cachedPageDir, `${id}`);
 	if (await validFile(cachedPageFile)) return;
 	await Deno.mkdir(cachedPageDir, { recursive: true });
