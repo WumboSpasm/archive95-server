@@ -120,9 +120,10 @@ if (flags["build"]) {
 		short TEXT NOT NULL,
 		title TEXT NOT NULL,
 		author TEXT NOT NULL,
-		date TEXT NOT NULL,
 		link TEXT NOT NULL,
-		pathMode INTEGER NOT NULL
+		year INTEGER NOT NULL,
+		month INTEGER NOT NULL,
+		mode INTEGER NOT NULL
 	)`).run();
 
 	const sourceData = (await Deno.readTextFile(joinPath(config.dataPath, "sources.txt"))).split(/[\r\n]+/g).map((source, s, data) => {
@@ -133,24 +134,25 @@ if (flags["build"]) {
 			short: source[0],
 			title: source[1],
 			author: source[2],
-			date: source[3],
-			link: source[4],
+			year: source[3],
+			month: source[4],
+			link: source[5],
 			// 0 = all links point to original locations
 			// 1 = relative paths point to local filesystem, but keep non-existent paths intact
 			// 2 = relative paths point to local filesystem, and mark non-existent paths as unarchived
-			pathMode: parseInt(source[5]) || 0,
+			mode: parseInt(source[6]) || 0,
 		};
 	});
 
 	logMessage("adding sources to database...");
-	const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, date, link, pathMode) VALUES (?, ?, ?, ?, ?, ?, ?)");
+	const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, link, year, month, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 	for (let s = 0; s < sourceData.length; s++) {
 		const source = sourceData[s];
 		logMessage(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
-		sourceQuery.run(source.id, source.short, source.title, source.author, source.date, source.link, source.pathMode);
+		sourceQuery.run(source.id, source.short, source.title, source.author, source.link, source.year, source.month, source.mode);
 	}
 
-	/* Entries and Text Content */
+	/* Entries, Text Content, Inlinks */
 
 	logMessage("creating files table...");
 	db.prepare(`CREATE TABLE files (
@@ -170,6 +172,15 @@ if (flags["build"]) {
 		title TEXT NOT NULL,
 		content TEXT NOT NULL
 	)`).run();
+
+	if (config.doInlinks) {
+		logMessage("creating links table...");
+		db.prepare(`CREATE TABLE links (
+			id TEXT NOT NULL,
+			url TEXT NOT NULL,
+			sanitizedUrl TEXT NOT NULL
+		);`).run();
+	}
 
 	const entryData = await (async () => {
 		// Attempt to load type cache
@@ -197,6 +208,7 @@ if (flags["build"]) {
 					skip: skip.toLowerCase() == "true",
 					title: "",
 					content: "",
+					links: [],
 				};
 				if (!entry.skip) {
 					const typeLine = typesList.find(typeLine => typeLine[0] == filePath);
@@ -211,6 +223,7 @@ if (flags["build"]) {
 						if (entry.type == "text/html") {
 							const html = improvePresentation(genericizeMarkup(text, entry));
 							Object.assign(entry, textContent(html));
+							if (config.doInlinks) entry.links = getLinks(html, entry.url);
 						}
 						else
 							entry.content = text.replaceAll(/[\n\t ]+/g, " ").trim();
@@ -242,12 +255,21 @@ if (flags["build"]) {
 	logMessage("adding files to database...");
 	const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 	const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
+	const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
 	for (let e = 0; e < entryData.length; e++) {
 		const entry = entryData[e];
 		logMessage(`[${e + 1}/${entryData.length}] adding file sources/${entry.source}/${entry.path}...`);
 		fileQuery.run(entry.id, entry.path, safeDecode(entry.url), entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip);
 		if (entry.title != "" || entry.content != "")
 			textQuery.run(entry.id, entry.title, entry.content);
+		if (config.doInlinks) {
+			const parsedLinks = resolveLinks(
+				entry, sourceData.find(source => source.short == entry.source).mode,
+				entry.links, entryData
+			);
+			for (const link of parsedLinks)
+				linkQuery.run(link.id, safeDecode(link.url), link.sanitizedUrl);
+		}
 	}
 
 	/* Screenshots */
@@ -271,42 +293,6 @@ if (flags["build"]) {
 		const screenshot = screenshotData[s];
 		logMessage(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
 		screenshotQuery.run(screenshot.path, safeDecode(screenshot.url), screenshot.sanitizedUrl);
-	}
-
-	/* Inlinks */
-
-	if (config.doInlinks) {
-		logMessage("creating links table...");
-		db.prepare(`CREATE TABLE links (
-			id TEXT NOT NULL,
-			url TEXT NOT NULL,
-			sanitizedUrl TEXT NOT NULL
-		);`).run();
-
-		const linkData = await (async () => {
-			const links = [];
-			let totalLinks = 0;
-			for (const entry of entryData)
-				if (entry.type == "text/html") {
-					const filePath = joinPath(config.dataPath, `sources/${entry.source}/${entry.path}`);
-					logMessage(`[${totalLinks}/??] loading links from ${filePath}...`);
-					const entryLinks = collectLinks(
-						await getText(filePath, entry.source), entry,
-						sourceData.find(source => source.short == entry.source).pathMode, entryData
-					);
-					totalLinks += entryLinks.length;
-					links.push(...entryLinks);
-				}
-			return links;
-		})();
-
-		logMessage("adding links to database...");
-		const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
-		for (let l = 0; l < linkData.length; l++) {
-			const link = linkData[l];
-			logMessage(`[${l + 1}/${linkData.length}] adding link ${link.sanitizedUrl}...`);
-			linkQuery.run(link.id, safeDecode(link.url), link.sanitizedUrl);
-		}
 	}
 
 	const timeElapsed = Date.now() - startTime;
@@ -509,7 +495,7 @@ const serverHandler = async (request, info) => {
 	// Make adjustments to page markup before serving
 	let html = await getText(filePath, entry.source);
 	html = genericizeMarkup(html, entry);
-	html = redirectLinks(html, entry, args.flags);
+	html = redirectLinks(html, entry, args.flags, getLinks(html, entry.url));
 	if (!args.flags.includes("p"))
 		html = improvePresentation(html, compatMode);
 	if (args.mode == "view" && !args.flags.includes("n"))
@@ -726,7 +712,7 @@ function prepareSearch(params, compatMode = false) {
 					.replace("{LINK}", source.link)
 					.replace("{TITLE}", source.title)
 					.replace("{AUTHOR}", source.author)
-					.replace("{DATE}", source.date)
+					.replace("{DATE}", `${source.month}`.padStart(2, "0") + "/" + source.year)
 					.replace("{COUNT}", source.size.toLocaleString())
 			);
 
@@ -749,12 +735,12 @@ function prepareSearch(params, compatMode = false) {
 }
 
 // Point links to archives, or the original URLs if "e" flag is enabled
-function redirectLinks(html, entry, flags) {
-	const pathMode = sourceInfo.find(source => source.short == entry.source).pathMode;
+function redirectLinks(html, entry, flags, rawLinks) {
+	const rootSource = sourceInfo.find(source => source.short == entry.source);
 	const orphanFlags = flags.replace("n", "");
 	const noNavFlags = orphanFlags + "n";
 
-	const unmatchedLinks = getLinks(html, entry.url).map(link => {
+	const unmatchedLinks = rawLinks.map(link => {
 		const matchStart = link.lastIndex - link.fullMatch.length;
 		const matchEnd = link.lastIndex;
 		const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
@@ -773,8 +759,21 @@ function redirectLinks(html, entry, flags) {
 
 	const matchedLinks = [];
 
+	// Filtering function to remove duplicate entries by their distance from the root source date
+	const nearestEntryOnly = (entry, _, self) => {
+		const source  = sourceInfo.find(source => source.short == entry.source);
+		const monthDist  = Math.abs((rootSource.year * 12 + rootSource.month) - (source.year * 12 + source.month));
+		for (const entry2 of self)
+			if (entry.sanitizedUrl == entry2.sanitizedUrl && entry.source != entry2.source) {
+				const source2 = sourceInfo.find(source => source.short == entry2.source);
+				const monthDist2 = Math.abs((rootSource.year * 12 + rootSource.month) - (source2.year * 12 + source2.month));
+				return monthDist < monthDist2;
+			}
+		return true;
+	};
+
 	// Check for path matches (needed for sources that have their own filesystems)
-	if (pathMode > 0) {
+	if (rootSource.mode > 0) {
 		const comparePaths = [];
 		const comparePathsQuery = [];
 		for (const link of unmatchedLinks) {
@@ -796,9 +795,9 @@ function redirectLinks(html, entry, flags) {
 		}
 
 		if (comparePaths.length > 0) {
-			const entryQuery = db.prepare(`SELECT path, url, skip FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
+			const entryQuery = db.prepare(`SELECT path, url, source, skip FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
 				Array(comparePathsQuery.length).fill("?").join(", ")
-			})`).all(entry.source, ...comparePathsQuery);
+			})`).all(entry.source, ...comparePathsQuery).filter(nearestEntryOnly);
 
 			for (const compareEntry of entryQuery) {
 				const entryComparePath = compareEntry.path.toLowerCase();
@@ -840,7 +839,7 @@ function redirectLinks(html, entry, flags) {
 		const compareUrls = [...new Set(unmatchedLinks.map(link => link.sanitizedUrl))];
 		const entryQuery = db.prepare(`SELECT path, sanitizedUrl, source FROM files WHERE sanitizedUrl IN (${
 			Array(compareUrls.length).fill("?").join(", ")
-		}) AND skip = 0`).all(...compareUrls);
+		}) AND skip = 0`).all(...compareUrls).filter(nearestEntryOnly);
 
 		if (entryQuery.length > 0) {
 			// Check for source-local matches first
@@ -873,7 +872,7 @@ function redirectLinks(html, entry, flags) {
 		// Point all clickable links to the Wayback Machine, and everything else to an invalid URL
 		// We shouldn't be loading any content off of Wayback
 		for (let l = 0; l < unmatchedLinks.length; l++) {
-			if (pathMode == 2 && !unmatchedLinks[l].isWhole)
+			if (rootSource.mode == 2 && !unmatchedLinks[l].isWhole)
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
 					? "[unarchived-media]"
 					: "[unarchived-link]";
@@ -922,7 +921,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 					.replace("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
 					.replace("{ICON}", `/${source.short}.gif`)
 					.replace("{TITLE}", source.title)
-					.replace("{DATE}", source.date)
+					.replace("{DATE}", `${source.month}`.padStart(2, "0") + "/" + source.year)
 			);
 		}
 		navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
@@ -961,7 +960,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		let navbar = templates.navbar.compat.main
 			.replace("{URL}", realUrl)
 			.replace("{SOURCE}", source.title)
-			.replace("{DATE}", source.date)
+			.replace("{DATE}", `${source.month}`.padStart(2, "0") + "/" + source.year)
 			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
 			.replace("{RANDOM}", `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`);
 
@@ -1132,11 +1131,9 @@ function textContent(html) {
 }
 
 // Get links from the given markup and return them as fully-formed URLs
-function collectLinks(html, entry, pathMode, entryData) {
-	const rawLinks = getLinks(html, entry.url);
-
+function resolveLinks(entry, mode, rawLinks, entryData) {
 	const fixedLinks = [];
-	if (pathMode > 0) {
+	if (mode > 0) {
 		const comparePaths = rawLinks.map(link => {
 			if (!link.isWhole) {
 				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
@@ -1157,7 +1154,7 @@ function collectLinks(html, entry, pathMode, entryData) {
 		}
 	}
 
-	for (const link of pathMode == 2 ? rawLinks.filter(filterLink => filterLink.isWhole) : rawLinks) {
+	for (const link of mode == 2 ? rawLinks.filter(filterLink => filterLink.isWhole) : rawLinks) {
 		const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
 		if (parsedUrl != null) fixedLinks.push(parsedUrl.href);
 	}
