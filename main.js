@@ -879,7 +879,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 			else
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
 					? `/${joinArgs("view", entry.source, noNavFlags)}/${unmatchedLinks[l].url}`
-					: ("https://web.archive.org/web/0/" + unmatchedLinks[l].url);
+					: getWaybackLink(unmatchedLinks[l].url, rootSource.year, rootSource.month);
 		}
 	}
 
@@ -901,10 +901,11 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 	const realUrl = entry.url.replaceAll("%23", "#");
 
 	if (!compatMode) {
+		const rootSource = sourceInfo.find(source => source.short == entry.source);
 		let navbar = templates.navbar.main
 			.replaceAll("{URL}", realUrl)
 			.replace("{SHOWWARNING}", entry.warn ? "" : " hidden")
-			.replace("{WAYBACK}", "https://web.archive.org/web/0/" + realUrl)
+			.replace("{WAYBACK}", getWaybackLink(realUrl, rootSource.year, rootSource.month))
 			.replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
 			.replace("{SHOWINLINKS}", config.doInlinks ? "" : " hidden")
 			.replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
@@ -1046,6 +1047,12 @@ function joinArgs(mode = null, source = null, flags = null) {
 
 // Sort flags in alphabetical order
 function sortFlags(flags) { return flags.split("").toSorted().join(""); }
+
+// Generate a link to the Wayback Machine
+function getWaybackLink(url, year, month) {
+	const timestamp = year + `${month}`.padStart(2, "0");
+	return `http://web.archive.org/web/${timestamp}/${url}`;
+}
 
 // Return directory of cached page based on its flags
 function getCachedPageDir(args, compatMode) {
