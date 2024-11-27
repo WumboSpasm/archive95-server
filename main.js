@@ -317,7 +317,9 @@ const sourceInfo = db.prepare("SELECT * FROM sources").all();
 
 const serverHandler = async (request, info) => {
 	logMessage(info.remoteAddr.hostname + ": " + request.url);
-	const requestUrl = new URL(request.url);
+
+	const requestUrl = URL.parse(request.url);
+	if (requestUrl == null) throw new Error();
 
 	// Render search page and navbar in basic markup if user agent is not considered modern
 	const compatMode = config.doCompatMode && !isModern(request.headers.get("User-Agent") || "");
