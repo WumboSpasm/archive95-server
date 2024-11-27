@@ -1,6 +1,8 @@
 # Archive95
 Archive95 is an unorthodox web archive.
 
+![screenshot](https://github.com/user-attachments/assets/de7a7bb2-39c2-4121-9778-dff28d8e7af0)
+
 ## Dependencies
 - A Linux environment with the `file`, `mimetype` and `iconv` utilities
 - [Deno](https://deno.com/)
