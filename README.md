@@ -11,9 +11,11 @@ Archive95 is an unorthodox web archive.
 
 ## Instructions
 1. Clone repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
-2. Make `data` folder and put archive files in it (download coming soon)
-3. Build database with `deno run -A main.js --build`
-4. Run server with `deno run -A main.js`
+2. Create `data` folder in repository root
+3. Download [these files](https://archive.org/download/archive95-web-data/data/) into `data` folder, with respect to directory structure
+4. Extract all gzipped files into their containing directories
+5. Build database with `deno run -A main.js --build`
+6. Run server with `deno run -A main.js`
 
 ## Endpoints
 - `view`: View archived file in repaired form by supplying URL
