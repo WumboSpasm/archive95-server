@@ -887,14 +887,16 @@ function redirectLinks(html, entry, flags, rawLinks) {
 
 	// Update markup with new links
 	let offset = 0;
+	let newHtml = "";
 	for (const link of unmatchedLinks.concat(matchedLinks).toSorted((a, b) => a.start - b.start)) {
-		const inject = `${link.attribute}"${link.url}"`;
-		html = html.substring(0, link.start + offset) + inject + html.substring(link.end + offset);
-		offset += inject.length - link.fullMatch.length;
+		newHtml += html.substring(0, link.start - offset) + `${link.attribute}"${link.url}"`;
+		html = html.substring(link.end - offset);
+		offset = link.end;
 	}
+	newHtml += html;
 
 	// Remove base element if it exists
-	return html.replaceAll(/<base .*?>(?:.*?<\/base>)?\n?/gis, '');
+	return newHtml.replaceAll(/<base .*?>(?:.*?<\/base>)?\n?/gis, '');
 }
 
 // Display navigation bar
