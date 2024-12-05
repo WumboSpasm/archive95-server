@@ -950,7 +950,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 			: style + "\n" + html;
 
 		const padding = '<div style="height:120px"></div>';
-		const bodyCloseIndex = html.search(/(?:<\/body>)?[ \n\t]*(?:<\/noframes>)?[ \n\t]*(?:<\/html>)?[ \n\t]*$/i);
+		const bodyCloseIndex = blankComments(html).search(/(?:(?:<\/(?:body|noframes|html)>[ \n\t]*)+)?$/i);
 		html = bodyCloseIndex != -1
 			? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
 			: html + "\n" + padding + "\n" + navbar;
@@ -988,8 +988,8 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 			navbar = navbar.replace("{SCREENSHOTS}", "");
 
 		if (!/<frameset.*?>/i.test(html)) {
-			const bodyOpenIndex = (html.match(
-				/^[ \n\t]*(?:<!DOCTYPE.*?>)?[ \n\t]*(?:<html.*?>)?[ \n\t]*(?:<head(?:er)?.*?>.*?<\/head(?:er)?>)?[ \n\t]*(?:<body.*?>)?[ \n\t]*/is
+			const bodyOpenIndex = (blankComments(html).match(
+				/^(?:[ \n\t]*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>[ \n\t]*)+)?/is
 			) || [""])[0].length;
 			html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
 		}
@@ -1507,6 +1507,9 @@ function safeDecode(string) {
 	}
 	return chars.join("");
 }
+
+// Replace comments with whitespace
+function blankComments(html) { return html.replaceAll(/<! {0,}[-]+.*?[-]+ {0,}>/gs, match => " ".repeat(match.length)); }
 
 // Remove any quotes or whitespace surrounding a string
 function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
