@@ -1365,13 +1365,17 @@ function improvePresentation(html, compatMode = false) {
 		/([a-z]+ {0,}= {0,}"[^"\n]+)(?=>(?!".*?>))/gis,
 		'$1"'
 	).replaceAll(
-		// Fix comments with missing closing sequence
-		/<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
-		'<!$1$2-->'
-	).replaceAll(
 		// Remove spaces from comment closing sequences
 		/(<! {0,}[-]+(?:(?!<! {0,}[-]+).)*?[-]+) {1,}>/gs,
 		'$1>',
+	).replaceAll(
+		// Fix single-line comments with missing closing sequence
+		/<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>/g,
+		'<!$1$2-->'
+	).replaceAll(
+		// Fix multi-line comments with missing closing sequence
+		/<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
+		'<!$1$2-->'
 	).replaceAll(
 		// Fix non-standard <marquee> syntax
 		/<(marquee)[ ]+text {0,}= {0,}"(.*?)".*?>/gis,
