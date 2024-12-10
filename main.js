@@ -1176,6 +1176,10 @@ function textContent(html) {
 	).replaceAll(
 		/[\n\t ]+/g,
 		" "
+	).replaceAll(
+		"<", "&lt;"
+	).replaceAll(
+		">", "&gt;"
 	).trim();
 
 	return { title: title, content: content };
