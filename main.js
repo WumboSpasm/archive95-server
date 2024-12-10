@@ -165,12 +165,7 @@ if (flags["build"]) {
 		source TEXT NOT NULL,
 		type TEXT NOT NULL,
 		warn INTEGER NOT NULL,
-		skip INTEGER NOT NULL
-	)`).run();
-
-	logMessage("creating text table...");
-	db.prepare(`CREATE TABLE text (
-		id INTEGER PRIMARY KEY,
+		skip INTEGER NOT NULL,
 		title TEXT NOT NULL,
 		content TEXT NOT NULL
 	)`).run();
@@ -255,15 +250,12 @@ if (flags["build"]) {
 	})();
 
 	logMessage("adding files to database...");
-	const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-	const textQuery = db.prepare("INSERT INTO text (id, title, content) VALUES (?, ?, ?)");
+	const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip, title, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 	const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
 	for (let e = 0; e < entryData.length; e++) {
 		const entry = entryData[e];
 		logMessage(`[${e + 1}/${entryData.length}] adding file sources/${entry.source}/${entry.path}...`);
-		fileQuery.run(entry.id, entry.path, safeDecode(entry.url), entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip);
-		if (entry.title != "" || entry.content != "")
-			textQuery.run(entry.id, entry.title, entry.content);
+		fileQuery.run(entry.id, entry.path, safeDecode(entry.url), entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip, entry.title, entry.content);
 		if (config.doInlinks) {
 			const parsedLinks = resolveLinks(
 				entry, sourceData.find(source => source.short == entry.source).mode,
@@ -604,14 +596,13 @@ function prepareSearch(params, compatMode = false) {
 
 		const resultsPerPage = Math.max(5, config.resultsPerPage);
 		const searchQuery = searchString.length < 3 ? [] : db.prepare(`
-			SELECT files.id, url, source, text.title, text.content
-			FROM files LEFT JOIN text ON files.id = text.id
-			WHERE files.id ${lastId ? "<=" : ">="} ?2 AND skip = 0 AND (${whereString})
-			ORDER BY files.id ${lastId ? "DESC" : "ASC"} LIMIT ${resultsPerPage + 2}
+			SELECT id, url, source, title, content FROM files
+			WHERE id ${lastId ? "<=" : ">="} ?2 AND skip = 0 AND (${whereString})
+			ORDER BY id ${lastId ? "DESC" : "ASC"} LIMIT ${resultsPerPage + 2}
 		`).all(`%${searchString.replaceAll(/([%_^])/g, '^$1')}%`, compareId);
 		if (lastId) searchQuery.reverse();
 
-		// Pages are anchored around an entry ID, either preceding or succeeding it
+		// Pages are anchored around an entry ID, either preceding or following it
 		// The presence of entries exceeding the defined results per page controls the behavior of the navigation buttons
 		// It's very hacky, but there shouldn't be any breakage as long as the ID in the query string isn't tampered with
 		let [prevId, nextId] = [-1, -1];
