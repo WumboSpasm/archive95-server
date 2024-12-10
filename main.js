@@ -223,7 +223,9 @@ if (flags["build"]) {
 							if (config.doInlinks) entry.links = getLinks(html, entry.url);
 						}
 						else
-							entry.content = text.replaceAll(/[\n\t ]+/g, " ").trim();
+							entry.content = text
+								.replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+								.replaceAll(/[\n\t ]+/g, " ").trim();
 					}
 				}
 				entries.push(entry);
@@ -1167,10 +1169,6 @@ function textContent(html) {
 	).replaceAll(
 		/[\n\t ]+/g,
 		" "
-	).replaceAll(
-		"<", "&lt;"
-	).replaceAll(
-		">", "&gt;"
 	).trim();
 
 	return { title: title, content: content };
