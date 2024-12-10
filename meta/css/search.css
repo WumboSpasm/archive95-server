@@ -67,6 +67,7 @@ ul {
 .navigate {
 	display: flex;
 	flex-direction: row;
+	gap: 6px;
 }
 .navigate:first-of-type {
 	border-bottom: 1px solid lightgray;
@@ -76,12 +77,6 @@ ul {
 .navigate-total {
 	flex-grow: 1;
 }
-.navigate-button, .navigate-page {
-	text-align: center;
-}
 .navigate-button {
-	width: 3ch;
-}
-.navigate-page {
-	width: 12ch;
+	flex-shrink: 0;
 }

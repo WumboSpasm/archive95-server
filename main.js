@@ -25,6 +25,7 @@ const defaultConfig = {
 	logToConsole: true,
 	doCaching: false,
 	doCompatMode: true,
+	resultsPerPage: 50,
 	doInlinks: true,
 };
 const config = Object.assign({}, defaultConfig, JSON.parse(
@@ -110,7 +111,8 @@ if (flags["build"]) {
 	if (await validFile(databasePath + "-shm")) await Deno.remove(databasePath + "-shm");
 	if (await validFile(databasePath + "-wal")) await Deno.remove(databasePath + "-wal");
 	const db = new Database(databasePath, { create: true });
-	db.exec("PRAGMA journal_mode = WAL;");
+	db.exec("PRAGMA journal_mode = WAL");
+	db.exec("PRAGMA shrink_memory");
 
 	/* Sources */
 
@@ -311,7 +313,8 @@ if (flags["build"]) {
 
 logMessage("initializing database...");
 const db = new Database(databasePath, { strict: true, readonly: true });
-db.exec("PRAGMA journal_mode = WAL;");
+db.exec("PRAGMA journal_mode = WAL");
+db.exec("PRAGMA shrink_memory");
 
 const sourceInfo = db.prepare("SELECT * FROM sources").all();
 
@@ -595,22 +598,48 @@ function prepareSearch(params, compatMode = false) {
 		else if (search.formatsMedia)
 			whereString += " AND type NOT LIKE 'text/%'";
 
-		// TODO: consider adding true SQLite pagination if this causes problems
-		const searchQuery = searchString.length < 3 ? [] : db.prepare(`
-			SELECT path, url, sanitizedUrl, source, text.title, text.content FROM files
-			LEFT JOIN text ON files.id = text.id
-			WHERE (${whereString}) AND skip = 0
-			ORDER BY title LIKE ?1 DESC, files.id ASC
-			LIMIT 1000
-		`).all(`%${searchString.replaceAll(/([%_^])/g, '^$1')}%`);
+		const lastId = parseInt(params.get("last"));
+		const firstId = !lastId ? parseInt(params.get("first")) : NaN;
+		const compareId = lastId || firstId || 0;
 
-		const entriesPerPage = 50;
-		const totalPages = Math.ceil(searchQuery.length / entriesPerPage);
-		const currentPage = Math.max(1, Math.min(totalPages, parseInt(params.get("page")) || 1));
-		const entryOffset = (currentPage - 1) * entriesPerPage;
+		const resultsPerPage = Math.max(5, config.resultsPerPage);
+		const searchQuery = searchString.length < 3 ? [] : db.prepare(`
+			SELECT files.id, url, source, text.title, text.content
+			FROM files LEFT JOIN text ON files.id = text.id
+			WHERE files.id ${lastId ? "<=" : ">="} ?2 AND skip = 0 AND (${whereString})
+			ORDER BY files.id ${lastId ? "DESC" : "ASC"} LIMIT ${resultsPerPage + 2}
+		`).all(`%${searchString.replaceAll(/([%_^])/g, '^$1')}%`, compareId);
+		if (lastId) searchQuery.reverse();
+
+		// Pages are anchored around an entry ID, either preceding or succeeding it
+		// The presence of entries exceeding the defined results per page controls the behavior of the navigation buttons
+		// It's very hacky, but there shouldn't be any breakage as long as the ID in the query string isn't tampered with
+		let [prevId, nextId] = [-1, -1];
+		let resultStart = 0;
+		if (searchQuery.length > 1) {
+			if (searchQuery.length > resultsPerPage && compareId == 0)
+				nextId = searchQuery[resultsPerPage - 1].id;
+			else if (searchQuery.length <= resultsPerPage && firstId) {
+				prevId = searchQuery[1].id;
+				resultStart = 1;
+			}
+			else if (searchQuery.length == resultsPerPage + 1) {
+				if (firstId) {
+					prevId = searchQuery[1].id;
+					resultStart = 1;
+				}
+				if (lastId)
+					nextId = searchQuery[resultsPerPage - 1].id;
+			}
+			else if (searchQuery.length == resultsPerPage + 2) {
+				prevId = searchQuery[1].id;
+				nextId = searchQuery[resultsPerPage].id;
+				resultStart = 1;
+			}
+		}
 
 		const resultSegments = [];
-		for (const result of searchQuery.slice(entryOffset, entryOffset + entriesPerPage)) {
+		for (const result of searchQuery.slice(resultStart, resultStart + resultsPerPage)) {
 			let titleInject = sanitizeInject(result.title || "");
 			let titleMatchIndex = -1;
 			if (titleInject != "") {
@@ -621,7 +650,7 @@ function prepareSearch(params, compatMode = false) {
 						titleInject.substring(titleMatchIndex + searchString.length);
 			}
 			else
-				titleInject = result.sanitizedUrl;
+				titleInject = result.url;
 
 			let urlInject = sanitizeInject(result.url || "");
 			let urlMatchIndex = -1;
@@ -663,18 +692,23 @@ function prepareSearch(params, compatMode = false) {
 			if (compatMode) resultSegments.push("\t\t<hr>");
 		}
 
-		params.delete("page");
+		params.delete("first");
+		params.delete("last");
 
+		const totalResults = (prevId != -1 || nextId != -1) ? (resultsPerPage + "+") : searchQuery.length;
+		const queryInject = sanitizeInject(params.get("query")).replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 		if (!compatMode) {
+			const prevText = "&lt;&lt; Prev";
+			const nextText = "Next &gt;&gt;";
 			const navigate = templates.search.navigate
-				.replace("{TOTAL}", searchQuery.length)
-				.replace("{PAGE}", currentPage)
-				.replace("{PAGES}", totalPages)
-				.replace("{PREVIOUS}", currentPage == 1 ? "&lt;&lt;" : `<a href="?${params.toString()}&page=${currentPage - 1}">&lt;&lt;</a>`)
-				.replace("{NEXT}", currentPage == totalPages ? "&gt;&gt;" : `<a href="?${params.toString()}&page=${currentPage + 1}">&gt;&gt;</a>`);
+				.replace("{TOTAL}", totalResults)
+				.replace("{S}", searchQuery.length > 1 ? "s" : "")
+				.replace("{QUERY}", queryInject)
+				.replace("{PREVIOUS}", prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`)
+				.replace("{NEXT}", nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`);
 
 			resultSegments.unshift(navigate);
-			if (totalPages > 1 && currentPage != totalPages)
+			if (nextId != -1)
 				resultSegments.push(navigate);
 
 			const resultsString = searchQuery.length == 0 ? "No results were found for the given query." : resultSegments.join("\n");
@@ -683,21 +717,19 @@ function prepareSearch(params, compatMode = false) {
 				.replace("{CONTENT}", resultsString);
 		}
 		else {
-			const prevButton = currentPage == 1 ? "Prev" : `<a href="?${params.toString()}&page=${currentPage - 1}">Prev</a>`;
-			const nextButton = currentPage == totalPages ? "Next" : `<a href="?${params.toString()}&page=${currentPage + 1}">Next</a>`;
-			const queryInject = sanitizeInject(params.get("query")).replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-
 			if (searchQuery.length > 0) {
 				resultSegments.unshift("\t\t<hr>");
-				if (totalPages > 1) {
-					const navigate = `\t\tPage ${currentPage} of ${totalPages} - ${prevButton} ${nextButton}`;
+				if (prevId != -1 || nextId != -1) {
+					const prevButton = prevId == -1 ? "Prev" : `<a href="?${params.toString()}&last=${prevId}">Prev</a>`;
+					const nextButton = nextId == -1 ? "Next" : `<a href="?${params.toString()}&first=${nextId}">Next</a>`;
+					const navigate = `\t\t${prevButton} ${nextButton}`;
 					resultSegments.unshift(navigate);
-					if (currentPage != totalPages)
+					if (nextId != -1)
 						resultSegments.push(navigate);
 				}
 			}
 
-			resultSegments.unshift(`\t\t<h2>${searchQuery.length} results for "${queryInject}"</h2>`);
+			resultSegments.unshift(`\t\t<h2>${totalResults} results for "${queryInject}"</h2>`);
 			html = html.replace("{CONTENT}", resultSegments.join("\n"));
 		}
 	}
