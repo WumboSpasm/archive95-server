@@ -92,6 +92,7 @@ const possibleModes = ["view", "orphan", "raw", "inlinks", "random"];
 const possibleFlags = ["e", "m", "n", "o", "p"];
 
 const databasePath = joinPath(config.dataPath, "archive95.sqlite");
+const cachePath = joinPath(config.dataPath, "cache");
 
 /*----------------+
  | Build Database |
@@ -100,7 +101,6 @@ const databasePath = joinPath(config.dataPath, "archive95.sqlite");
 if (flags["build"]) {
 	const startTime = Date.now();
 
-	const cachePath = joinPath(config.dataPath, "cache");
 	if (flags["wipe-cache"]) {
 		logMessage("wiping cache...");
 		await Deno.remove(cachePath, { recursive: true });
@@ -182,7 +182,7 @@ if (flags["build"]) {
 	const entryData = await (async () => {
 		// Attempt to load type cache
 		await Deno.mkdir(cachePath, { recursive: true });
-		const typesPath = joinPath(cachePath, "types.txt");
+		const typesPath = joinPath(cachePath, "types");
 		const typesList = await validFile(typesPath)
 			? (await Deno.readTextFile(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
 			: [];
@@ -233,7 +233,7 @@ if (flags["build"]) {
 		}
 
 		// Write type cache
-		Deno.writeTextFile(joinPath(cachePath, "types.txt"), typesList.map(typeLine => typeLine.join("\t")).join("\n"));
+		Deno.writeTextFile(joinPath(cachePath, "types"), typesList.map(typeLine => typeLine.join("\t")).join("\n"));
 
 		// Sort entries and give them IDs based on the new order
 		logMessage("sorting files...");
@@ -329,7 +329,7 @@ const serverHandler = async (request, info) => {
 	// Serve homepage/search results
 	const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
 	if (requestPath == "")
-		return new Response(prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
+		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
 	// Serve static files
 	for (const exception of staticFiles.concat(sourceInfo.map(source => ["meta/images/" + source.short + ".gif", source.short + ".gif", "image/gif"])))
@@ -551,26 +551,31 @@ const charMapExp = new RegExp(`[${Object.keys(charMap).join("")}]`, "g");
 const sanitizeInject = str => str.replace(charMapExp, m => charMap[m]);
 
 // Build home/search pages based on query strings
-function prepareSearch(params, compatMode = false) {
-	const search = {
-		inUrl: !params.has("in") || params.has("in", "url"),
-		inTitle: !params.has("in") || params.has("in", "title"),
-		inContent: !params.has("in") || params.has("in", "content"),
-		formatsAll: !params.has("formats") || params.get("formats") == "all",
-		formatsText: params.get("formats") == "text",
-		formatsMedia: params.get("formats") == "media",
-	};
+async function prepareSearch(params, compatMode = false) {
+	const homeCachePath = joinPath(cachePath, !compatMode ? "home" : "home_compat");
+	if (!params.has("query") && config.doCaching && await validFile(homeCachePath))
+		return await Deno.readTextFile(homeCachePath);
 
-	let html = (!compatMode ? templates.search.main : templates.search.compat.main)
-		.replace("{QUERY}", sanitizeInject((params.get("query") || "").replaceAll("&", "&amp;")))
-		.replace("{INURL}", search.inUrl ? " checked" : "")
-		.replace("{INTITLE}", search.inTitle ? " checked" : "")
-		.replace("{INCONTENT}", search.inContent ? " checked" : "")
-		.replace("{FORMATSALL}", search.formatsAll ? " checked" : "")
-		.replace("{FORMATSTEXT}", search.formatsText ? " checked" : "")
-		.replace("{FORMATSMEDIA}", search.formatsMedia ? " checked" : "");
+	let html = !compatMode ? templates.search.main : templates.search.compat.main;
 
 	if (params.has("query")) {
+		const search = {
+			inUrl: !params.has("in") || params.has("in", "url"),
+			inTitle: !params.has("in") || params.has("in", "title"),
+			inContent: !params.has("in") || params.has("in", "content"),
+			formatsAll: !params.has("formats") || params.get("formats") == "all",
+			formatsText: params.get("formats") == "text",
+			formatsMedia: params.get("formats") == "media",
+		};
+		html = html
+			.replace("{QUERY}", sanitizeInject(params.get("query")).replaceAll("&", "&amp;"))
+			.replace("{INURL}", search.inUrl ? " checked" : "")
+			.replace("{INTITLE}", search.inTitle ? " checked" : "")
+			.replace("{INCONTENT}", search.inContent ? " checked" : "")
+			.replace("{FORMATSALL}", search.formatsAll ? " checked" : "")
+			.replace("{FORMATSTEXT}", search.formatsText ? " checked" : "")
+			.replace("{FORMATSMEDIA}", search.formatsMedia ? " checked" : "");
+
 		let whereConditions = [];
 		if (search.inUrl)
 			whereConditions.push("url LIKE ?1");
@@ -727,6 +732,15 @@ function prepareSearch(params, compatMode = false) {
 		}
 	}
 	else {
+		html = html
+			.replace("{QUERY}", "")
+			.replace("{INURL}", " checked")
+			.replace("{INTITLE}", " checked")
+			.replace("{INCONTENT}", " checked")
+			.replace("{FORMATSALL}", " checked")
+			.replace("{FORMATSTEXT}",  "")
+			.replace("{FORMATSMEDIA}", "");
+
 		const sourceQuery = db.prepare(`
 			SELECT sources.*, COUNT() AS size FROM files
 			LEFT JOIN sources ON sources.short = files.source
@@ -756,6 +770,9 @@ function prepareSearch(params, compatMode = false) {
 			html = html
 				.replace("{HEADER}", "About this website")
 				.replace("{CONTENT}", about);
+
+		if (config.doCaching)
+			await Deno.writeTextFile(homeCachePath, html);
 	}
 
 	return html;
@@ -1090,7 +1107,7 @@ function getCachedPageDir(args, compatMode) {
 	if (args.mode == "orphan") flags = sortFlags(flags + "n");
 	if (flags.includes("n")) flags = flags.replace(/[mo]/g, "");
 	if (compatMode && (!flags.includes("n") || !flags.includes("p"))) compatPath = "compat";
-	return joinPath(config.dataPath, "cache/html/", flags, compatPath);
+	return joinPath(cachePath, "html", flags, compatPath);
 }
 
 // Return cached page data, or null if none exists
