@@ -784,8 +784,8 @@ async function prepareSearch(params, compatMode = false) {
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags, rawLinks) {
 	const rootSource = sourceInfo.find(source => source.short == entry.source);
-	const orphanFlags = flags.replace("n", "");
-	const noNavFlags = orphanFlags + "n";
+	const flagsNav = flags.replace("n", "");
+	const flagsNoNav = flagsNav + "n";
 
 	const unmatchedLinks = rawLinks.map(link => {
 		const matchStart = link.lastIndex - link.fullMatch.length;
@@ -806,7 +806,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 			sanitizedUrl: sanitizeUrl(parsedUrlStr),
 			start: matchStart,
 			end: matchEnd,
-			isEmbedded: !/^href/i.test(link.attribute),
+			isEmbedded: !/^href|^http-equiv/i.test(link.attribute),
 		};
 	}).filter(link => link !== null);
 	if (unmatchedLinks.length == 0) return html;
@@ -876,10 +876,10 @@ function redirectLinks(html, entry, flags, rawLinks) {
 							unmatchedLinks[l].url = entryUrl || `/${compareEntry.path}`;
 						else if (entryUrl)
 							unmatchedLinks[l].url = `/${
-								joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
+								joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
 							}/${entryUrl}`;
 						else
-							unmatchedLinks[l].url = `/${joinArgs("orphan", entry.source, orphanFlags)}/${compareEntry.path}`;
+							unmatchedLinks[l].url = `/${joinArgs("orphan", entry.source, flagsNav)}/${compareEntry.path}`;
 						matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
 						comparePaths.splice(l, 1);
 						l -= 1;
@@ -902,7 +902,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 				for (let l = 0; l < unmatchedLinks.length; l++)
 					if (sourceLocalEntry.sanitizedUrl == unmatchedLinks[l].sanitizedUrl) {
 						unmatchedLinks[l].url = `/${
-							joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
+							joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
 						}/${unmatchedLinks[l].url}`;
 						matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
 						l -= 1;
@@ -915,7 +915,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 					for (let l = 0; l < unmatchedLinks.length; l++)
 						if (sourceExternalEntry.sanitizedUrl == unmatchedLinks[l].sanitizedUrl) {
 							unmatchedLinks[l].url = `/${
-								joinArgs("view", sourceExternalEntry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
+								joinArgs("view", sourceExternalEntry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
 							}/${unmatchedLinks[l].url}`;
 							matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
 							l -= 1;
@@ -932,7 +932,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 					: "[unarchived-link]";
 			else
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
-					? `/${joinArgs("view", entry.source, noNavFlags)}/${unmatchedLinks[l].url}`
+					? `/${joinArgs("view", entry.source, flagsNoNav)}/${unmatchedLinks[l].url}`
 					: getWaybackLink(unmatchedLinks[l].url, rootSource.year, rootSource.month);
 		}
 	}
@@ -941,7 +941,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 	let offset = 0;
 	let newHtml = "";
 	for (const link of unmatchedLinks.concat(matchedLinks).toSorted((a, b) => a.start - b.start)) {
-		newHtml += html.substring(0, link.start - offset) + `${link.attribute}"${link.url}"`;
+		newHtml += html.substring(0, link.start - offset) + link.attribute + (link.doQuotes ? `"${link.url}"` : link.url);
 		html = html.substring(link.end - offset);
 		offset = link.end;
 	}
@@ -1477,24 +1477,33 @@ function improvePresentation(html, compatMode = false) {
 function getLinks(html, baseUrl) {
 	const baseExp = /<base[ \n]+h?ref {0,}= {0,}("(?:(?!>).)*?"|[^ >]+)/is;
 	if (baseExp.test(html)) baseUrl = trimQuotes(html.match(baseExp)[1]);
-	const linkExp = /((?:href|src|action|background) {0,}= {0,})("(?:(?!>).)*?"|[^ >]+)/gis;
+
 	const links = [];
-	for (let match; (match = linkExp.exec(html)) !== null;) {
+	const addLink = (match, doQuotes = true) => {
+		if (match === null) return;
 		const rawUrl = trimQuotes(match[2]);
 		const isWhole = /^https?:\/\//i.test(rawUrl);
 		// Anchor, unarchived, and non-HTTP links should be ignored
 		if (rawUrl.startsWith("#") || /^\[unarchived-(link|image)\]$/.test(rawUrl)
 		|| (!isWhole && /^[a-z]+:/i.test(rawUrl)))
-			continue;
+			return;
 		links.push({
 			fullMatch: match[0],
 			attribute: match[1],
 			rawUrl: rawUrl,
 			baseUrl: baseUrl || undefined,
-			lastIndex: linkExp.lastIndex,
+			lastIndex: match.index + match[0].length,
 			isWhole: isWhole,
+			doQuotes: doQuotes,
 		});
-	}
+	};
+
+	const linkExp = /((?:href|src|action|background) {0,}= {0,})("(?:(?!>).)*?"|[^ >]+)/gis;
+	for (let match; (match = linkExp.exec(html)) !== null;) addLink(match);
+
+	const refreshExp = /(http-equiv *= *"?refresh"?[^>]+content *= *"(?:.*?URL=)?)(.*?)(?=")/i;
+	addLink(html.match(refreshExp), false);
+
 	return links;
 }
 
