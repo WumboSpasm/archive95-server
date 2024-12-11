@@ -508,7 +508,6 @@ const serverHandler = async (request, info) => {
 	return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 };
 const serverError = (error) => {
-	console.log(error);
 	let errorHtml = templates.error.server;
 	let status;
 	if (!error.message) {
@@ -792,16 +791,23 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		const matchStart = link.lastIndex - link.fullMatch.length;
 		const matchEnd = link.lastIndex;
 		const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
+		let parsedUrlStr;
 		if (parsedUrl !== null)
-			return {...link,
-				url: parsedUrl.href,
-				sanitizedUrl: sanitizeUrl(parsedUrl.href),
-				start: matchStart,
-				end: matchEnd,
-				isEmbedded: !/^href/i.test(link.attribute),
-			};
-		else
-			return null;
+			parsedUrlStr = parsedUrl.href;
+		else {
+			const parsedPath = URL.parse(link.rawUrl, "http://abc/" + entry.path);
+			if (parsedPath !== null)
+				parsedUrlStr = parsedPath.pathname;
+			else
+				return null;
+		}
+		return {...link,
+			url: parsedUrlStr,
+			sanitizedUrl: sanitizeUrl(parsedUrlStr),
+			start: matchStart,
+			end: matchEnd,
+			isEmbedded: !/^href/i.test(link.attribute),
+		};
 	}).filter(link => link !== null);
 	if (unmatchedLinks.length == 0) return html;
 
@@ -1484,7 +1490,7 @@ function getLinks(html, baseUrl) {
 			fullMatch: match[0],
 			attribute: match[1],
 			rawUrl: rawUrl,
-			baseUrl: baseUrl,
+			baseUrl: baseUrl || undefined,
 			lastIndex: linkExp.lastIndex,
 			isWhole: isWhole,
 		});
