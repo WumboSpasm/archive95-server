@@ -154,7 +154,7 @@ if (flags["build"]) {
 		sourceQuery.run(source.id, source.short, source.title, source.author, source.link, source.year, source.month, source.mode);
 	}
 
-	/* Entries, Text Content, Inlinks */
+	/* Entries, Inlinks */
 
 	logMessage("creating files table...");
 	db.prepare(`CREATE TABLE files (
@@ -267,6 +267,11 @@ if (flags["build"]) {
 				linkQuery.run(link.id, safeDecode(link.url), link.sanitizedUrl);
 		}
 	}
+
+	logMessage("creating files_brief view...");
+	db.prepare(`CREATE VIEW files_brief AS
+		SELECT id, path, url, sanitizedUrl, source, type, warn FROM files WHERE skip = 0
+	`).run();
 
 	/* Screenshots */
 
@@ -417,7 +422,7 @@ const serverHandler = async (request, info) => {
 	let desiredArchive = 0;
 	if (args.mode == "view") {
 		const sanitizedUrl = sanitizeUrl(url);
-		archives = db.prepare("SELECT * FROM files WHERE sanitizedUrl = ? AND skip = 0").all(sanitizedUrl);
+		archives = db.prepare("SELECT * FROM files_brief WHERE sanitizedUrl = ?").all(sanitizedUrl);
 		if (archives.length == 0) return error(url);
 		if (archives.length > 1) {
 			// Sort archives from oldest to newest
@@ -441,10 +446,7 @@ const serverHandler = async (request, info) => {
 	}
 	else if (args.mode == "orphan" || args.mode == "raw") {
 		if (!args.source || !url) return error();
-		const entry = db.prepare(`
-			SELECT id, path, url, sanitizedUrl, source, type, warn, skip
-			FROM files WHERE source = ? AND path = ? AND skip = 0
-		`).get(args.source, url);
+		const entry = db.prepare(`SELECT * FROM files_brief WHERE source = ? AND path = ?`).get(args.source, url);
 		if (entry === undefined) return error();
 		archives.push(entry);
 	}
@@ -745,9 +747,9 @@ async function prepareSearch(params, compatMode = false) {
 			.replace("{FORMATSMEDIA}", "");
 
 		const sourceQuery = db.prepare(`
-			SELECT sources.*, COUNT() AS size FROM files
-			LEFT JOIN sources ON sources.short = files.source
-			WHERE url != '' AND skip = 0 GROUP BY source ORDER BY sources.id
+			SELECT sources.*, COUNT() AS size FROM files_brief
+			LEFT JOIN sources ON short = source
+			WHERE url != '' GROUP BY source ORDER BY sources.id
 		`).all();
 		const sources = [];
 		for (const source of sourceQuery)
@@ -849,9 +851,10 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		}
 
 		if (comparePaths.length > 0) {
-			const entryQuery = db.prepare(`SELECT path, url, source, skip FROM files WHERE source = ? AND path COLLATE NOCASE IN (${
-				Array(comparePathsQuery.length).fill("?").join(", ")
-			})`).all(entry.source, ...comparePathsQuery).filter(nearestEntryOnly);
+			const entryQuery = db.prepare(`
+				SELECT path, url, source, skip FROM files
+				WHERE source = ? AND path COLLATE NOCASE IN (${Array(comparePathsQuery.length).fill("?").join(", ")})
+			`).all(entry.source, ...comparePathsQuery).filter(nearestEntryOnly);
 
 			for (const compareEntry of entryQuery) {
 				const entryComparePath = compareEntry.path.toLowerCase();
@@ -891,9 +894,10 @@ function redirectLinks(html, entry, flags, rawLinks) {
 
 	if (!flags.includes("e")) {
 		const compareUrls = [...new Set(unmatchedLinks.map(link => link.sanitizedUrl))];
-		const entryQuery = db.prepare(`SELECT path, sanitizedUrl, source FROM files WHERE sanitizedUrl IN (${
-			Array(compareUrls.length).fill("?").join(", ")
-		}) AND skip = 0`).all(...compareUrls).filter(nearestEntryOnly);
+		const entryQuery = db.prepare(`
+			SELECT path, sanitizedUrl, source FROM files_brief
+			WHERE sanitizedUrl IN (${Array(compareUrls.length).fill("?").join(", ")})
+		`).all(...compareUrls).filter(nearestEntryOnly);
 
 		if (entryQuery.length > 0) {
 			// Check for source-local matches first
@@ -1054,7 +1058,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 
 // Return a random entry
 function getRandom(flags = "", source) {
-	const whereConditions = ["skip = 0"];
+	const whereConditions = [];
 	const whereParameters = [];
 	if (!flags.includes("m"))
 		whereConditions.push("type = 'text/html'");
@@ -1065,7 +1069,7 @@ function getRandom(flags = "", source) {
 		whereParameters.push(source);
 	}
 	return db.prepare(
-		`SELECT path, url, source FROM files WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
+		`SELECT path, url, source FROM files_brief WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
 	).get(...whereParameters);
 }
 
