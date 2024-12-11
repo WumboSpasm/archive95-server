@@ -163,11 +163,11 @@ if (flags["build"]) {
 		url TEXT NOT NULL,
 		sanitizedUrl TEXT NOT NULL,
 		source TEXT NOT NULL,
-		type TEXT NOT NULL,
+		type TEXT,
 		warn INTEGER NOT NULL,
 		skip INTEGER NOT NULL,
-		title TEXT NOT NULL,
-		content TEXT NOT NULL
+		title TEXT,
+		content TEXT
 	)`).run();
 
 	if (config.doInlinks) {
@@ -200,16 +200,16 @@ if (flags["build"]) {
 					url: url,
 					sanitizedUrl: sanitizeUrl(url),
 					source: source.short,
-					type: "",
+					type: null,
 					warn: warn.toLowerCase() == "true",
 					skip: skip.toLowerCase() == "true",
-					title: "",
-					content: "",
+					title: null,
+					content: null,
 					links: [],
 				};
 				if (!entry.skip) {
 					const typeLine = typesList.find(typeLine => typeLine[0] == filePath);
-					if (typeLine != undefined)
+					if (typeLine !== undefined)
 						entry.type = typeLine[1];
 					else {
 						const t = typesList.push([filePath, await mimeType(filePath)]);
@@ -238,12 +238,12 @@ if (flags["build"]) {
 		// Sort entries and give them IDs based on the new order
 		logMessage("sorting files...");
 		entries.sort((a, b) => {
-			if (a.title == "") return 1;
-			if (b.title == "") return -1;
+			if (a.title === null) return 1;
+			if (b.title === null) return -1;
 			return a.title.localeCompare(b.title, "en", { sensitivity: "base" });
 		});
 		entries.sort((a, b) => {
-			if (a.title != "" || b.title != "") return 0;
+			if (a.title !== null || b.title !== null) return 0;
 			return a.sanitizedUrl.localeCompare(b.sanitizedUrl, "en", { sensitivity: "base" });
 		});
 		entries.forEach((entry, e) => Object.assign(entry, { id: e }));
@@ -316,19 +316,19 @@ const serverHandler = async (request, info) => {
 	logMessage(info.remoteAddr.hostname + ": " + request.url);
 
 	const requestUrl = URL.parse(request.url);
-	if (requestUrl == null) throw new Error();
+	if (requestUrl === null) throw new Error();
 
 	// Render search page and navbar in basic markup if user agent is not considered modern
-	const compatMode = config.doCompatMode && !isModern(request.headers.get("User-Agent") || "");
+	const compatMode = config.doCompatMode && !isModern(request.headers.get("User-Agent") ?? "");
 
 	// If access host is configured, do not allow connections through any other hostname
 	// (requests with missing Host header are exempt from this, to satisfy some ancient browsers)
-	if (config.accessHost != "" && requestUrl.hostname != config.accessHost && (!config.doCompatMode || request.headers.has("Host")))
+	if (config.accessHost && requestUrl.hostname != config.accessHost && (!config.doCompatMode || request.headers.has("Host")))
 		throw new Error();
 
 	// Serve homepage/search results
 	const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
-	if (requestPath == "")
+	if (!requestPath)
 		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
 	// Serve static files
@@ -339,7 +339,7 @@ const serverHandler = async (request, info) => {
 	// Serve page screenshots
 	if (["screenshots/", "thumbnails/"].some(dir => requestPath.startsWith(dir))) {
 		const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
-		if (screenshot != null) {
+		if (screenshot !== undefined) {
 			if (requestPath.startsWith("screenshots/"))
 				return new Response(await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: { "Content-Type": "image/gif" } });
 			else {
@@ -354,7 +354,7 @@ const serverHandler = async (request, info) => {
 	const slashIndex = requestPath.indexOf("/");
 	let url, args;
 	if (slashIndex != -1) {
-		const search = (requestUrl.search == "" && request.url.endsWith("?")) ? "?" : requestUrl.search;
+		const search = (!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search;
 		url = safeDecode(requestPath.substring(slashIndex + 1) + search);
 		args = splitArgs(requestPath.substring(0, slashIndex));
 	}
@@ -362,21 +362,21 @@ const serverHandler = async (request, info) => {
 		url = "";
 		args = splitArgs(requestPath);
 	}
-	if (args == null) return error();
+	if (args === null) return error();
 
 	if (args.mode == "random") {
 		const entry = getRandom(args.flags, args.source);
 		return Response.redirect(requestUrl.origin + (
-			entry.url != ""
+			entry.url
 				? `/${joinArgs("view", entry.source, args.flags)}/${entry.url}`
 				: `/${joinArgs("orphan", entry.source, args.flags)}/${entry.path}`
 		));
 	}
 
-	if (url == "") return error();
+	if (!url) return error();
 
 	if (args.mode == "inlinks") {
-		if (url == "" || !config.doInlinks) return error();
+		if (!config.doInlinks) return error();
 		const sanitizedUrl = sanitizeUrl(url);
 		const inlinkQuery = db.prepare(
 			"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
@@ -387,7 +387,7 @@ const serverHandler = async (request, info) => {
 			const links = inlinkQuery.map(inlink => {
 				let linkBullet = templates.inlinks.link;
 
-				if (inlink.url != "")
+				if (inlink.url)
 					linkBullet = linkBullet
 						.replace("{LINK}", !args.flags.includes("e")
 							? `/${joinArgs("view", inlink.source, args.flags)}/${inlink.url}`
@@ -427,7 +427,7 @@ const serverHandler = async (request, info) => {
 				return asort - bsort;
 			});
 			// Get desired archive by first looking for exact URL match, then sanitized URL if there are no exact matches
-			if (args.source != "") {
+			if (args.source) {
 				desiredArchive = archives.findIndex(archive =>
 					archive.source == args.source && archive.url == url
 				);
@@ -440,9 +440,12 @@ const serverHandler = async (request, info) => {
 		}
 	}
 	else if (args.mode == "orphan" || args.mode == "raw") {
-		if (args.source == "" || url == "") return error();
-		const entry = db.prepare("SELECT * FROM files WHERE source = ? AND path = ? AND skip = 0").get(args.source, url);
-		if (entry == null) return error();
+		if (!args.source || !url) return error();
+		const entry = db.prepare(`
+			SELECT id, path, url, sanitizedUrl, source, type, warn, skip
+			FROM files WHERE source = ? AND path = ? AND skip = 0
+		`).get(args.source, url);
+		if (entry === undefined) return error();
 		archives.push(entry);
 	}
 	// Encode number sign to make sure it's properly identified as part of the URL
@@ -457,7 +460,7 @@ const serverHandler = async (request, info) => {
 	// If the requested entry is an HTML page, serve from cache if possible
 	if (contentType == "text/html") {
 		const cachedHtml = await getCachedPage(entry.id, args, compatMode);
-		if (cachedHtml != null) return new Response(cachedHtml, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+		if (cachedHtml !== null) return new Response(cachedHtml, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 	}
 
 	if (args.mode != "raw" && !args.flags.includes("p")) {
@@ -489,7 +492,7 @@ const serverHandler = async (request, info) => {
 	}
 	else if (args.mode == "raw" || contentType != "text/html")
 		// Serve actual file data if raw or non-HTML
-		return new Response(file || await Deno.readFile(filePath), { headers: { "Content-Type": contentType } });
+		return new Response(file ?? await Deno.readFile(filePath), { headers: { "Content-Type": contentType } });
 
 	// Make adjustments to page markup before serving
 	let html = await getText(filePath, entry.source);
@@ -505,9 +508,10 @@ const serverHandler = async (request, info) => {
 	return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 };
 const serverError = (error) => {
+	console.log(error);
 	let errorHtml = templates.error.server;
 	let status;
-	if (error.message == "") {
+	if (!error.message) {
 		errorHtml = errorHtml.replace("{MESSAGE}", "Connections through this host are not allowed.");
 		status = 400;
 	}
@@ -638,9 +642,9 @@ async function prepareSearch(params, compatMode = false) {
 
 		const resultSegments = [];
 		for (const result of searchQuery.slice(resultStart, resultStart + resultsPerPage)) {
-			let titleInject = sanitizeInject(result.title || "");
+			let titleInject = sanitizeInject(result.title ?? "");
 			let titleMatchIndex = -1;
-			if (titleInject != "") {
+			if (titleInject) {
 				if (search.inTitle && (titleMatchIndex = titleInject.toLowerCase().indexOf(searchString)) != -1)
 					titleInject =
 						titleInject.substring(0, titleMatchIndex) +
@@ -650,7 +654,7 @@ async function prepareSearch(params, compatMode = false) {
 			else
 				titleInject = result.url;
 
-			let urlInject = sanitizeInject(result.url || "");
+			let urlInject = sanitizeInject(result.url);
 			let urlMatchIndex = -1;
 			if (search.inUrl && (urlMatchIndex = urlInject.toLowerCase().indexOf(searchString)) != -1)
 				urlInject =
@@ -658,7 +662,7 @@ async function prepareSearch(params, compatMode = false) {
 					"<b>" + urlInject.substring(urlMatchIndex, urlMatchIndex + searchString.length) + "</b>" +
 					urlInject.substring(urlMatchIndex + searchString.length);
 
-			let contentInject = result.content || "";
+			let contentInject = result.content ?? "";
 			let contentMatchIndex = -1;
 			if (search.inContent && (contentMatchIndex = contentInject.toLowerCase().indexOf(searchString)) != -1) {
 				const minBound = contentMatchIndex - 30;
@@ -788,7 +792,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		const matchStart = link.lastIndex - link.fullMatch.length;
 		const matchEnd = link.lastIndex;
 		const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
-		if (parsedUrl != null)
+		if (parsedUrl !== null)
 			return {...link,
 				url: parsedUrl.href,
 				sanitizedUrl: sanitizeUrl(parsedUrl.href),
@@ -798,7 +802,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 			};
 		else
 			return null;
-	}).filter(link => link != null);
+	}).filter(link => link !== null);
 	if (unmatchedLinks.length == 0) return html;
 
 	const matchedLinks = [];
@@ -823,13 +827,13 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		for (const link of unmatchedLinks) {
 			if (!link.isWhole) {
 				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
-				if (parsedUrl != null) {
+				if (parsedUrl !== null) {
 					const comparePath = parsedUrl.pathname.substring(1).toLowerCase();
 					comparePaths.push(comparePath + parsedUrl.hash);
 					if (!comparePathsQuery.includes(comparePath + parsedUrl.hash)) {
 						comparePathsQuery.push(comparePath + parsedUrl.hash);
 						// Make sure database query takes into account anchored and anchorless variations of path
-						if (parsedUrl.hash != "" && !comparePathsQuery.includes(comparePath))
+						if (parsedUrl.hash && !comparePathsQuery.includes(comparePath))
 							comparePathsQuery.push(comparePath);
 					}
 					continue;
@@ -846,7 +850,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 			for (const compareEntry of entryQuery) {
 				const entryComparePath = compareEntry.path.toLowerCase();
 				for (let l = 0; l < unmatchedLinks.length; l++) {
-					if (comparePaths[l] == null) continue;
+					if (comparePaths[l] === null) continue;
 					const pathVariations = [comparePaths[l]];
 					let pathAnchor = "";
 					const anchorIndex = comparePaths[l].lastIndexOf("#");
@@ -863,8 +867,8 @@ function redirectLinks(html, entry, flags, rawLinks) {
 						}
 						const entryUrl = compareEntry.url + pathAnchor;
 						if (flags.includes("e"))
-							unmatchedLinks[l].url = entryUrl != "" ? entryUrl : `/${compareEntry.path}`;
-						else if (entryUrl != "")
+							unmatchedLinks[l].url = entryUrl || `/${compareEntry.path}`;
+						else if (entryUrl)
 							unmatchedLinks[l].url = `/${
 								joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? noNavFlags : flags)
 							}/${entryUrl}`;
@@ -989,7 +993,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 
 		const style = '<link rel="stylesheet" href="/navbar.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
-		html = matchHead != null
+		html = matchHead !== null
 			? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
 			: style + "\n" + html;
 
@@ -1034,7 +1038,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		if (!/<frameset.*?>/i.test(html)) {
 			const bodyOpenIndex = (blankComments(html).match(
 				/^(?:[ \n\t]*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>[ \n\t]*)+)?/is
-			) || [""])[0].length;
+			) ?? [""])[0].length;
 			html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
 		}
 
@@ -1043,14 +1047,14 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 }
 
 // Return a random entry
-function getRandom(flags = "", source = "") {
+function getRandom(flags = "", source) {
 	const whereConditions = ["skip = 0"];
 	const whereParameters = [];
 	if (!flags.includes("m"))
 		whereConditions.push("type = 'text/html'");
 	if (!flags.includes("o"))
 		whereConditions.push("sanitizedUrl != ''");
-	if (source != "") {
+	if (source) {
 		whereConditions.push("source = ?");
 		whereParameters.push(source);
 	}
@@ -1084,10 +1088,10 @@ function splitArgs(argsStr) {
 }
 
 // Join arguments back into a string, ie. mode[-source][_flags]
-function joinArgs(mode = null, source = null, flags = null) {
-	let argsStr = mode || "";
-	if (source != null && source != "") argsStr += "-" + source;
-	if (flags != null && flags != "") argsStr += "_" + sortFlags(flags);
+function joinArgs(mode, source, flags) {
+	let argsStr = mode ?? "";
+	if (source) argsStr += "-" + source;
+	if (flags) argsStr += "_" + sortFlags(flags);
 	return argsStr;
 }
 
@@ -1102,7 +1106,7 @@ function getWaybackLink(url, year, month) {
 
 // Return directory of cached page based on its flags
 function getCachedPageDir(args, compatMode) {
-	let flags = args.flags || "";
+	let flags = args.flags;
 	let compatPath = "";
 	if (args.mode == "orphan") flags = sortFlags(flags + "n");
 	if (flags.includes("n")) flags = flags.replace(/[mo]/g, "");
@@ -1129,7 +1133,7 @@ async function cachePage(id, args, compatMode, html) {
 
 // Make an educated guess of the requesting browser's recency
 function isModern(userAgent) {
-	const fieldMatch = userAgent.match(/(?:Chrome|Firefox|Safari)\/[0-9.]+/) || [];
+	const fieldMatch = userAgent.match(/(?:Chrome|Firefox|Safari)\/[0-9.]+/) ?? [];
 	if (fieldMatch.length > 0) {
 		const splitField = fieldMatch[0].split("/");
 		const browser = {
@@ -1198,7 +1202,7 @@ function resolveLinks(entry, mode, rawLinks, entryData) {
 		const comparePaths = rawLinks.map(link => {
 			if (!link.isWhole) {
 				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
-				if (parsedUrl != null) return parsedUrl.pathname.substring(1).toLowerCase();
+				if (parsedUrl !== null) return parsedUrl.pathname.substring(1).toLowerCase();
 			}
 			return null;
 		});
@@ -1206,8 +1210,8 @@ function resolveLinks(entry, mode, rawLinks, entryData) {
 			if (rawLinks.length == 0) break;
 			const comparePath = compareEntry.path.toLowerCase();
 			for (let l = 0; l < rawLinks.length; l++)
-				if (comparePaths[l] != null && comparePath == comparePaths[l]) {
-					if (compareEntry.url != "") fixedLinks.push(compareEntry.url);
+				if (comparePaths[l] !== null && comparePath == comparePaths[l]) {
+					if (compareEntry.url) fixedLinks.push(compareEntry.url);
 					rawLinks.splice(l, 1);
 					comparePaths.splice(l, 1);
 					l -= 1;
@@ -1217,7 +1221,7 @@ function resolveLinks(entry, mode, rawLinks, entryData) {
 
 	for (const link of mode == 2 ? rawLinks.filter(filterLink => filterLink.isWhole) : rawLinks) {
 		const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
-		if (parsedUrl != null) fixedLinks.push(parsedUrl.href);
+		if (parsedUrl !== null) fixedLinks.push(parsedUrl.href);
 	}
 
 	return fixedLinks
@@ -1393,7 +1397,7 @@ function improvePresentation(html, compatMode = false) {
 	if (!compatMode && !flags["build"]) {
 		const style = '<link rel="stylesheet" href="/presentation.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
-		html = matchHead != null
+		html = matchHead !== null
 			? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
 			: style + "\n" + html;
 	}
@@ -1565,7 +1569,7 @@ function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1")
 // Log to the appropriate locations
 function logMessage(message) {
 	message = `[${new Date().toLocaleString()}] ${message}`;
-	if (config.logFile != "") Deno.writeTextFile(config.logFile, message + "\n", { append: true });
+	if (config.logFile) try { Deno.writeTextFile(config.logFile, message + "\n", { append: true }); } catch {}
 	if (config.logToConsole) console.log(message);
 }
 
