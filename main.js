@@ -458,7 +458,7 @@ const serverHandler = async (request, info) => {
 	let contentType = entry.type;
 
 	// If the requested entry is an HTML page, serve from cache if possible
-	if (contentType == "text/html") {
+	if (contentType == "text/html" && args.mode != "raw") {
 		const cachedHtml = await getCachedPage(entry.id, args, compatMode);
 		if (cachedHtml !== null) return new Response(cachedHtml, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 	}
