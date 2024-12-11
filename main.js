@@ -1186,13 +1186,13 @@ function textContent(html) {
 		/<title>.*?<\/title>/gis,
 		"",
 	).replaceAll(
-		/<[^>]+alt {0,}= {0,}"(.*?)".*?>/gis,
+		/<[^>]+alt *= *"(.*?)".*?>/gis,
 		" $1 "
 	).replaceAll(
-		/<[^>]+alt {0,}= {0,}([^ >]+).*?>/gis,
+		/<[^>]+alt *= *([^ >]+).*?>/gis,
 		" $1 "
 	).replaceAll(
-		/<! {0,}[-]+.*?[-]+ {0,}>/gs,
+		/<! *[-]+.*?[-]+ *>/gs,
 		""
 	).replaceAll(
 		/<.*?>/gs,
@@ -1418,23 +1418,23 @@ function improvePresentation(html, compatMode = false) {
 		'<$1>$2</$3>'
 	).replaceAll(
 		// Fix attributes with missing end quote
-		/([a-z]+ {0,}= {0,}"[^"\n]+)(?=>(?!".*?>))/gis,
+		/([a-z]+ *= *"[^"\n]+)(?=>(?!".*?>))/gis,
 		'$1"'
 	).replaceAll(
 		// Remove spaces from comment closing sequences
-		/(<! {0,}[-]+(?:(?!<! {0,}[-]+).)*?[-]+) {1,}>/gs,
+		/(<! *[-]+(?:(?!<! *[-]+).)*?[-]+) +>/gs,
 		'$1>',
 	).replaceAll(
 		// Fix single-line comments with missing closing sequence
-		/<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>/g,
+		/<!( *[-]+)([^<]+)(?<![-]+ *)>/g,
 		'<!$1$2-->'
 	).replaceAll(
 		// Fix multi-line comments with missing closing sequence
-		/<!( {0,}[-]+)([^<]+)(?<![-]+ {0,})>(?!(?:(?!<! {0,}[-]+).)*?[-]+ {0,}>)/gs,
+		/<!( *[-]+)([^<]+)(?<![-]+ *)>(?!(?:(?!<! *[-]+).)*?[-]+ *>)/gs,
 		'<!$1$2-->'
 	).replaceAll(
 		// Fix non-standard <marquee> syntax
-		/<(marquee)[ ]+text {0,}= {0,}"(.*?)".*?>/gis,
+		/<(marquee)[ ]+text *= *"(.*?)".*?>/gis,
 		'<$1>$2</$1>'
 	).replaceAll(
 		// Add missing closing tags to link elements
@@ -1455,8 +1455,8 @@ function improvePresentation(html, compatMode = false) {
 		const isindexExp = /<isindex.*?>/gis;
 		for (let match; (match = isindexExp.exec(html)) !== null;) {
 			const isindex = match[0];
-			const matchPrompt = [...isindex.matchAll(/prompt {0,}= {0,}(".*?"|[^ >]+)/gis)];
-			const matchAction = [...isindex.matchAll(/action {0,}= {0,}(".*?"|[^ >]+)/gis)];
+			const matchPrompt = [...isindex.matchAll(/prompt *= *(".*?"|[^ >]+)/gis)];
+			const matchAction = [...isindex.matchAll(/action *= *(".*?"|[^ >]+)/gis)];
 
 			let formStart = "";
 			let formEnd = "";
@@ -1479,7 +1479,7 @@ function improvePresentation(html, compatMode = false) {
 
 // Find and return links in the given markup, without performing any operations
 function getLinks(html, baseUrl) {
-	const baseExp = /<base[ \n]+h?ref {0,}= {0,}("(?:(?!>).)*?"|[^ >]+)/is;
+	const baseExp = /<base[ \n]+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 	if (baseExp.test(html)) baseUrl = trimQuotes(html.match(baseExp)[1]);
 
 	const links = [];
@@ -1502,7 +1502,7 @@ function getLinks(html, baseUrl) {
 		});
 	};
 
-	const linkExp = /((?:href|src|action|background) {0,}= {0,})("(?:(?!>).)*?"|[^ >]+)/gis;
+	const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
 	for (let match; (match = linkExp.exec(html)) !== null;) addLink(match);
 
 	const refreshExp = /(http-equiv *= *"?refresh"?[^>]+content *= *"(?:.*?URL=)?)(.*?)(?=")/i;
@@ -1580,7 +1580,7 @@ function safeDecode(string) {
 }
 
 // Replace comments with whitespace
-function blankComments(html) { return html.replaceAll(/<! {0,}[-]+.*?[-]+ {0,}>/gs, match => " ".repeat(match.length)); }
+function blankComments(html) { return html.replaceAll(/<! *[-]+.*?[-]+ *>/gs, match => " ".repeat(match.length)); }
 
 // Remove any quotes or whitespace surrounding a string
 function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
