@@ -848,7 +848,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		const comparePaths = [];
 		const comparePathsQuery = [];
 		for (const link of unmatchedLinks) {
-			if (!link.isWhole) {
+			if (!link.hasHttp) {
 				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
 				if (parsedUrl !== null) {
 					const comparePath = parsedUrl.pathname.substring(1).toLowerCase();
@@ -886,7 +886,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 						if (compareEntry.skip) {
 							unmatchedLinks[l].url = compareEntry.url;
 							unmatchedLinks[l].sanitizedUrl = sanitizeUrl(compareEntry.url);
-							unmatchedLinks[l].isWhole = true;
+							unmatchedLinks[l].hasHttp = true;
 							continue;
 						}
 						const entryUrl = compareEntry.url + pathAnchor;
@@ -945,7 +945,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		// Point all clickable links to the Wayback Machine, and everything else to an invalid URL
 		// We shouldn't be loading any content off of Wayback
 		for (let l = 0; l < unmatchedLinks.length; l++) {
-			if (rootSource.mode == 2 && !unmatchedLinks[l].isWhole)
+			if (rootSource.mode == 2 && !unmatchedLinks[l].hasHttp)
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
 					? "[unarchived-media]"
 					: "[unarchived-link]";
@@ -1225,7 +1225,7 @@ function resolveLinks(entry, mode, rawLinks, entryData) {
 	const fixedLinks = [];
 	if (mode > 0) {
 		const comparePaths = rawLinks.map(link => {
-			if (!link.isWhole) {
+			if (!link.hasHttp) {
 				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
 				if (parsedUrl !== null) return parsedUrl.pathname.substring(1).toLowerCase();
 			}
@@ -1244,7 +1244,7 @@ function resolveLinks(entry, mode, rawLinks, entryData) {
 		}
 	}
 
-	for (const link of mode == 2 ? rawLinks.filter(filterLink => filterLink.isWhole) : rawLinks) {
+	for (const link of mode == 2 ? rawLinks.filter(filterLink => filterLink.hasHttp) : rawLinks) {
 		const parsedUrl = URL.parse(link.rawUrl, link.baseUrl);
 		if (parsedUrl !== null) fixedLinks.push(parsedUrl.href);
 	}
@@ -1360,7 +1360,7 @@ function genericizeMarkup(html, entry) {
 			html = html.replace(/^<META name="download" content=".*?">\n/s, '');
 			// Attempt to fix broken external links
 			const links = getLinks(html, entry.url)
-				.filter(link => link.isWhole && URL.canParse(link.rawUrl))
+				.filter(link => link.hasHttp && URL.canParse(link.rawUrl))
 				.toSorted((a, b) => a.lastIndex - b.lastIndex);
 			for (const link of links) {
 				const httpExp = /^http:(?=\/?[^/])/i;
@@ -1517,10 +1517,10 @@ function getLinks(html, baseUrl) {
 	const addLink = (match, doQuotes = true) => {
 		if (match === null) return;
 		const rawUrl = trimQuotes(match[2]);
-		const isWhole = /^https?:\/\//i.test(rawUrl);
+		const hasHttp = /^https?:/i.test(rawUrl);
 		// Anchor, unarchived, and non-HTTP links should be ignored
 		if (rawUrl.startsWith("#") || /^\[unarchived-(link|image)\]$/.test(rawUrl)
-		|| (!isWhole && /^[a-z]+:/i.test(rawUrl)))
+		|| (!hasHttp && /^[a-z]+:/i.test(rawUrl)))
 			return;
 		links.push({
 			fullMatch: match[0],
@@ -1528,7 +1528,7 @@ function getLinks(html, baseUrl) {
 			rawUrl: rawUrl,
 			baseUrl: baseUrl || undefined,
 			lastIndex: match.index + match[0].length,
-			isWhole: isWhole,
+			hasHttp: hasHttp,
 			doQuotes: doQuotes,
 		});
 	};
