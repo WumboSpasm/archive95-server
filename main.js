@@ -601,7 +601,7 @@ async function prepareSearch(params, compatMode = false) {
 
 		// Escape any wildcard characters that exist in the search query
 		if (/[%_^]/g.test(searchString))
-			whereConditions = whereConditions.map(condition => `(${condition} ESCAPE "^")`);
+			whereConditions = whereConditions.map(condition => `(${condition} ESCAPE '^')`);
 
 		let whereString = whereConditions.join(" OR ");
 		if (search.formatsText)
