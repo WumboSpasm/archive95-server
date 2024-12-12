@@ -738,9 +738,11 @@ async function prepareSearch(params, compatMode = false) {
 			if (searchQuery.length > 0) {
 				resultSegments.unshift("\t\t<hr>");
 				if (prevId != -1 || nextId != -1) {
-					const prevButton = prevId == -1 ? "Prev" : `<a href="?${params.toString()}&last=${prevId}">Prev</a>`;
-					const nextButton = nextId == -1 ? "Next" : `<a href="?${params.toString()}&first=${nextId}">Next</a>`;
-					const navigate = `\t\t${prevButton} ${nextButton}`;
+					const prevText = "Prev Page";
+					const nextText = "Next Page";
+					const prevButton = prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`;
+					const nextButton = nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`;
+					const navigate = `\t\t${prevButton}, ${nextButton}`;
 					resultSegments.unshift(navigate);
 					if (nextId != -1)
 						resultSegments.push(navigate);
