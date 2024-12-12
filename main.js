@@ -236,14 +236,22 @@ if (flags["build"]) {
 
 		// Sort entries and give them IDs based on the new order
 		logMessage("sorting files...");
+		const sortFunctions = [
+			i => !i.skip,
+			i => !!i.type?.startsWith("text/"),
+			i => !!i.title,
+			i => i.title == "",
+		];
+		const sortFields = ["title", "sanitizedUrl", "path"];
 		entries.sort((a, b) => {
-			if (a.title === null) return 1;
-			if (b.title === null) return -1;
-			return a.title.localeCompare(b.title, "en", { sensitivity: "base" });
-		});
-		entries.sort((a, b) => {
-			if (a.title !== null || b.title !== null) return 0;
-			return a.sanitizedUrl.localeCompare(b.sanitizedUrl, "en", { sensitivity: "base" });
+			let compare;
+			for (const func of sortFunctions)
+				if ((compare = func(b) - func(a)))
+					return compare;
+			for (const field of sortFields)
+				if (a[field] && b[field] && (compare = a[field].localeCompare(b[field], "en", { sensitivity: "base" })))
+					return compare;
+			return 0;
 		});
 		entries.forEach((entry, e) => Object.assign(entry, { id: e }));
 
@@ -607,7 +615,7 @@ async function prepareSearch(params, compatMode = false) {
 
 		const resultsPerPage = Math.max(5, config.resultsPerPage);
 		const searchQuery = searchString.length < 3 ? [] : db.prepare(`
-			SELECT id, url, source, title, content FROM files
+			SELECT id, path, url, source, title, content FROM files
 			WHERE id ${lastId ? "<=" : ">="} ?2 AND skip = 0 AND (${whereString})
 			ORDER BY id ${lastId ? "DESC" : "ASC"} LIMIT ${resultsPerPage + 2}
 		`).all(`%${searchString.replaceAll(/([%_^])/g, '^$1')}%`, compareId);
@@ -652,15 +660,20 @@ async function prepareSearch(params, compatMode = false) {
 						titleInject.substring(titleMatchIndex + searchString.length);
 			}
 			else
-				titleInject = result.url;
+				titleInject = result.url || `/${result.source}/${result.path}`;
 
-			let urlInject = sanitizeInject(result.url);
-			let urlMatchIndex = -1;
-			if (search.inUrl && (urlMatchIndex = urlInject.toLowerCase().indexOf(searchString)) != -1)
-				urlInject =
-					urlInject.substring(0, urlMatchIndex) +
-					"<b>" + urlInject.substring(urlMatchIndex, urlMatchIndex + searchString.length) + "</b>" +
-					urlInject.substring(urlMatchIndex + searchString.length);
+			let urlInject;
+			if (result.url) {
+				urlInject = sanitizeInject(result.url);
+				let urlMatchIndex = -1;
+				if (search.inUrl && (urlMatchIndex = urlInject.toLowerCase().indexOf(searchString)) != -1)
+					urlInject =
+						urlInject.substring(0, urlMatchIndex) +
+						"<b>" + urlInject.substring(urlMatchIndex, urlMatchIndex + searchString.length) + "</b>" +
+						urlInject.substring(urlMatchIndex + searchString.length);
+			}
+			else
+				urlInject = `/${result.source}/${result.path}`;
 
 			let contentInject = result.content ?? "";
 			let contentMatchIndex = -1;
@@ -683,12 +696,15 @@ async function prepareSearch(params, compatMode = false) {
 			else
 				contentInject = sanitizeInject(contentInject.substring(0, 200) + (compatMode && contentInject.length > 200 ? "..." : ""));
 
+			const archiveUrl = result.url
+				? `/view-${result.source}/${result.url.replaceAll("#", "%23")}`
+				: `/orphan-${result.source}/${result.path.replaceAll("#", "%23")}`;
 			resultSegments.push(
 				(!compatMode ? templates.search.result : templates.search.compat.result)
-					.replace("{ARCHIVE}", `/view-${result.source}/${result.url.replaceAll("#", "%23")}`)
+					.replace("{ARCHIVE}", archiveUrl)
 					.replace("{TITLE}", titleInject)
 					.replace("{URL}", urlInject)
-					.replace("{SOURCE}", result.source)
+					.replace("{SOURCE}", result.source + (result.url ? "" : " (orphan)"))
 					.replace("{TEXT}", contentInject)
 			);
 			if (compatMode) resultSegments.push("\t\t<hr>");
