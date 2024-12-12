@@ -808,7 +808,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 			sanitizedUrl: sanitizeUrl(parsedUrlStr),
 			start: matchStart,
 			end: matchEnd,
-			isEmbedded: !/^href|^http-equiv/i.test(link.attribute),
+			isEmbedded: !/^href/i.test(link.attribute),
 		};
 	}).filter(link => link !== null);
 	if (unmatchedLinks.length == 0) return html;
