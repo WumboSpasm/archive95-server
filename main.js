@@ -1449,8 +1449,24 @@ function improvePresentation(html, compatMode = false) {
 		match => match + (match == match.toUpperCase() ? "S" : "s")
 	);
 
-	// Restore <isindex> on modern browsers
 	if (!compatMode) {
+		// Convert <plaintext> into <pre>
+		const plaintextExp = /<plaintext>/gi;
+		for (let match; (match = plaintextExp.exec(html)) !== null;) {
+			const openIndex = match.index;
+			const startIndex = plaintextExp.lastIndex;
+			const endIndex = html.toLowerCase().indexOf("</plaintext>", startIndex);
+			const closeIndex = endIndex != -1 ? endIndex + 12 : -1;
+
+			const upperCase = match[0] == match[0].toUpperCase();
+			const content = (upperCase ? "<PRE>" : "<pre>")
+				+ html.substring(startIndex, endIndex != -1 ? endIndex : undefined).replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+				+ (upperCase ? "</PRE>" : "</pre>");
+
+			html = html.substring(0, openIndex) + content + (closeIndex != -1 ? html.substring(closeIndex) : "");
+		}
+
+		// Restore <isindex> on modern browsers
 		const isindexExp = /<isindex.*?>/gis;
 		for (let match; (match = isindexExp.exec(html)) !== null;) {
 			const isindex = match[0];
