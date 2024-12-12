@@ -13,18 +13,17 @@ const flags = parseArgs(Deno.args, {
  +----------------------------*/
 
 const defaultConfig = {
-	port: 8989,
-	https: {
-		port: 8990,
-		certificate: "",
-		key: "",
-	},
+	httpPort: 8989,
+	httpsPort: 8990,
+	httpsCert: "",
+	httpsKey: "",
 	accessHost: "",
 	dataPath: "data",
 	logFile: "archive95.log",
 	logToConsole: true,
 	doCaching: false,
 	doCompatMode: true,
+	forceCompatMode: false,
 	resultsPerPage: 50,
 	doInlinks: true,
 };
@@ -324,7 +323,7 @@ const serverHandler = async (request, info) => {
 	if (requestUrl === null) throw new Error();
 
 	// Render search page and navbar in basic markup if user agent is not considered modern
-	const compatMode = config.doCompatMode && !isModern(request.headers.get("User-Agent") ?? "");
+	const compatMode = config.forceCompatMode || (config.doCompatMode && !isModern(request.headers.get("User-Agent") ?? ""));
 
 	// If access host is configured, do not allow connections through any other hostname
 	// (requests with missing Host header are exempt from this, to satisfy some ancient browsers)
@@ -526,16 +525,16 @@ const serverError = (error) => {
 
 // Start server on HTTP, and if configured to do so, HTTPS
 Deno.serve({
-	port: config.port,
+	port: config.httpPort,
 	hostname: config.hostName,
 	onError: serverError,
 }, serverHandler);
-if (config.https.certificate && config.https.key)
+if (config.httpsCert && config.httpsKey)
 	try {
 		Deno.serve({
-			port: config.https.port,
-			cert: Deno.readTextFileSync(config.https.certificate),
-			key: Deno.readTextFileSync(config.https.key),
+			port: config.httpsPort,
+			cert: Deno.readTextFileSync(config.httpsCert),
+			key: Deno.readTextFileSync(config.httpsKey),
 			hostName: config.hostName,
 			onError: serverError,
 		}, serverHandler);
