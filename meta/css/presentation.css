@@ -1,7 +1,7 @@
-:not([class^=navbar-]) > a[href] img[border] {
+:not(div.navbar div) > a[href] img[border] {
 	border-color: #00f;
 }
-:not([class^=navbar-]) > a[href] img:not([border]):is([width], [height]) {
+:not(div.navbar div) > a[href] img:not([border]) {
 	border: 2px solid #00f;
 }
 dl > dl {
