@@ -17,7 +17,7 @@ const defaultConfig = {
 	httpsPort: 8990,
 	httpsCert: "",
 	httpsKey: "",
-	accessHost: "",
+	accessHosts: [],
 	dataPath: "data",
 	logFile: "archive95.log",
 	logToConsole: true,
@@ -335,7 +335,7 @@ const serverHandler = async (request, info) => {
 
 	// If access host is configured, do not allow connections through any other hostname
 	// (requests with missing Host header are exempt from this, to satisfy some ancient browsers)
-	if (config.accessHost && requestUrl.hostname != config.accessHost && (!config.doCompatMode || request.headers.has("Host")))
+	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname) && (!config.doCompatMode || request.headers.has("Host")))
 		throw new Error();
 
 	// Serve homepage/search results
