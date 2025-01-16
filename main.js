@@ -579,8 +579,14 @@ async function prepareSearch(params, compatMode = false) {
 			formatsText: params.get("formats") == "text",
 			formatsMedia: params.get("formats") == "media",
 		};
+
+		const queryParam = { original: safeDecode(params.get("query").replaceAll("%", "%25")) };
+		queryParam.compare = queryParam.original.toLowerCase();
+		queryParam.html = sanitizeInject(queryParam.original.replaceAll("&", "&amp;"));
+		queryParam.search = queryParam.html.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
 		html = html
-			.replace("{QUERY}", sanitizeInject(params.get("query")).replaceAll("&", "&amp;"))
+			.replace("{QUERY}", queryParam.html)
 			.replace("{INURL}", search.inUrl ? " checked" : "")
 			.replace("{INTITLE}", search.inTitle ? " checked" : "")
 			.replace("{INCONTENT}", search.inContent ? " checked" : "")
@@ -596,11 +602,8 @@ async function prepareSearch(params, compatMode = false) {
 		if (search.inContent)
 			whereConditions.push("content LIKE ?1");
 
-		let searchString = safeDecode(params.get("query"));
-		searchString = searchString.toLowerCase();
-
 		// Escape any wildcard characters that exist in the search query
-		if (/[%_^]/g.test(searchString))
+		if (/[%_^]/g.test(queryParam.compare))
 			whereConditions = whereConditions.map(condition => `(${condition} ESCAPE '^')`);
 
 		let whereString = whereConditions.join(" OR ");
@@ -614,11 +617,11 @@ async function prepareSearch(params, compatMode = false) {
 		const compareId = lastId || firstId || 0;
 
 		const resultsPerPage = Math.max(5, config.resultsPerPage);
-		const searchQuery = searchString.length < 3 ? [] : db.prepare(`
+		const searchQuery = queryParam.compare.length < 3 ? [] : db.prepare(`
 			SELECT id, path, url, source, title, content FROM files
 			WHERE id ${lastId ? "<=" : ">="} ?2 AND skip = 0 AND (${whereString})
 			ORDER BY id ${lastId ? "DESC" : "ASC"} LIMIT ${resultsPerPage + 2}
-		`).all(`%${searchString.replaceAll(/([%_^])/g, '^$1')}%`, compareId);
+		`).all(`%${queryParam.compare.replaceAll(/([%_^])/g, '^$1')}%`, compareId);
 		if (lastId) searchQuery.reverse();
 
 		// Pages are anchored around an entry ID, either preceding or following it
@@ -653,11 +656,11 @@ async function prepareSearch(params, compatMode = false) {
 			let titleInject = sanitizeInject(result.title ?? "");
 			let titleMatchIndex = -1;
 			if (titleInject) {
-				if (search.inTitle && (titleMatchIndex = titleInject.toLowerCase().indexOf(searchString)) != -1)
+				if (search.inTitle && (titleMatchIndex = titleInject.toLowerCase().indexOf(queryParam.compare)) != -1)
 					titleInject =
 						titleInject.substring(0, titleMatchIndex) +
-						"<b>" + titleInject.substring(titleMatchIndex, titleMatchIndex + searchString.length) + "</b>" +
-						titleInject.substring(titleMatchIndex + searchString.length);
+						"<b>" + titleInject.substring(titleMatchIndex, titleMatchIndex + queryParam.compare.length) + "</b>" +
+						titleInject.substring(titleMatchIndex + queryParam.compare.length);
 			}
 			else
 				titleInject = result.url || `/${result.source}/${result.path}`;
@@ -666,24 +669,24 @@ async function prepareSearch(params, compatMode = false) {
 			if (result.url) {
 				urlInject = sanitizeInject(result.url);
 				let urlMatchIndex = -1;
-				if (search.inUrl && (urlMatchIndex = urlInject.toLowerCase().indexOf(searchString)) != -1)
+				if (search.inUrl && (urlMatchIndex = urlInject.toLowerCase().indexOf(queryParam.compare)) != -1)
 					urlInject =
 						urlInject.substring(0, urlMatchIndex) +
-						"<b>" + urlInject.substring(urlMatchIndex, urlMatchIndex + searchString.length) + "</b>" +
-						urlInject.substring(urlMatchIndex + searchString.length);
+						"<b>" + urlInject.substring(urlMatchIndex, urlMatchIndex + queryParam.compare.length) + "</b>" +
+						urlInject.substring(urlMatchIndex + queryParam.compare.length);
 			}
 			else
 				urlInject = `/${result.source}/${result.path}`;
 
 			let contentInject = result.content ?? "";
 			let contentMatchIndex = -1;
-			if (search.inContent && (contentMatchIndex = contentInject.toLowerCase().indexOf(searchString)) != -1) {
+			if (search.inContent && (contentMatchIndex = contentInject.toLowerCase().indexOf(queryParam.compare)) != -1) {
 				const minBound = contentMatchIndex - 30;
 				const maxBound = minBound + 200;
 				contentInject = sanitizeInject(
 					contentInject.substring(minBound, contentMatchIndex) +
-					"<b>" + contentInject.substring(contentMatchIndex, contentMatchIndex + searchString.length) + "</b>" +
-					contentInject.substring(contentMatchIndex + searchString.length, maxBound)
+					"<b>" + contentInject.substring(contentMatchIndex, contentMatchIndex + queryParam.compare.length) + "</b>" +
+					contentInject.substring(contentMatchIndex + queryParam.compare.length, maxBound)
 				).trim();
 				if (!compatMode) {
 					if (minBound > 0) contentInject = "&hellip;" + contentInject;
@@ -714,14 +717,13 @@ async function prepareSearch(params, compatMode = false) {
 		params.delete("last");
 
 		const totalResults = (prevId != -1 || nextId != -1) ? (resultsPerPage + "+") : searchQuery.length;
-		const queryInject = sanitizeInject(params.get("query")).replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 		if (!compatMode) {
 			const prevText = "&lt;&lt; Prev";
 			const nextText = "Next &gt;&gt;";
 			const navigate = templates.search.navigate
 				.replace("{TOTAL}", totalResults)
 				.replace("{S}", searchQuery.length > 1 ? "s" : "")
-				.replace("{QUERY}", queryInject)
+				.replace("{QUERY}", queryParam.search)
 				.replace("{PREVIOUS}", prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`)
 				.replace("{NEXT}", nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`);
 
@@ -749,11 +751,11 @@ async function prepareSearch(params, compatMode = false) {
 				}
 			}
 
-			resultSegments.unshift(`\t\t<h2>${totalResults} results for "${queryInject}"</h2>`);
+			resultSegments.unshift(`\t\t<h2>${totalResults} results for "${queryParam.search}"</h2>`);
 			html = html.replace("{CONTENT}", resultSegments.join("\n"));
 		}
 
-		html = html.replace("{TITLE}", `Search results for "${queryInject}"`)
+		html = html.replace("{TITLE}", `Search results for "${queryParam.search}"`)
 	}
 	else {
 		html = html
