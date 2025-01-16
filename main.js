@@ -752,6 +752,8 @@ async function prepareSearch(params, compatMode = false) {
 			resultSegments.unshift(`\t\t<h2>${totalResults} results for "${queryInject}"</h2>`);
 			html = html.replace("{CONTENT}", resultSegments.join("\n"));
 		}
+
+		html = html.replace("{TITLE}", `Search results for "${queryInject}"`)
 	}
 	else {
 		html = html
@@ -786,12 +788,13 @@ async function prepareSearch(params, compatMode = false) {
 		if (compatMode) {
 			const randomEntry = getRandom();
 			about = about.replace("{RANDOM}", `/view-${randomEntry.source}/${randomEntry.url}`);
-			html = html.replace("{CONTENT}", about);
 		}
 		else
-			html = html
-				.replace("{HEADER}", "About this website")
-				.replace("{CONTENT}", about);
+			html = html.replace("{HEADER}", "About this website");
+
+		html = html
+			.replace("{TITLE}", "Archive95")
+			.replace("{CONTENT}", about);
 
 		if (config.doCaching)
 			await Deno.writeTextFile(homeCachePath, html);
