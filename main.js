@@ -71,9 +71,12 @@ const templates = {
 		},
 	},
 	embed: {
+		main: await Deno.readTextFile("meta/templates/embed.html"),
 		text: await Deno.readTextFile("meta/templates/embed_text.html"),
+		image: await Deno.readTextFile("meta/templates/embed_image.html"),
 		audio: await Deno.readTextFile("meta/templates/embed_audio.html"),
-		other: await Deno.readTextFile("meta/templates/embed_other.html"),
+		video: await Deno.readTextFile("meta/templates/embed_video.html"),
+		unsupported: await Deno.readTextFile("meta/templates/embed_unsupported.html"),
 	},
 	inlinks: {
 		main: await Deno.readTextFile("meta/templates/inlinks.html"),
@@ -483,24 +486,33 @@ const serverHandler = async (request, info) => {
 			file = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
 	}
 
+	// Embed non-HTML files when navbar is enabled, otherwise serve original file data
+	// In raw mode, serve original file data regardless of file type or presence of navbar flag
 	if (!compatMode && args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
-		// Embed non-HTML files when navbar is enabled
-		let embed;
-		if (contentType.startsWith("text/"))
-			embed = templates.embed.text
-				.replace("{URL}", entry.sanitizedUrl)
-				.replace("{TEXT}", await getText(filePath, entry.source));
+		const plaintext = contentType.startsWith("text/") || contentType.startsWith("message/") || contentType == "application/mbox";
+		let embed = (
+			plaintext ? templates.embed.text : (
+			contentType.startsWith("image/") ? templates.embed.image : (
+			contentType.startsWith("audio/") ? templates.embed.audio : (
+			contentType.startsWith("video/") ? templates.embed.video : (
+			templates.embed.unsupported
+		)))));
+		if (plaintext)
+			embed = embed.replace("{TEXT}", await getText(filePath, entry.source));
 		else
-			embed = (contentType.startsWith("audio/") ? templates.embed.audio : templates.embed.other)
-				.replace("{URL}", entry.sanitizedUrl)
-				.replace("{TYPE}", contentType)
-				.replace("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`);
-		embed = injectNavbar(embed, archives, desiredArchive, args.flags);
-		await cachePage(entry.id, args, false, embed);
-		return new Response(embed, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+			embed = embed
+				.replaceAll("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`)
+				.replaceAll("{TYPE}", contentType);
+
+		let embedContainer = templates.embed.main
+			.replace("{URL}", entry.sanitizedUrl)
+			.replace("{EMBED}", embed);
+		embedContainer = injectNavbar(embedContainer, archives, desiredArchive, args.flags);
+
+		await cachePage(entry.id, args, false, embedContainer);
+		return new Response(embedContainer, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 	}
 	else if (args.mode == "raw" || contentType != "text/html")
-		// Serve actual file data if raw or non-HTML
 		return new Response(file ?? await Deno.readFile(filePath), { headers: { "Content-Type": contentType } });
 
 	// Make adjustments to page markup before serving
