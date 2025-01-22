@@ -1103,7 +1103,7 @@ function getRandom(flags = "", source) {
 		whereParameters.push(source);
 	}
 	return db.prepare(
-		`SELECT path, url, source FROM files_brief WHERE ${whereConditions.join(" AND ")} ORDER BY random() LIMIT 1`
+		`SELECT path, url, source FROM files_brief ${whereConditions.length > 0 ? ("WHERE " + whereConditions.join(" AND ")) : ""} ORDER BY random() LIMIT 1`
 	).get(...whereParameters);
 }
 
