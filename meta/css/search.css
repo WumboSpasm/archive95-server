@@ -22,9 +22,12 @@ ul {
 	width: 144px;
 	flex-shrink: 0;
 }
-.random {
+.options > fieldset {
+	margin-bottom: 4px;
+}
+.options > div {
+	padding-top: 4px;
 	text-align: center;
-	margin: 12px 0;
 }
 .content {
 	flex-grow: 1;

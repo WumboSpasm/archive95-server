@@ -42,6 +42,10 @@ const staticFiles = [
 	["meta/images/compat/random.gif", "compat/random.gif", "image/gif"],
 	["meta/images/compat/home.gif", "compat/home.gif", "image/gif"],
 	["meta/images/compat/screenshot.gif", "compat/screenshot.gif", "image/gif"],
+	["meta/images/banners/flashpoint.gif", "banners/flashpoint.gif", "image/gif"],
+	["meta/images/banners/discmaster.gif", "banners/discmaster.gif", "image/gif"],
+	["meta/images/banners/theoldnet.gif", "banners/theoldnet.gif", "image/gif"],
+	["meta/images/banners/anybrowser.gif", "banners/anybrowser.gif", "image/gif"],
 	["meta/css/search.css", "search.css", "text/css"],
 	["meta/css/navbar.css", "navbar.css", "text/css"],
 	["meta/css/presentation.css", "presentation.css", "text/css"],
@@ -347,9 +351,9 @@ const serverHandler = async (request, info) => {
 		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
 	// Serve static files
-	for (const exception of staticFiles.concat(sourceInfo.map(source => ["meta/images/" + source.short + ".gif", source.short + ".gif", "image/gif"])))
-		if (requestPath == exception[1])
-			return new Response(await Deno.readFile(exception[0]), { headers: { "Content-Type": exception[2] } });
+	for (const file of staticFiles.concat(sourceInfo.map(source => [`meta/images/sources/${source.short}.gif`, `sources/${source.short}.gif`, "image/gif"])))
+		if (requestPath == file[1])
+			return new Response(await Deno.readFile(file[0]), { headers: { "Content-Type": file[2] } });
 
 	// Serve page screenshots
 	if (["screenshots/", "thumbnails/"].some(dir => requestPath.startsWith(dir))) {
@@ -1014,7 +1018,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 				templates.navbar.archive
 					.replace("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
 					.replace("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
-					.replace("{ICON}", `/${source.short}.gif`)
+					.replace("{ICON}", `/sources/${source.short}.gif`)
 					.replace("{TITLE}", source.title)
 					.replace("{DATE}", `${source.month}`.padStart(2, "0") + "/" + source.year)
 			);
