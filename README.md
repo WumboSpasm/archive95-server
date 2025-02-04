@@ -30,3 +30,4 @@ Archive95 is an unorthodox web archive.
 - `n`: Disable navigation bar
 - `o`: Random button can take you to orphaned files in addition to files with known URLs
 - `p`: Disable presentation improvements for modern browsers
+- `w`: Disable Wayback Machine links

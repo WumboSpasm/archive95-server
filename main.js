@@ -95,7 +95,7 @@ const templates = {
 };
 
 const possibleModes = ["view", "orphan", "raw", "inlinks", "random"];
-const possibleFlags = ["e", "m", "n", "o", "p"];
+const possibleFlags = ["e", "m", "n", "o", "p", "w"];
 
 const databasePath = joinPath(config.dataPath, "archive95.sqlite");
 const cachePath = joinPath(config.dataPath, "cache");
@@ -972,10 +972,13 @@ function redirectLinks(html, entry, flags, rawLinks) {
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
 					? "[unarchived-media]"
 					: "[unarchived-link]";
-			else
+			else if (!flags.includes("w"))
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
 					? `/${joinArgs("view", entry.source, flagsNoNav)}/${unmatchedLinks[l].url}`
 					: getWaybackLink(unmatchedLinks[l].url, rootSource.year, rootSource.month);
+			else
+				unmatchedLinks[l].url =
+					`/${joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)}/${unmatchedLinks[l].url}`;
 		}
 	}
 
