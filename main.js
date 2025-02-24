@@ -795,7 +795,7 @@ async function prepareSearch(params, compatMode = false) {
 					.replace("{LINK}", source.link)
 					.replace("{TITLE}", source.title)
 					.replace("{AUTHOR}", source.author)
-					.replace("{DATE}", `${source.month}`.padStart(2, "0") + "/" + source.year)
+					.replace("{DATE}", (source.month == 0 ? "c. " : (`${source.month}`.padStart(2, "0") + "/")) + source.year)
 					.replace("{COUNT}", source.size.toLocaleString())
 			);
 
@@ -855,12 +855,15 @@ function redirectLinks(html, entry, flags, rawLinks) {
 
 	// Filtering function to remove duplicate entries by their distance from the root source date
 	const nearestEntryOnly = (entry, _, self) => {
+		const rootSourceMonth = rootSource.month == 0 ? 12 : rootSource.month;
 		const source  = sourceInfo.find(source => source.short == entry.source);
-		const monthDist  = Math.abs((rootSource.year * 12 + rootSource.month) - (source.year * 12 + source.month));
+		const sourceMonth = source.month == 0 ? 12 : source.month;
+		const monthDist  = Math.abs((rootSource.year * 12 + rootSourceMonth) - (source.year * 12 + sourceMonth));
 		for (const entry2 of self)
 			if (entry.sanitizedUrl == entry2.sanitizedUrl && entry.source != entry2.source) {
 				const source2 = sourceInfo.find(source => source.short == entry2.source);
-				const monthDist2 = Math.abs((rootSource.year * 12 + rootSource.month) - (source2.year * 12 + source2.month));
+				const sourceMonth2 = source2.month == 0 ? 12 : source2.month;
+				const monthDist2 = Math.abs((rootSource.year * 12 + rootSourceMonth) - (source2.year * 12 + sourceMonth2));
 				return monthDist < monthDist2;
 			}
 		return true;
@@ -1023,7 +1026,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 					.replace("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
 					.replace("{ICON}", `/sources/${source.short}.gif`)
 					.replace("{TITLE}", source.title)
-					.replace("{DATE}", `${source.month}`.padStart(2, "0") + "/" + source.year)
+					.replace("{DATE}", (source.month == 0 ? "c. " : (`${source.month}`.padStart(2, "0") + "/")) + source.year)
 			);
 		}
 		navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
@@ -1062,7 +1065,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		let navbar = templates.navbar.compat.main
 			.replace("{URL}", realUrl)
 			.replace("{SOURCE}", source.title)
-			.replace("{DATE}", `${source.month}`.padStart(2, "0") + "/" + source.year)
+			.replace("{DATE}", (source.month == 0 ? "c. " : (`${source.month}`.padStart(2, "0") + "/")) + source.year)
 			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
 			.replace("{RANDOM}", `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`);
 
@@ -1151,7 +1154,7 @@ function sortFlags(flags) { return flags.split("").toSorted().join(""); }
 
 // Generate a link to the Wayback Machine
 function getWaybackLink(url, year, month) {
-	const timestamp = year + `${month}`.padStart(2, "0");
+	const timestamp = year + (month == 0 ? "" : `${month}`.padStart(2, "0"));
 	return `http://web.archive.org/web/${timestamp}/${url}`;
 }
 
@@ -1320,9 +1323,9 @@ function genericizeMarkup(html, entry) {
 			break;
 		}
 		case "einblicke": {
-			html = html.replaceAll(
+			html = html.replace(
 				// Remove footer
-				/\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/gi,
+				/\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/im,
 				''
 			).replaceAll(
 				// Replace image link placeholders
@@ -1427,6 +1430,81 @@ function genericizeMarkup(html, entry) {
 				html = html.substring(0, start + offset) + inject + html.substring(end + offset);
 				offset += inject.length - link.fullMatch.length;
 			}
+			break;
+		}
+		case "netcontrol96":
+		case "netcontrol98": {
+			// Remove injected script that exists on exactly one page
+			if (entry.path == "archive-b/ba1/index.shtml")
+				html = html
+					.replace(/\n?<script [^>]*src="\/archived.js".*?>/, '')
+					.replace(/ onLoad="shownew\('\/'\)"/, '');
+			// Reverse encryption of email strings
+			const decodeEmail = encodedEmail => {
+				const bytes = encodedEmail.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
+				return bytes.slice(1).map(byte => String.fromCharCode(byte ^ bytes[0])).join("");
+			}
+			html = html.replaceAll(
+				// Remove injected CloudFlare scripts
+				/<script [^>]*src="[^"]+\/cloudflare-static\/.*?" data-cf-settings="[0-9a-f]{24}-\|49"(?: defer(?:="")?)?><\/script>/g,
+				''
+			).replaceAll(
+				// Remove indicators of modified script elements
+				/ type="[0-9a-f]{24}-text\/javascript"/g,
+				''
+			).replaceAll(
+				// Revert altered mouse event attributes
+				/if \(!window.__cfRLUnblockHandlers\) return false; /g,
+				''
+			).replaceAll(
+				// Remove indicators of modified mouse event attributes
+				/ data-cf-modified-[0-9a-f]{24}-=""/g,
+				''
+			).replaceAll(
+				// Restore encrypted plaintext emails
+				/<span class="__cf_email__" data-cfemail="([0-9a-f]+)">\[email&#160;protected\]<\/span>/g,
+				(_, encodedEmail) => decodeEmail(encodedEmail)
+			).replaceAll(
+				// Restore encrypted mailto links
+				/"\/cdn-cgi\/l\/email-protection#([0-9a-f]+)"/g,
+				(_, encodedEmail) => "mailto:" + decodeEmail(encodedEmail)
+			).replaceAll(
+				// Remove injected ads
+				/<script[^>]+> <!--var dd=document;.*?--><\/script>/gs,
+				''
+			).replaceAll(
+				// Remove ad-related comments
+				/<!-- (?:GOCLICK\.COM |END OF )POP-UNDER CODE(?: V1)? -->/g,
+				''
+			).replaceAll(
+				// Remove header comment
+				/^<!-- Netcontrol preface \/\/-->/gm,
+				''
+			).replaceAll(
+				// Revert altered title tags
+				/<title>NetControl.net Archive of :: ?(.*?)<\/(title)>/gis,
+				'<$2>$1</$2>'
+			).replaceAll(
+				// Remove metadata tag
+				/(?:\n *)?<META NAME="GENERATOR" CONTENT="Mozilla\/.*?">/gim,
+				''
+			).replaceAll(
+				// Remove indents before header elements
+				/(<head>)(.*?)(<\/head>)/gis,
+				(_, headOpen, headBody, headClose) => headOpen + headBody.replaceAll(/^[ ]+/gm, '') + headClose
+			).replaceAll(
+				// Remove header message
+				/(?:<body[^>]+>)?<p align="center">Archived Pages from 20th Century!!<center>\n?<br>(?:<!--#include virtual="[^"]+" -->)?\n?<BR>/gs,
+				''
+			).replaceAll(
+				// Remove footer HTML (variation 1)
+				/\n?<center><br><br><p align="center"><!-- Netcontrol footer \/\/-->/g,
+				''
+			).replaceAll(
+				// Remove footer HTML (variation 2)
+				/<br><center><br>(?:<!--#include virtual=".*?" -->)?<BR><img src="[^"]+\/okto-banner.gif" border=0><\/a>/g,
+				''
+			);
 			break;
 		}
 		case "amigaplus": {
