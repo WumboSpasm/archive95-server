@@ -65,6 +65,10 @@ const templates = {
 			result: await Deno.readTextFile("meta/templates/compat/search_result.html"),
 		},
 	},
+	sources: {
+		main: await Deno.readTextFile("meta/templates/sources.html"),
+		source: await Deno.readTextFile("meta/templates/sources_source.html"),
+	},
 	navbar: {
 		main: await Deno.readTextFile("meta/templates/navbar.html"),
 		archive: await Deno.readTextFile("meta/templates/navbar_archive.html"),
@@ -94,7 +98,7 @@ const templates = {
 	},
 };
 
-const possibleModes = ["view", "orphan", "raw", "inlinks", "random"];
+const possibleModes = ["view", "orphan", "raw", "inlinks", "random", "sources"];
 const possibleFlags = ["e", "m", "n", "o", "p", "w"];
 
 const databasePath = joinPath(config.dataPath, "archive95.sqlite");
@@ -124,40 +128,28 @@ if (flags["build"]) {
 
 	logMessage("creating sources table...");
 	db.prepare(`CREATE TABLE sources (
-		id INTEGER PRIMARY KEY,
-		short TEXT NOT NULL,
+		id TEXT NOT NULL,
 		title TEXT NOT NULL,
 		author TEXT NOT NULL,
+		archiveDate TEXT NOT NULL,
+		publishDate TEXT NOT NULL,
+		description TEXT NOT NULL,
+		integrity TEXT NOT NULL,
 		link TEXT NOT NULL,
 		year INTEGER NOT NULL,
 		month INTEGER NOT NULL,
-		mode INTEGER NOT NULL
+		urlMode INTEGER NOT NULL,
+		sort INTEGER PRIMARY KEY
 	)`).run();
 
-	const sourceData = (await Deno.readTextFile(joinPath(config.dataPath, "sources.txt"))).split(/[\r\n]+/g).map((source, s, data) => {
-		source = overwriteArray([data.length, ...Array(5).fill("undefined"), 0], source.split("\t"));
-		logMessage(`[${s + 1}/${data.length}] loading source ${source[1]}...`);
-		return {
-			id: s,
-			short: source[0],
-			title: source[1],
-			author: source[2],
-			year: source[3],
-			month: source[4],
-			link: source[5],
-			// 0 = all links point to original locations
-			// 1 = relative paths point to local filesystem, but keep non-existent paths intact
-			// 2 = relative paths point to local filesystem, and mark non-existent paths as unarchived
-			mode: parseInt(source[6]) || 0,
-		};
-	});
+	const sourceData = JSON.parse(await Deno.readTextFile(joinPath(config.dataPath, "sources.json")));
 
 	logMessage("adding sources to database...");
-	const sourceQuery = db.prepare("INSERT INTO sources (id, short, title, author, link, year, month, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+	const sourceQuery = db.prepare(`INSERT INTO sources (id, title, author, archiveDate, publishDate, description, integrity, link, year, month, urlMode, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 	for (let s = 0; s < sourceData.length; s++) {
 		const source = sourceData[s];
-		logMessage(`[${s + 1}/${sourceData.length}] adding source ${source.short}...`);
-		sourceQuery.run(source.id, source.short, source.title, source.author, source.link, source.year, source.month, source.mode);
+		logMessage(`[${s + 1}/${sourceData.length}] adding source ${source.id}...`);
+		sourceQuery.run(source.id, source.title, source.author, source.archiveDate, source.publishDate, source.description, source.integrity, source.link, source.year, source.month, source.urlMode, source.sort);
 	}
 
 	/* Entries, Inlinks */
@@ -197,15 +189,15 @@ if (flags["build"]) {
 		const entries = [];
 		let currentEntry = 0;
 		for (const source of sourceData) {
-			for (const entryLine of (await Deno.readTextFile(joinPath(config.dataPath, `sources/${source.short}.txt`))).split(/[\r\n]+/g)) {
+			for (const entryLine of (await Deno.readTextFile(joinPath(config.dataPath, `sources/${source.id}.txt`))).split(/[\r\n]+/g)) {
 				const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
-				const filePath = joinPath(config.dataPath, `sources/${source.short}/${path}`);
+				const filePath = joinPath(config.dataPath, `sources/${source.id}/${path}`);
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
 				const entry = {
 					path: path,
 					url: url,
 					sanitizedUrl: sanitizeUrl(url),
-					source: source.short,
+					source: source.id,
 					type: null,
 					warn: warn.toLowerCase() == "true",
 					skip: skip.toLowerCase() == "true",
@@ -274,7 +266,7 @@ if (flags["build"]) {
 		fileQuery.run(entry.id, entry.path, safeDecode(entry.url), entry.sanitizedUrl, entry.source, entry.type, entry.warn, entry.skip, entry.title, entry.content);
 		if (config.doInlinks) {
 			const parsedLinks = resolveLinks(
-				entry, sourceData.find(source => source.short == entry.source).mode,
+				entry, sourceData.find(source => source.id == entry.source).urlMode,
 				entry.links, entryData
 			);
 			for (const link of parsedLinks)
@@ -329,7 +321,14 @@ const db = new Database(databasePath, { strict: true, readonly: true });
 db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA shrink_memory");
 
-const sourceInfo = db.prepare("SELECT * FROM sources").all();
+const sourceInfo = db.prepare(`
+	SELECT sources.*,
+		SUM(CASE WHEN url != '' THEN 1 ELSE 0 END) as urlCount,
+		SUM(CASE WHEN url == '' THEN 1 ELSE 0 END) AS orphanCount,
+		COUNT() AS totalCount
+	FROM files_brief LEFT JOIN sources ON sources.id = source
+	GROUP BY source ORDER BY sources.sort
+`).all();
 
 const serverHandler = async (request, info) => {
 	logMessage(info.remoteAddr.hostname + ": " + request.url);
@@ -345,28 +344,60 @@ const serverHandler = async (request, info) => {
 	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname) && (!config.doCompatMode || request.headers.has("Host")))
 		throw new Error();
 
-	// Serve homepage/search results
 	const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
-	if (!requestPath)
-		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
 	// Serve static files
-	for (const file of staticFiles.concat(sourceInfo.map(source => [`meta/images/sources/${source.short}.gif`, `sources/${source.short}.gif`, "image/gif"])))
+	for (const file of staticFiles.concat(sourceInfo.map(source => [`meta/images/sources/${source.id}.gif`, `sources/${source.id}.gif`, "image/gif"])))
 		if (requestPath == file[1])
 			return new Response(await Deno.readFile(file[0]), { headers: { "Content-Type": file[2] } });
 
-	// Serve page screenshots
-	if (["screenshots/", "thumbnails/"].some(dir => requestPath.startsWith(dir))) {
-		const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
-		if (screenshot !== undefined) {
-			if (requestPath.startsWith("screenshots/"))
-				return new Response(await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: { "Content-Type": "image/gif" } });
-			else {
-				const thumbnail = (await new Deno.Command("convert",
-					{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
-				).output()).stdout;
-				return new Response(thumbnail, { headers: { "Content-Type": "image/gif" } });
-			}
+	switch (requestPath.substring(0, Math.max(0, requestPath.indexOf("/")) || requestPath.length)) {
+		case "": {
+			// Serve homepage/search results
+			return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
+		}
+		case "sources": {
+			// Serve sources page
+			const urlTotal = sourceInfo.reduce((total, source) => total + source.urlCount, 0);
+			const orphanTotal = sourceInfo.reduce((total, source) => total + source.orphanCount, 0);
+			const grandTotal = sourceInfo.reduce((total, source) => total + source.totalCount, 0);
+			const sourceRows = [];
+			for (const source of sourceInfo)
+				sourceRows.push(templates.sources.source
+					.replace("{TITLE}", source.title)
+					.replace("{AUTHOR}", source.author)
+					.replace("{ARCHIVEDATE}", source.archiveDate)
+					.replace("{PUBLISHDATE}", source.publishDate)
+					.replace("{DESCRIPTION}", source.description)
+					.replace("{INTEGRITY}", source.integrity)
+					.replace("{URLCOUNT}", source.urlCount.toLocaleString())
+					.replace("{ORPHANCOUNT}", source.orphanCount.toLocaleString())
+					.replace("{TOTALCOUNT}", source.totalCount.toLocaleString())
+					.replace("{PERCENT}", Math.round((source.totalCount / grandTotal) * 1000) / 10)
+					.replaceAll("{ID}", source.id)
+					.replaceAll("{LINK}", source.link)
+				);
+			const sourcesPage = templates.sources.main
+				.replace("{URLTOTAL}", urlTotal.toLocaleString())
+				.replace("{ORPHANTOTAL}", orphanTotal.toLocaleString())
+				.replace("{GRANDTOTAL}", grandTotal.toLocaleString())
+				.replace("{SOURCES}", sourceRows.join("\n"));
+			return new Response(sourcesPage, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+		}
+		case "screenshots": {
+			// Serve page screenshots
+			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
+			if (screenshot === undefined) break;
+			return new Response(await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: { "Content-Type": "image/gif" } });
+		}
+		case "thumbnails": {
+			// Serve thumbnails of page screenshots
+			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
+			if (screenshot === undefined) break;
+			const thumbnail = (await new Deno.Command("convert",
+				{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
+			).output()).stdout;
+			return new Response(thumbnail, { headers: { "Content-Type": "image/gif" } });
 		}
 	}
 
@@ -441,8 +472,8 @@ const serverHandler = async (request, info) => {
 		if (archives.length > 1) {
 			// Sort archives from oldest to newest
 			archives.sort((a, b) => {
-				const asort = sourceInfo.find(source => source.short == a.source).id;
-				const bsort = sourceInfo.find(source => source.short == b.source).id;
+				const asort = sourceInfo.find(source => source.id == a.source).sort;
+				const bsort = sourceInfo.find(source => source.id == b.source).sort;
 				return asort - bsort;
 			});
 			// Get desired archive by first looking for exact URL match, then sanitized URL if there are no exact matches
@@ -783,25 +814,20 @@ async function prepareSearch(params, compatMode = false) {
 			.replace("{FORMATSTEXT}",  "")
 			.replace("{FORMATSMEDIA}", "");
 
-		const sourceQuery = db.prepare(`
-			SELECT sources.*, COUNT() AS size FROM files_brief
-			LEFT JOIN sources ON short = source
-			WHERE url != '' GROUP BY source ORDER BY sources.id
-		`).all();
 		const sources = [];
-		for (const source of sourceQuery)
+		for (const source of sourceInfo)
 			sources.push(
 				(!compatMode ? templates.search.source : templates.search.compat.source)
 					.replace("{LINK}", source.link)
 					.replace("{TITLE}", source.title)
 					.replace("{AUTHOR}", source.author)
-					.replace("{DATE}", (source.month == 0 ? "c. " : (`${source.month}`.padStart(2, "0") + "/")) + source.year)
-					.replace("{COUNT}", source.size.toLocaleString())
+					.replace("{DATE}", source.archiveDate)
+					.replace("{COUNT}", source.totalCount.toLocaleString())
 			);
 
 		let about = (!compatMode ? templates.search.about : templates.search.compat.about)
 			.replace("{SOURCES}", sources.join("\n"))
-			.replace("{TOTAL}", sourceQuery.reduce((total, source) => total + source.size, 0).toLocaleString());
+			.replace("{TOTAL}", sourceInfo.reduce((total, source) => total + source.totalCount, 0).toLocaleString());
 
 		if (compatMode) {
 			const randomEntry = getRandom();
@@ -823,7 +849,7 @@ async function prepareSearch(params, compatMode = false) {
 
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags, rawLinks) {
-	const rootSource = sourceInfo.find(source => source.short == entry.source);
+	const rootSource = sourceInfo.find(source => source.id == entry.source);
 	const flagsNav = flags.replace("n", "");
 	const flagsNoNav = flagsNav + "n";
 
@@ -856,12 +882,12 @@ function redirectLinks(html, entry, flags, rawLinks) {
 	// Filtering function to remove duplicate entries by their distance from the root source date
 	const nearestEntryOnly = (entry, _, self) => {
 		const rootSourceMonth = rootSource.month == 0 ? 12 : rootSource.month;
-		const source  = sourceInfo.find(source => source.short == entry.source);
+		const source  = sourceInfo.find(source => source.id == entry.source);
 		const sourceMonth = source.month == 0 ? 12 : source.month;
 		const monthDist  = Math.abs((rootSource.year * 12 + rootSourceMonth) - (source.year * 12 + sourceMonth));
 		for (const entry2 of self)
 			if (entry.sanitizedUrl == entry2.sanitizedUrl && entry.source != entry2.source) {
-				const source2 = sourceInfo.find(source => source.short == entry2.source);
+				const source2 = sourceInfo.find(source => source.id == entry2.source);
 				const sourceMonth2 = source2.month == 0 ? 12 : source2.month;
 				const monthDist2 = Math.abs((rootSource.year * 12 + rootSourceMonth) - (source2.year * 12 + sourceMonth2));
 				return monthDist < monthDist2;
@@ -870,7 +896,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 	};
 
 	// Check for path matches (needed for sources that have their own filesystems)
-	if (rootSource.mode > 0) {
+	if (rootSource.urlMode > 0) {
 		const comparePaths = [];
 		const comparePathsQuery = [];
 		for (const link of unmatchedLinks) {
@@ -971,7 +997,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		// Point all clickable links to the Wayback Machine, and everything else to an invalid URL
 		// We shouldn't be loading any content off of Wayback
 		for (let l = 0; l < unmatchedLinks.length; l++) {
-			if (rootSource.mode == 2 && !unmatchedLinks[l].hasHttp)
+			if (rootSource.urlMode == 2 && !unmatchedLinks[l].hasHttp)
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
 					? "[unarchived-media]"
 					: "[unarchived-link]";
@@ -1005,7 +1031,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 	const realUrl = entry.url.replaceAll("%23", "#");
 
 	if (!compatMode) {
-		const rootSource = sourceInfo.find(source => source.short == entry.source);
+		const rootSource = sourceInfo.find(source => source.id == entry.source);
 		let navbar = templates.navbar.main
 			.replaceAll("{URL}", realUrl)
 			.replace("{SHOWWARNING}", entry.warn ? "" : " hidden")
@@ -1019,14 +1045,14 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		const archiveButtons = [];
 		for (let a = 0; a < archives.length; a++) {
 			const archive = archives[a];
-			const source = sourceInfo.find(source => source.short == archive.source);
+			const source = sourceInfo.find(source => source.id == archive.source);
 			archiveButtons.push(
 				templates.navbar.archive
 					.replace("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
-					.replace("{URL}", `/${joinArgs("view", source.short, flags)}/${archive.url}`)
-					.replace("{ICON}", `/sources/${source.short}.gif`)
+					.replace("{URL}", `/${joinArgs("view", source.id, flags)}/${archive.url}`)
+					.replace("{ICON}", `/sources/${source.id}.gif`)
 					.replace("{TITLE}", source.title)
-					.replace("{DATE}", (source.month == 0 ? "c. " : (`${source.month}`.padStart(2, "0") + "/")) + source.year)
+					.replace("{DATE}", source.archiveDate)
 			);
 		}
 		navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
@@ -1060,12 +1086,12 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		return html;
 	}
 	else {
-		const source = sourceInfo.find(source => source.short == entry.source);
+		const source = sourceInfo.find(source => source.id == entry.source);
 		const randomEntry = getRandom(flags);
 		let navbar = templates.navbar.compat.main
 			.replace("{URL}", realUrl)
 			.replace("{SOURCE}", source.title)
-			.replace("{DATE}", (source.month == 0 ? "c. " : (`${source.month}`.padStart(2, "0") + "/")) + source.year)
+			.replace("{DATE}", source.archiveDate)
 			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
 			.replace("{RANDOM}", `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`);
 
@@ -1131,7 +1157,7 @@ function splitArgs(argsStr) {
 		args.mode = argsB[0];
 	else
 		return null;
-	if (argsB.length > 1 && sourceInfo.some(source => source.short == argsB[1]))
+	if (argsB.length > 1 && sourceInfo.some(source => source.id == argsB[1]))
 		args.source = argsB[1];
 	if (argsA.length > 1)
 		for (const flag of possibleFlags)
@@ -1430,6 +1456,11 @@ function genericizeMarkup(html, entry) {
 				html = html.substring(0, start + offset) + inject + html.substring(end + offset);
 				offset += inject.length - link.fullMatch.length;
 			}
+			break;
+		}
+		case "chipfun": {
+			// Remove base directory definition
+			html = html.replace(/^<base href=".*?">\n/, '');
 			break;
 		}
 		case "netcontrol96":
