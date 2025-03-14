@@ -1035,9 +1035,10 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		let navbar = templates.navbar.main
 			.replaceAll("{URL}", realUrl)
 			.replace("{SHOWWARNING}", entry.warn ? "" : " hidden")
-			.replace("{WAYBACK}", getWaybackLink(realUrl, rootSource.year, rootSource.month))
+			.replace("{SOURCE}", `/sources#${entry.source}`)
 			.replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
 			.replace("{SHOWINLINKS}", config.doInlinks ? "" : " hidden")
+			.replace("{WAYBACK}", getWaybackLink(realUrl, rootSource.year, rootSource.month))
 			.replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
 			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
 			.replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
