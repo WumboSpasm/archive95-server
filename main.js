@@ -86,6 +86,10 @@ const templates = {
 		video: await Deno.readTextFile("meta/templates/embed_video.html"),
 		unsupported: await Deno.readTextFile("meta/templates/embed_unsupported.html"),
 	},
+	options: {
+		main: await Deno.readTextFile("meta/templates/options.html"),
+		option: await Deno.readTextFile("meta/templates/options_option.html"),
+	},
 	inlinks: {
 		main: await Deno.readTextFile("meta/templates/inlinks.html"),
 		link: await Deno.readTextFile("meta/templates/inlinks_link.html"),
@@ -98,8 +102,45 @@ const templates = {
 	},
 };
 
-const possibleModes = ["view", "orphan", "raw", "inlinks", "random", "sources"];
-const possibleFlags = ["e", "m", "n", "o", "p", "w"];
+const possibleModes = ["view", "orphan", "raw", "options", "inlinks", "random", "sources"];
+const possibleFlags = [
+	{
+		id: "n",
+		description: "Navigation bar",
+		invert: true,
+		hidden: false,
+	},
+	{
+		id: "p",
+		description: "Improve presentation on modern browsers",
+		invert: true,
+		hidden: false,
+	},
+	{
+		id: "w",
+		description: "Point unarchived URLs to Wayback Machine",
+		invert: true,
+		hidden: false,
+	},
+	{
+		id: "e",
+		description: "Point all URLs to live internet",
+		invert: false,
+		hidden: true,
+	},
+	{
+		id: "m",
+		description: "Random button includes non-text files",
+		invert: false,
+		hidden: false,
+	},
+	{
+		id: "o",
+		description: "Random button includes orphans",
+		invert: false,
+		hidden: false,
+	},
+];
 
 const databasePath = joinPath(config.dataPath, "archive95.sqlite");
 const cachePath = joinPath(config.dataPath, "cache");
@@ -424,6 +465,25 @@ const serverHandler = async (request, info) => {
 	}
 
 	if (!url) return error();
+
+	if (args.mode == "options") {
+		const optionsList = [];
+		for (const option of possibleFlags) {
+			if (option.hidden) continue;
+			const checked = args.flags.includes(option.id);
+			const newArgs = checked ? args.flags.replace(option.id, "") : args.flags + option.id;
+			optionsList.push(
+				templates.options.option
+					.replace("{OPTIONURL}", `/${joinArgs("options", args.source, newArgs)}/${url}`)
+					.replace("{FILL}", checked != option.invert ? "*" : "&nbsp;&nbsp;")
+					.replace("{DESCRIPTION}", option.description)
+			);
+		}
+		const options = templates.options.main
+			.replace("{OPTIONS}", optionsList.join("\n"))
+			.replace("{ARCHIVEURL}", `/${joinArgs("view", args.source, args.flags)}/${url}`);
+		return new Response(options, { headers: { "Content-Type": "text/html" } });
+	}
 
 	if (args.mode == "inlinks") {
 		if (!config.doInlinks) return error();
@@ -1036,11 +1096,11 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 			.replaceAll("{URL}", realUrl)
 			.replace("{SHOWWARNING}", entry.warn ? "" : " hidden")
 			.replace("{SOURCE}", `/sources#${entry.source}`)
-			.replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
 			.replace("{SHOWINLINKS}", config.doInlinks ? "" : " hidden")
 			.replace("{WAYBACK}", getWaybackLink(realUrl, rootSource.year, rootSource.month))
 			.replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
-			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
+			.replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
+			.replace("{OPTIONS}", `/${joinArgs("options", entry.source, flags)}/${entry.url}`)
 			.replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
 
 		const archiveButtons = [];
@@ -1162,8 +1222,8 @@ function splitArgs(argsStr) {
 		args.source = argsB[1];
 	if (argsA.length > 1)
 		for (const flag of possibleFlags)
-			if (argsA[1].includes(flag))
-				args.flags += flag;
+			if (argsA[1].includes(flag.id))
+				args.flags += flag.id;
 
 	return args;
 }

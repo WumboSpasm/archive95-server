@@ -22,12 +22,14 @@ Archive95 is an unorthodox web archive.
 - `orphan`: View archived file in repaired form by supplying filesystem path
 - `raw`: View archived file in raw form by supplying filesystem path
 - `inlinks`: View all archived pages that link to the supplied URL
+- `options`: Configure behavior of viewer for the supplied URL
+- `sources`: View imformation about sources
 - `random`: Redirect to a random archived page
 
 ## Flags
-- `e`: Point in-page URLs to live internet instead of web archives
-- `m`: Random button can take you to any archived URL instead of just pages
-- `n`: Disable navigation bar
-- `o`: Random button can take you to orphaned files in addition to files with known URLs
+- `n`: Hide navigation bar
 - `p`: Disable presentation improvements for modern browsers
-- `w`: Disable Wayback Machine links
+- `w`: Don't point unarchived URLs to Wayback Machine
+- `e`: Point all URLs to live internet (overrides `w` flag)
+- `m`: Random button includes non-text files
+- `o`: Random button includes orphans
