@@ -38,7 +38,7 @@ const staticFiles = [
 	["meta/images/dice.gif", "dice.gif", "image/gif"],
 	["meta/images/compat/logo.gif", "compat/logo.gif", "image/gif"],
 	["meta/images/compat/dice.gif", "compat/dice.gif", "image/gif"],
-	["meta/images/compat/hide.gif", "compat/hide.gif", "image/gif"],
+	["meta/images/compat/options.gif", "compat/options.gif", "image/gif"],
 	["meta/images/compat/random.gif", "compat/random.gif", "image/gif"],
 	["meta/images/compat/home.gif", "compat/home.gif", "image/gif"],
 	["meta/images/compat/screenshot.gif", "compat/screenshot.gif", "image/gif"],
@@ -469,7 +469,7 @@ const serverHandler = async (request, info) => {
 	if (args.mode == "options") {
 		const optionsList = [];
 		for (const option of possibleFlags) {
-			if (option.hidden) continue;
+			if (option.hidden || compatMode && option.id == "p") continue;
 			const checked = args.flags.includes(option.id);
 			const newArgs = checked ? args.flags.replace(option.id, "") : args.flags + option.id;
 			optionsList.push(
@@ -1153,7 +1153,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 			.replace("{URL}", realUrl)
 			.replace("{SOURCE}", source.title)
 			.replace("{DATE}", source.archiveDate)
-			.replace("{HIDE}", `/${joinArgs("view", entry.source, flags + "n")}/${entry.url}`)
+			.replace("{OPTIONS}", `/${joinArgs("options", entry.source, flags)}/${entry.url}`)
 			.replace("{RANDOM}", `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`);
 
 		if (archives.length > 1) {
