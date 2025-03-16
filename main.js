@@ -1456,7 +1456,7 @@ function genericizeMarkup(html, entry) {
 					'<$1>'
 				).replaceAll(
 					// Uncomment closing link tags
-					/<!?-- ?\/(a) ?-->/gi,
+					/<!?-- ?\/(a)(?: ?--)?>/gi,
 					'</$1>'
 				).replaceAll(
 					// Remove brackets surrounding link elements
@@ -1641,7 +1641,7 @@ function improvePresentation(html, compatMode = false) {
 		'<!$1$2-->'
 	).replaceAll(
 		// Fix multi-line comments with missing closing sequence
-		/<!( *[-]+)([^<]+)(?<![-]+ *)>(?!(?:(?!<! *[-]+).)*?[-]+ *>)/gs,
+		/<!( *[-]+)([^<]+)(?<![-]+ *)>(?!(?:(?!<! *[-]+).)*?[-]+>)/gs,
 		'<!$1$2-->'
 	).replaceAll(
 		// Fix non-standard <marquee> syntax
@@ -1660,6 +1660,10 @@ function improvePresentation(html, compatMode = false) {
 		/(?<=<\/?)noframe(?=>)/gi,
 		match => match + (match == match.toUpperCase() ? "S" : "s")
 	);
+
+	// Try to fix any remaining comments with missing closing sequences
+	if (/<! *-/.test(html) && !/- *>/.test(html))
+		html = html.replaceAll(/<!( *-.*$)/gm, '<!$1-->');
 
 	if (!compatMode) {
 		// Convert <plaintext> into <pre>
