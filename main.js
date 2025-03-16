@@ -1738,43 +1738,54 @@ function getLinks(html, baseUrl) {
 	return links;
 }
 
-// Retrieve text from file with respect to character encodings
+// Retrieve text from file and convert to UTF-8 if necessary
 async function getText(filePath, source) {
 	if (!await validFile(filePath) || Deno.stat(filePath).size == 0) return "";
 	let text;
 	try {
 		const decoder = new TextDecoder();
-		if (source == "wwwdir") {
-			const iconvOut = (
-				await new Deno.Command("iconv", { args: [filePath, "-cf", "UTF-8", "-t", "WINDOWS-1252"], stdout: "piped" }).output()
-			).stdout;
-
-			const uchardetProcess = new Deno.Command("uchardet", { stdin: "piped", stdout: "piped" }).spawn();
-			const uchardetWriter = uchardetProcess.stdin.getWriter();
-			await uchardetWriter.write(iconvOut);
-			await uchardetWriter.ready;
-			await uchardetWriter.close();
-			const uchardetStr = decoder.decode((await uchardetProcess.output()).stdout).trim();
-			uchardetProcess.unref();
-
-			const iconv2Process = new Deno.Command("iconv", { args: ["-cf", uchardetStr, "-t", "UTF-8"], stdin: "piped", stdout: "piped" }).spawn();
-			const iconv2Writer = iconv2Process.stdin.getWriter();
-			await iconv2Writer.write(iconvOut);
-			await iconv2Writer.ready;
-			await iconv2Writer.close();
-			const iconv2Str = decoder.decode((await iconv2Process.output()).stdout);
-			iconv2Process.unref();
-
-			text = iconv2Str;
-		}
-		else {
-			const uchardetStr = decoder.decode((await new Deno.Command("uchardet", { args: [filePath], stdout: "piped" }).output()).stdout).trim();
-			if (uchardetStr != "ASCII" && uchardetStr != "UTF-8")
-				text = decoder.decode((
-					await new Deno.Command("iconv", { args: [filePath, "-cf", uchardetStr, "-t", "UTF-8"], stdout: "piped" }).output()
-				).stdout);
-			else
+		switch (source) {
+			case "wwwdir": {
+				// World Wide Web Directory has some double-encoding weirdness that needs to be untangled
+				const iconvOut = (
+					await new Deno.Command("iconv", { args: [filePath, "-cf", "UTF-8", "-t", "WINDOWS-1252"], stdout: "piped" }).output()
+				).stdout;
+	
+				const uchardetProcess = new Deno.Command("uchardet", { stdin: "piped", stdout: "piped" }).spawn();
+				const uchardetWriter = uchardetProcess.stdin.getWriter();
+				await uchardetWriter.write(iconvOut);
+				await uchardetWriter.ready;
+				await uchardetWriter.close();
+				const uchardetStr = decoder.decode((await uchardetProcess.output()).stdout).trim();
+				uchardetProcess.unref();
+	
+				const iconv2Process = new Deno.Command("iconv", { args: ["-cf", uchardetStr, "-t", "UTF-8"], stdin: "piped", stdout: "piped" }).spawn();
+				const iconv2Writer = iconv2Process.stdin.getWriter();
+				await iconv2Writer.write(iconvOut);
+				await iconv2Writer.ready;
+				await iconv2Writer.close();
+				const iconv2Str = decoder.decode((await iconv2Process.output()).stdout);
+				iconv2Process.unref();
+	
+				text = iconv2Str;
+				break;
+			}
+			case "einblicke": {
+				// Einblicke ins Internet is already UTF-8 and anything that isn't detected as such causes issues, so don't try to convert it
 				text = await Deno.readTextFile(filePath);
+				break;
+			}
+			default: {
+				let uchardetStr = decoder.decode((await new Deno.Command("uchardet", { args: [filePath], stdout: "piped" }).output()).stdout).trim();
+				// For some reason, files encoded in MAC-CENTRALEUROPE only convert correctly if interpreted as WINDOWS-1253
+				if (uchardetStr == "MAC-CENTRALEUROPE") uchardetStr = "WINDOWS-1253";
+				if (uchardetStr != "ASCII" && uchardetStr != "UTF-8")
+					text = decoder.decode((
+						await new Deno.Command("iconv", { args: [filePath, "-cf", uchardetStr, "-t", "UTF-8"], stdout: "piped" }).output()
+					).stdout);
+				else
+					text = await Deno.readTextFile(filePath);
+			}
 		}
 	}
 	catch { text = await Deno.readTextFile(filePath); }
