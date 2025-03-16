@@ -1577,6 +1577,10 @@ function genericizeMarkup(html, entry) {
 				/<title>NetControl.net Archive of :: ?(.*?)<\/(title)>/gis,
 				'<$2>$1</$2>'
 			).replaceAll(
+				// Remove title tags that were replaced with file paths
+				/<title>\\Stuff\\.*?<\/title>\n?/gi,
+				''
+			).replaceAll(
 				// Remove metadata tag
 				/(?:\n *)?<META NAME="GENERATOR" CONTENT="Mozilla\/.*?">/gim,
 				''
