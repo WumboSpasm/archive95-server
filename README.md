@@ -1,7 +1,7 @@
 # Archive95
 Archive95 is an unorthodox web archive.
 
-![screenshot](https://github.com/user-attachments/assets/de7a7bb2-39c2-4121-9778-dff28d8e7af0)
+![screenshot](https://github.com/user-attachments/assets/ecb38c89-ce39-40ec-a08b-1a527d7b41ec)
 
 ## Dependencies
 - A Linux environment with the `file`, `mimetype` and `iconv` utilities
