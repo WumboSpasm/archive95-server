@@ -1384,9 +1384,9 @@ async function mimeType(filePath) {
 		new Deno.Command("mimetype", { args: ["-b",  filePath], stdout: "piped" }).output(),
 	])).map(type => decoder.decode(type.stdout).trim());
 	if (types[0] == "text/plain") {
-		if (types[1] != "image/x-bitmap") {
+		if (types[1] != "image/x-xbitmap") {
 			const fileInfo = decoder.decode((await new Deno.Command("file", { args: ["-b", filePath], stdout: "piped" }).output()).stdout);
-			if (fileInfo.startsWith("xbm image")) return "image/x-bitmap";
+			if (fileInfo.startsWith("xbm image")) return "image/x-xbitmap";
 		}
 		return types[1];
 	}
