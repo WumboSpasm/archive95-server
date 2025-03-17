@@ -1317,6 +1317,9 @@ function textContent(html) {
 		/<title>.*?<\/title>/gis,
 		"",
 	).replaceAll(
+		/<script(?: [^>]*)?>.*?<\/script>/gis,
+		""
+	).replaceAll(
 		/<[^>]+alt *= *"(.*?)".*?>/gis,
 		" $1 "
 	).replaceAll(
