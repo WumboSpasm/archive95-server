@@ -586,7 +586,7 @@ const serverHandler = async (request, info) => {
 		case "options": {
 			if (query.source == "") return error();
 
-			const entry = db.prepare("SELECT * FROM files_brief WHERE source = ? AND sanitizedUrl = ?").get(query.source, sanitizeUrl(query.url));
+			const entry = db.prepare("SELECT * FROM files_brief WHERE source = ? AND url = ?").get(query.source, query.url);
 			if (entry === undefined) return error();
 
 			// Links masquerading as checkboxes are used to alter the flags in the URL and change the destination of the return link
