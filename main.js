@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Database } from "jsr:@db/sqlite@0.12";
 import { join as joinPath } from "jsr:@std/path";
 import { parseArgs } from "jsr:@std/cli/parse-args";
@@ -27,92 +28,152 @@ const defaultConfig = {
 	resultsPerPage: 50,
 	doInlinks: true,
 };
-const config = Object.assign({}, defaultConfig, JSON.parse(
-	await validFile(flags["config"])
-		? await Deno.readTextFile(flags["config"])
-		: "{}"
-));
 
 const staticFiles = [
-	["meta/images/logo.gif", "logo.gif", "image/gif"],
-	["meta/images/dice.gif", "dice.gif", "image/gif"],
-	["meta/images/compat/logo.gif", "compat/logo.gif", "image/gif"],
-	["meta/images/compat/dice.gif", "compat/dice.gif", "image/gif"],
-	["meta/images/compat/options.gif", "compat/options.gif", "image/gif"],
-	["meta/images/compat/random.gif", "compat/random.gif", "image/gif"],
-	["meta/images/compat/home.gif", "compat/home.gif", "image/gif"],
-	["meta/images/compat/screenshot.gif", "compat/screenshot.gif", "image/gif"],
-	["meta/images/banners/flashpoint.gif", "banners/flashpoint.gif", "image/gif"],
-	["meta/images/banners/discmaster.gif", "banners/discmaster.gif", "image/gif"],
-	["meta/images/banners/theoldnet.gif", "banners/theoldnet.gif", "image/gif"],
-	["meta/images/banners/anybrowser.gif", "banners/anybrowser.gif", "image/gif"],
-	["meta/css/search.css", "search.css", "text/css"],
-	["meta/css/navbar.css", "navbar.css", "text/css"],
-	["meta/css/presentation.css", "presentation.css", "text/css"],
+	["logo.gif", "image/gif"],
+	["dice.gif", "image/gif"],
+	["compat/logo.gif", "image/gif"],
+	["compat/dice.gif", "image/gif"],
+	["compat/options.gif", "image/gif"],
+	["compat/random.gif", "image/gif"],
+	["compat/home.gif", "image/gif"],
+	["compat/screenshot.gif", "image/gif"],
+	["banners/flashpoint.gif", "image/gif"],
+	["banners/discmaster.gif", "image/gif"],
+	["banners/theoldnet.gif", "image/gif"],
+	["banners/anybrowser.gif", "image/gif"],
+	["search.css", "text/css"],
+	["navbar.css", "text/css"],
+	["presentation.css", "text/css"],
 ];
 
 const templates = {
 	search: {
-		main: await Deno.readTextFile("meta/templates/search.html"),
-		about: await Deno.readTextFile("meta/templates/search_about.html"),
-		source: await Deno.readTextFile("meta/templates/search_source.html"),
-		result: await Deno.readTextFile("meta/templates/search_result.html"),
-		navigate: await Deno.readTextFile("meta/templates/search_navigate.html"),
+		main: await Deno.readTextFile("templates/search.html"),
+		about: await Deno.readTextFile("templates/search_about.html"),
+		source: await Deno.readTextFile("templates/search_source.html"),
+		result: await Deno.readTextFile("templates/search_result.html"),
+		navigate: await Deno.readTextFile("templates/search_navigate.html"),
 		compat: {
-			main: await Deno.readTextFile("meta/templates/compat/search.html"),
-			about: await Deno.readTextFile("meta/templates/compat/search_about.html"),
-			source: await Deno.readTextFile("meta/templates/compat/search_source.html"),
-			result: await Deno.readTextFile("meta/templates/compat/search_result.html"),
+			main: await Deno.readTextFile("templates/compat/search.html"),
+			about: await Deno.readTextFile("templates/compat/search_about.html"),
+			source: await Deno.readTextFile("templates/compat/search_source.html"),
+			result: await Deno.readTextFile("templates/compat/search_result.html"),
 		},
 	},
 	sources: {
-		main: await Deno.readTextFile("meta/templates/sources.html"),
-		source: await Deno.readTextFile("meta/templates/sources_source.html"),
+		main: await Deno.readTextFile("templates/sources.html"),
+		source: await Deno.readTextFile("templates/sources_source.html"),
 	},
 	navbar: {
-		main: await Deno.readTextFile("meta/templates/navbar.html"),
-		archive: await Deno.readTextFile("meta/templates/navbar_archive.html"),
-		screenshot: await Deno.readTextFile("meta/templates/navbar_screenshot.html"),
+		main: await Deno.readTextFile("templates/navbar.html"),
+		archive: await Deno.readTextFile("templates/navbar_archive.html"),
+		screenshot: await Deno.readTextFile("templates/navbar_screenshot.html"),
 		compat: {
-			main: await Deno.readTextFile("meta/templates/compat/navbar.html"),
-			screenshot: await Deno.readTextFile("meta/templates/compat/navbar_screenshot.html"),
+			main: await Deno.readTextFile("templates/compat/navbar.html"),
+			screenshot: await Deno.readTextFile("templates/compat/navbar_screenshot.html"),
 		},
 	},
 	embed: {
-		main: await Deno.readTextFile("meta/templates/embed.html"),
-		text: await Deno.readTextFile("meta/templates/embed_text.html"),
-		image: await Deno.readTextFile("meta/templates/embed_image.html"),
-		audio: await Deno.readTextFile("meta/templates/embed_audio.html"),
-		video: await Deno.readTextFile("meta/templates/embed_video.html"),
-		unsupported: await Deno.readTextFile("meta/templates/embed_unsupported.html"),
+		main: await Deno.readTextFile("templates/embed.html"),
+		text: await Deno.readTextFile("templates/embed_text.html"),
+		image: await Deno.readTextFile("templates/embed_image.html"),
+		audio: await Deno.readTextFile("templates/embed_audio.html"),
+		video: await Deno.readTextFile("templates/embed_video.html"),
+		unsupported: await Deno.readTextFile("templates/embed_unsupported.html"),
 	},
 	options: {
-		main: await Deno.readTextFile("meta/templates/options.html"),
-		option: await Deno.readTextFile("meta/templates/options_option.html"),
+		main: await Deno.readTextFile("templates/options.html"),
+		option: await Deno.readTextFile("templates/options_option.html"),
 	},
 	inlinks: {
-		main: await Deno.readTextFile("meta/templates/inlinks.html"),
-		link: await Deno.readTextFile("meta/templates/inlinks_link.html"),
-		error: await Deno.readTextFile("meta/templates/inlinks_error.html"),
+		main: await Deno.readTextFile("templates/inlinks.html"),
+		link: await Deno.readTextFile("templates/inlinks_link.html"),
+		error: await Deno.readTextFile("templates/inlinks_error.html"),
 	},
 	error: {
-		archive: await Deno.readTextFile("meta/templates/error_archive.html"),
-		generic: await Deno.readTextFile("meta/templates/error_generic.html"),
-		server: await Deno.readTextFile("meta/templates/error_server.html"),
+		archive: await Deno.readTextFile("templates/error_archive.html"),
+		generic: await Deno.readTextFile("templates/error_generic.html"),
+		server: await Deno.readTextFile("templates/error_server.html"),
 	},
 };
 
-const possibleModes = ["view", "orphan", "raw", "options", "inlinks", "random", "sources"];
+const possibleModes = [
+	{
+		id: "view",
+		hasSource: true,
+		hasFlags: true,
+		hasUrl: true,
+		doCache: true,
+	},
+	{
+		id: "orphan",
+		hasSource: true,
+		hasFlags: true,
+		hasUrl: true,
+		doCache: true,
+	},
+	{
+		id: "raw",
+		hasSource: true,
+		hasFlags: false,
+		hasUrl: true,
+		doCache: true,
+	},
+	{
+		id: "inlinks",
+		hasSource: true,
+		hasFlags: true,
+		hasUrl: true,
+		doCache: true,
+	},
+	{
+		id: "options",
+		hasSource: true,
+		hasFlags: true,
+		hasUrl: true,
+		doCache: true,
+	},
+	{
+		id: "random",
+		hasSource: true,
+		hasFlags: true,
+		hasUrl: false,
+		doCache: false,
+	},
+	{
+		id: "sources",
+		hasSource: false,
+		hasFlags: false,
+		hasUrl: false,
+		doCache: false,
+	},
+	{
+		id: "screenshots",
+		hasSource: false,
+		hasFlags: false,
+		hasUrl: true,
+		doCache: true,
+	},
+	{
+		id: "thumbnails",
+		hasSource: false,
+		hasFlags: false,
+		hasUrl: true,
+		doCache: true,
+	},
+];
+
 const possibleFlags = [
 	{
 		id: "n",
-		description: "Navigation bar",
+		description: "Show navigation bar",
 		invert: true,
 		hidden: false,
 	},
 	{
 		id: "p",
-		description: "Improve presentation on modern browsers",
+		description: "Improve presentation on newer browsers",
 		invert: true,
 		hidden: false,
 	},
@@ -141,6 +202,12 @@ const possibleFlags = [
 		hidden: false,
 	},
 ];
+
+const config = Object.assign({}, defaultConfig, JSON.parse(
+	await validFile(flags["config"])
+		? await Deno.readTextFile(flags["config"])
+		: "{}"
+));
 
 const databasePath = joinPath(config.dataPath, "archive95.sqlite");
 const cachePath = joinPath(config.dataPath, "cache");
@@ -374,34 +441,180 @@ const sourceInfo = db.prepare(`
 const serverHandler = async (request, info) => {
 	logMessage(info.remoteAddr.hostname + ": " + request.url);
 
+	// Make sure request is for a valid URL
 	const requestUrl = URL.parse(request.url);
 	if (requestUrl === null) throw new Error();
 
-	// Render search page and navbar in basic markup if user agent is not considered modern
-	const compatMode = config.forceCompatMode || (config.doCompatMode && !isModern(request.headers.get("User-Agent") ?? ""));
-
 	// If access host is configured, do not allow connections through any other hostname
-	// (requests with missing Host header are exempt from this, to satisfy some ancient browsers)
-	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname) && (!config.doCompatMode || request.headers.has("Host")))
+	// (ancient browsers that do not send the Host header are exempt from this rule)
+	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname)
+	&& (!(config.forceCompatMode || config.doCompatMode) || request.headers.has("Host")))
 		throw new Error();
 
-	const requestPath = requestUrl.pathname.replace(/^[/]+/, "");
+	// Render search page and navbar in basic markup if user agent is not considered modern
+	const compatMode = config.forceCompatMode || config.doCompatMode && !isModern(request.headers.get("User-Agent") ?? "");
+
+	// Get body of request URL
+	let requestPath = requestUrl.pathname.replace(/^[/]+/, "");
+
+	// Serve homepage/search results
+	if (requestPath == "")
+		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
 	// Serve static files
-	for (const file of staticFiles.concat(sourceInfo.map(source => [`meta/images/sources/${source.id}.gif`, `sources/${source.id}.gif`, "image/gif"])))
-		if (requestPath == file[1])
-			return new Response(await Deno.readFile(file[0]), { headers: { "Content-Type": file[2] } });
+	for (const file of staticFiles.concat(sourceInfo.map(source => [`sources/${source.id}.gif`, "image/gif"])))
+		if (requestPath == file[0])
+			return new Response(await Deno.readFile("static/" + file[0]), { headers: { "Content-Type": file[1] } });
 
-	switch (requestPath.substring(0, Math.max(0, requestPath.indexOf("/")) || requestPath.length)) {
-		case "": {
-			// Serve homepage/search results
-			return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: { "Content-Type": "text/html;charset=utf-8" } });
+	// Append query string to request path
+	requestPath += (!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search;
+
+	// Extract information from the request
+	const query = parseQuery(requestPath, compatMode);
+	if (query === null) return error();
+
+	switch (query.mode) {
+		case "view": {
+			const [archives, desiredArchive] = getArchives(query);
+			if (archives.length == 0) return error(query.url);
+
+			const entry = archives[desiredArchive];
+			const filePath = getArchivePath(entry);
+
+			if (entry.type != "text/html") {
+				// For non-HTML files, serve an embed instead of the actual file if the navbar is enabled
+				if (!query.flags.includes("n")) {
+					const plaintext = entry.type.startsWith("text/") || entry.type.startsWith("message/") || entry.type == "application/mbox";
+					let embed = (
+						plaintext ? templates.embed.text : (
+						entry.type.startsWith("image/") ? templates.embed.image : (
+						entry.type.startsWith("audio/") ? templates.embed.audio : (
+						entry.type.startsWith("video/") ? templates.embed.video : (
+						templates.embed.unsupported
+					)))));
+
+					if (plaintext)
+						embed = embed.replace("{TEXT}", await getText(filePath, entry.source));
+					else
+						embed = embed
+							.replaceAll("{FILE}", `/${joinArgs("view", entry.source, query.flags + "n")}/${entry.url}`)
+							.replaceAll("{TYPE}", entry.type);
+
+					let embedContainer = templates.embed.main
+						.replace("{URL}", entry.sanitizedUrl)
+						.replace("{EMBED}", embed);
+					embedContainer = injectNavbar(embedContainer, archives, desiredArchive, query.flags);
+
+					return new Response(embedContainer, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+				}
+				else {
+					const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
+					return new Response(file, { headers: { "Content-Type": contentType } });
+				}
+			}
+
+			const html = await prepareHtml(filePath, archives, desiredArchive, query);
+			return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+		}
+		case "orphan": {
+			const [archives, desiredArchive] = getArchives(query);
+			if (archives.length == 0) return error();
+
+			const entry = archives[desiredArchive];
+			const filePath = getArchivePath(entry);
+
+			if (entry.type != "text/html") {
+				const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
+				return new Response(file, { headers: { "Content-Type": contentType } });
+			}
+
+			const html = await prepareHtml(filePath, archives, desiredArchive, query);
+			return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+		}
+		case "raw": {
+			const [archives, desiredArchive] = getArchives(query);
+			if (archives.length == 0) return error();
+
+			const entry = archives[desiredArchive];
+			return new Response(await Deno.readFile(getArchivePath(entry)), { headers: { "Content-Type": entry.type } });
+		}
+		case "inlinks": {
+			if (!config.doInlinks) return error();
+
+			const sanitizedUrl = sanitizeUrl(query.url);
+			const inlinkQuery = db.prepare(
+				"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
+			).all(sanitizedUrl);
+
+			let inlinks;
+			if (inlinkQuery.length > 0) {
+				const links = inlinkQuery.map(inlink => {
+					let linkBullet = templates.inlinks.link;
+
+					if (inlink.url)
+						linkBullet = linkBullet
+							.replace("{LINK}", !query.flags.includes("e")
+								? `/${joinArgs("view", inlink.source, query.flags)}/${inlink.url}`
+								: inlink.url)
+							.replace("{ORIGINAL}", inlink.url);
+					else
+						linkBullet = linkBullet
+							.replace("{LINK}", !query.flags.includes("e")
+								? `/${joinArgs("orphan", inlink.source, query.flags.replace("n", ""))}/${inlink.path}`
+								: `/${inlink.path}`)
+							.replace("{ORIGINAL}", inlink.path);
+
+					return linkBullet.replace("{SOURCE}", inlink.source);
+				});
+				inlinks = templates.inlinks.main
+					.replaceAll("{URL}", sanitizedUrl)
+					.replace("{LINKS}", links.join("\n"));
+			}
+			else
+				inlinks = templates.inlinks.error
+					.replaceAll("{URL}", sanitizedUrl);
+
+			return new Response(inlinks, { headers: { "Content-Type": "text/html" } });
+		}
+		case "options": {
+			if (query.source == "") return error();
+
+			const entry = db.prepare("SELECT * FROM files_brief WHERE source = ? AND sanitizedUrl = ?").get(query.source, sanitizeUrl(query.url));
+			if (entry === undefined) return error();
+
+			// Links masquerading as checkboxes are used to alter the flags in the URL and change the destination of the return link
+			// This is because the archive component of the site cannot use forms and query strings to modify the output
+			const optionsList = [];
+			for (const option of possibleFlags) {
+				if (option.hidden) continue;
+				const checked = query.flags.includes(option.id);
+				const newFlags = checked ? query.flags.replace(option.id, "") : query.flags + option.id;
+				optionsList.push(
+					templates.options.option
+						.replace("{OPTIONURL}", `/${joinArgs("options", query.source, newFlags)}/${entry.url}`)
+						.replace("{FILL}", checked != option.invert ? "*" : "&nbsp;&nbsp;")
+						.replace("{DESCRIPTION}", option.description)
+				);
+			}
+
+			const options = templates.options.main
+				.replace("{OPTIONS}", optionsList.join("\n"))
+				.replace("{ARCHIVEURL}", `/${joinArgs("view", query.source, query.flags)}/${entry.url}`);
+			return new Response(options, { headers: { "Content-Type": "text/html" } });
+		}
+		case "random": {
+			const entry = getRandom(query.flags, query.source);
+			return Response.redirect(requestUrl.origin + (
+				entry.url
+					? `/${joinArgs("view", entry.source, query.flags)}/${entry.url}`
+					: `/${joinArgs("orphan", entry.source, query.flags)}/${entry.path}`
+			));
 		}
 		case "sources": {
-			// Serve sources page
 			const urlTotal = sourceInfo.reduce((total, source) => total + source.urlCount, 0);
 			const orphanTotal = sourceInfo.reduce((total, source) => total + source.orphanCount, 0);
 			const grandTotal = sourceInfo.reduce((total, source) => total + source.totalCount, 0);
+
 			const sourceRows = [];
 			for (const source of sourceInfo)
 				sourceRows.push(templates.sources.source
@@ -418,6 +631,7 @@ const serverHandler = async (request, info) => {
 					.replaceAll("{ID}", source.id)
 					.replaceAll("{LINK}", source.link)
 				);
+
 			const sourcesPage = templates.sources.main
 				.replace("{URLTOTAL}", urlTotal.toLocaleString())
 				.replace("{ORPHANTOTAL}", orphanTotal.toLocaleString())
@@ -426,14 +640,12 @@ const serverHandler = async (request, info) => {
 			return new Response(sourcesPage, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 		}
 		case "screenshots": {
-			// Serve page screenshots
-			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
+			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
 			if (screenshot === undefined) break;
 			return new Response(await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: { "Content-Type": "image/gif" } });
 		}
 		case "thumbnails": {
-			// Serve thumbnails of page screenshots
-			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(requestPath.substring(requestPath.indexOf("/") + 1));
+			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
 			if (screenshot === undefined) break;
 			const thumbnail = (await new Deno.Command("convert",
 				{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
@@ -441,188 +653,8 @@ const serverHandler = async (request, info) => {
 			return new Response(thumbnail, { headers: { "Content-Type": "image/gif" } });
 		}
 	}
-
-	const slashIndex = requestPath.indexOf("/");
-	let url, args;
-	if (slashIndex != -1) {
-		const search = (!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search;
-		url = safeDecode(requestPath.substring(slashIndex + 1) + search);
-		args = splitArgs(requestPath.substring(0, slashIndex));
-	}
-	else {
-		url = "";
-		args = splitArgs(requestPath);
-	}
-	if (args === null) return error();
-
-	if (args.mode == "random") {
-		const entry = getRandom(args.flags, args.source);
-		return Response.redirect(requestUrl.origin + (
-			entry.url
-				? `/${joinArgs("view", entry.source, args.flags)}/${entry.url}`
-				: `/${joinArgs("orphan", entry.source, args.flags)}/${entry.path}`
-		));
-	}
-
-	if (!url) return error();
-
-	if (args.mode == "options") {
-		const optionsList = [];
-		for (const option of possibleFlags) {
-			if (option.hidden || compatMode && option.id == "p") continue;
-			const checked = args.flags.includes(option.id);
-			const newArgs = checked ? args.flags.replace(option.id, "") : args.flags + option.id;
-			optionsList.push(
-				templates.options.option
-					.replace("{OPTIONURL}", `/${joinArgs("options", args.source, newArgs)}/${url}`)
-					.replace("{FILL}", checked != option.invert ? "*" : "&nbsp;&nbsp;")
-					.replace("{DESCRIPTION}", option.description)
-			);
-		}
-		const options = templates.options.main
-			.replace("{OPTIONS}", optionsList.join("\n"))
-			.replace("{ARCHIVEURL}", `/${joinArgs("view", args.source, args.flags)}/${url}`);
-		return new Response(options, { headers: { "Content-Type": "text/html" } });
-	}
-
-	if (args.mode == "inlinks") {
-		if (!config.doInlinks) return error();
-		const sanitizedUrl = sanitizeUrl(url);
-		const inlinkQuery = db.prepare(
-			"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
-		).all(sanitizedUrl);
-
-		let inlinks;
-		if (inlinkQuery.length > 0) {
-			const links = inlinkQuery.map(inlink => {
-				let linkBullet = templates.inlinks.link;
-
-				if (inlink.url)
-					linkBullet = linkBullet
-						.replace("{LINK}", !args.flags.includes("e")
-							? `/${joinArgs("view", inlink.source, args.flags)}/${inlink.url}`
-							: inlink.url)
-						.replace("{ORIGINAL}", inlink.url);
-				else
-					linkBullet = linkBullet
-						.replace("{LINK}", !args.flags.includes("e")
-							? `/${joinArgs("orphan", inlink.source, args.flags.replace("n", ""))}/${inlink.path}`
-							: `/${inlink.path}`)
-						.replace("{ORIGINAL}", inlink.path);
-
-				return linkBullet.replace("{SOURCE}", inlink.source);
-			});
-			inlinks = templates.inlinks.main
-				.replaceAll("{URL}", sanitizedUrl)
-				.replace("{LINKS}", links.join("\n"));
-		}
-		else
-			inlinks = templates.inlinks.error
-				.replaceAll("{URL}", sanitizedUrl);
-
-		return new Response(inlinks, { headers: { "Content-Type": "text/html" } });
-	}
-
-	let archives = [];
-	let desiredArchive = 0;
-	if (args.mode == "view") {
-		const sanitizedUrl = sanitizeUrl(url);
-		archives = db.prepare("SELECT * FROM files_brief WHERE sanitizedUrl = ?").all(sanitizedUrl);
-		if (archives.length == 0) return error(url);
-		if (archives.length > 1) {
-			// Sort archives from oldest to newest
-			archives.sort((a, b) => {
-				const asort = sourceInfo.find(source => source.id == a.source).sort;
-				const bsort = sourceInfo.find(source => source.id == b.source).sort;
-				return asort - bsort;
-			});
-			// Get desired archive by first looking for exact URL match, then sanitized URL if there are no exact matches
-			if (args.source) {
-				desiredArchive = archives.findIndex(archive =>
-					archive.source == args.source && archive.url == url
-				);
-				if (desiredArchive == -1)
-					desiredArchive = archives.findIndex(archive =>
-						archive.source == args.source && sanitizeUrl(archive.url) == sanitizedUrl
-					);
-				desiredArchive = Math.max(0, desiredArchive);
-			}
-		}
-	}
-	else if (args.mode == "orphan" || args.mode == "raw") {
-		if (!args.source || !url) return error();
-		const entry = db.prepare(`SELECT * FROM files_brief WHERE source = ? AND path = ?`).get(args.source, url);
-		if (entry === undefined) return error();
-		archives.push(entry);
-	}
-	// Encode number sign to make sure it's properly identified as part of the URL
-	for (const archive of archives)
-		archive.url = archive.url.replaceAll("#", "%23");
-
-	const entry = archives[desiredArchive];
-	const filePath = joinPath(config.dataPath, "sources", entry.source, entry.path);
-	let file;
-	let contentType = entry.type;
-
-	// If the requested entry is an HTML page, serve from cache if possible
-	if (contentType == "text/html" && args.mode != "raw") {
-		const cachedHtml = await getCachedPage(entry.id, args, compatMode);
-		if (cachedHtml !== null) return new Response(cachedHtml, { headers: { "Content-Type": "text/html;charset=utf-8" } });
-	}
-
-	if (args.mode != "raw" && !args.flags.includes("p")) {
-		if (contentType == "image/x-xbitmap") {
-			// Convert XBM to GIF
-			file = (await new Deno.Command("convert", { args: [filePath, "GIF:-"], stdout: "piped" }).output()).stdout;
-			contentType = "image/gif";
-		}
-		else if (entry.source == "riscdisc" && contentType == "image/gif")
-			// Fix problematic GIFs present in The Risc Disc Volume 2
-			file = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
-	}
-
-	// Embed non-HTML files when navbar is enabled, otherwise serve original file data
-	// In raw mode, serve original file data regardless of file type or presence of navbar flag
-	if (!compatMode && args.mode == "view" && !args.flags.includes("n") && contentType != "text/html") {
-		const plaintext = contentType.startsWith("text/") || contentType.startsWith("message/") || contentType == "application/mbox";
-		let embed = (
-			plaintext ? templates.embed.text : (
-			contentType.startsWith("image/") ? templates.embed.image : (
-			contentType.startsWith("audio/") ? templates.embed.audio : (
-			contentType.startsWith("video/") ? templates.embed.video : (
-			templates.embed.unsupported
-		)))));
-		if (plaintext)
-			embed = embed.replace("{TEXT}", await getText(filePath, entry.source));
-		else
-			embed = embed
-				.replaceAll("{FILE}", `/${joinArgs("view", entry.source, args.flags + "n")}/${entry.url}`)
-				.replaceAll("{TYPE}", contentType);
-
-		let embedContainer = templates.embed.main
-			.replace("{URL}", entry.sanitizedUrl)
-			.replace("{EMBED}", embed);
-		embedContainer = injectNavbar(embedContainer, archives, desiredArchive, args.flags);
-
-		await cachePage(entry.id, args, false, embedContainer);
-		return new Response(embedContainer, { headers: { "Content-Type": "text/html;charset=utf-8" } });
-	}
-	else if (args.mode == "raw" || contentType != "text/html")
-		return new Response(file ?? await Deno.readFile(filePath), { headers: { "Content-Type": contentType } });
-
-	// Make adjustments to page markup before serving
-	let html = await getText(filePath, entry.source);
-	html = genericizeMarkup(html, entry);
-	html = redirectLinks(html, entry, args.flags, getLinks(html, entry.url));
-	if (!args.flags.includes("p"))
-		html = improvePresentation(html, compatMode);
-	if (args.mode == "view" && !args.flags.includes("n"))
-		html = injectNavbar(html, archives, desiredArchive, args.flags, compatMode);
-
-	// Cache and serve the page
-	await cachePage(entry.id, args, compatMode, html);
-	return new Response(html, { headers: { "Content-Type": "text/html;charset=utf-8" } });
 };
+
 const serverError = (error) => {
 	let errorHtml = templates.error.server;
 	let status;
@@ -632,6 +664,7 @@ const serverError = (error) => {
 	}
 	else {
 		logMessage(error);
+		console.log(error);
 		errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
 		status = 500;
 	}
@@ -670,7 +703,7 @@ const charMapExp = new RegExp(`[${Object.keys(charMap).join("")}]`, "g");
 const sanitizeInject = str => str.replace(charMapExp, m => charMap[m]);
 
 // Build home/search pages based on query strings
-async function prepareSearch(params, compatMode = false) {
+async function prepareSearch(params, compatMode) {
 	const homeCachePath = joinPath(cachePath, !compatMode ? "home" : "home_compat");
 	if (!params.has("query") && config.doCaching && await validFile(homeCachePath))
 		return await Deno.readTextFile(homeCachePath);
@@ -783,7 +816,7 @@ async function prepareSearch(params, compatMode = false) {
 						urlInject.substring(urlMatchIndex + queryParam.compare.length);
 			}
 			else
-				urlInject = `/${result.source}/${result.path}`;
+				urlInject = result.path;
 
 			let contentInject = result.content ?? "";
 			let contentMatchIndex = -1;
@@ -905,6 +938,33 @@ async function prepareSearch(params, compatMode = false) {
 	}
 
 	return html;
+}
+
+// Load, parse, and modify HTML data according to the query
+async function prepareHtml(filePath, archives, desiredArchive, query) {
+	const entry = archives[desiredArchive];
+
+	let html = await getText(filePath, entry.source);
+	html = genericizeMarkup(html, entry);
+	html = redirectLinks(html, entry, query.flags, getLinks(html, entry.url));
+	if (!query.flags.includes("p"))
+		html = improvePresentation(html, query.compat);
+	if (query.mode == "view" && !query.flags.includes("n"))
+		html = injectNavbar(html, archives, desiredArchive, query.flags, query.compat);
+
+	return html;
+}
+
+// Load non-HTML data and make changes if necessary
+async function prepareMedia(filePath, entry, flags) {
+	// Convert XBM to GIF
+	if (!flags.includes("p") && entry.type == "image/x-xbitmap")
+		return [(await new Deno.Command("convert", { args: [filePath, "GIF:-"], stdout: "piped" }).output()).stdout, "image/gif"];
+	// Fix problematic GIFs present in The Risc Disc Volume 2
+	if (entry.source == "riscdisc" && entry.type == "image/gif")
+		return [(await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout, entry.type];
+
+	return [await Deno.readFile(filePath), entry.type]
 }
 
 // Point links to archives, or the original URLs if "e" flag is enabled
@@ -1187,6 +1247,104 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 	}
 }
 
+// Extract useful information from a request
+function parseQuery(requestPath, compatMode) {
+	const query = {
+		mode: "",
+		source: "",
+		flags: "",
+		url: "",
+		compat: compatMode,
+	};
+
+	const argsStr = requestPath.substring(0, Math.max(0, requestPath.indexOf("/")) || requestPath.length);
+	const argsA = argsStr.split("_");
+	const argsB = argsA[0].split("-");
+
+	const mode = possibleModes.find(mode => mode.id == argsB[0]);
+	if (mode === undefined) return null;
+	query.mode = mode.id;
+
+	if (mode.hasUrl) {
+		const url = safeDecode(requestPath.substring(argsStr.length + 1).replace(/^[/]+/, ""));
+		if (url == "") return null;
+		query.url = url;
+	}
+
+	if (mode.hasSource && argsB.length > 1 && sourceInfo.some(source => source.id == argsB[1]))
+		query.source = argsB[1];
+	if (mode.hasFlags && argsA.length > 1)
+		for (const flag of possibleFlags)
+			if (argsA[1].includes(flag.id))
+				query.flags += flag.id;
+
+	// Treat certain flags and settings as disabled if they are redundant or not applicable to the current request
+	if (query.mode != "view" || (query.mode == "orphan" && !query.flags.includes("p"))) query.compat = false;
+	if (query.mode != "options" && (query.mode == "orphan" || query.flags.includes("n"))) {
+		query.flags = query.flags.replaceAll(/[mo]/g, "");
+		if (query.mode == "orphan") query.flags = query.flags.replace("n", "");
+	}
+
+	return query;
+}
+
+// Join arguments back into a string, ie. mode[-source][_flags]
+function joinArgs(mode, source, flags) {
+	let argsStr = mode ?? "";
+	if (source) argsStr += "-" + source;
+	if (flags) argsStr += "_" + sortFlags(flags);
+	return argsStr;
+}
+
+// Sort flags in alphabetical order
+function sortFlags(flags) { return flags.split("").toSorted().join(""); }
+
+// Return all archived files for a given query
+function getArchives(query) {
+	let archives = [];
+	let desiredArchive = 0;
+
+	if (query.mode == "view") {
+		const sanitizedUrl = sanitizeUrl(query.url);
+		archives = db.prepare("SELECT * FROM files_brief WHERE sanitizedUrl = ?").all(sanitizedUrl);
+		if (archives.length == 0) return [[], -1];
+		if (archives.length > 1) {
+			// Sort archives from oldest to newest
+			archives.sort((a, b) => {
+				const asort = sourceInfo.find(source => source.id == a.source).sort;
+				const bsort = sourceInfo.find(source => source.id == b.source).sort;
+				return asort - bsort;
+			});
+			// Get desired archive by first looking for exact URL match, then sanitized URL if there are no exact matches
+			if (query.source) {
+				desiredArchive = archives.findIndex(archive =>
+					archive.source == query.source && archive.url == query.url
+				);
+				if (desiredArchive == -1)
+					desiredArchive = archives.findIndex(archive =>
+						archive.source == query.source && sanitizeUrl(archive.url) == sanitizedUrl
+					);
+				desiredArchive = Math.max(0, desiredArchive);
+			}
+		}
+	}
+	else if (query.mode == "orphan" || query.mode == "raw") {
+		if (!query.source || !query.url) return [[], -1];
+		const entry = db.prepare(`SELECT * FROM files_brief WHERE source = ? AND path = ?`).get(query.source, query.url);
+		if (entry === undefined) return [[], -1];
+		archives.push(entry);
+	}
+
+	// Encode number sign to make sure it's properly identified as part of the URL
+	for (const archive of archives)
+		archive.url = archive.url.replaceAll("#", "%23");
+
+	return [archives, desiredArchive];
+}
+
+// Return the filesystem path for an archived file
+function getArchivePath(entry) { return joinPath(config.dataPath, "sources", entry.source, entry.path); }
+
 // Return a random entry
 function getRandom(flags = "", source) {
 	const whereConditions = [];
@@ -1204,72 +1362,10 @@ function getRandom(flags = "", source) {
 	).get(...whereParameters);
 }
 
-// Split string of arguments into an object
-function splitArgs(argsStr) {
-	const args = {
-		mode: "",
-		source: "",
-		flags: "",
-	};
-
-	const argsA = argsStr.split("_");
-	const argsB = argsA[0].split("-");
-	if (possibleModes.some(mode => mode == argsB[0]))
-		args.mode = argsB[0];
-	else
-		return null;
-	if (argsB.length > 1 && sourceInfo.some(source => source.id == argsB[1]))
-		args.source = argsB[1];
-	if (argsA.length > 1)
-		for (const flag of possibleFlags)
-			if (argsA[1].includes(flag.id))
-				args.flags += flag.id;
-
-	return args;
-}
-
-// Join arguments back into a string, ie. mode[-source][_flags]
-function joinArgs(mode, source, flags) {
-	let argsStr = mode ?? "";
-	if (source) argsStr += "-" + source;
-	if (flags) argsStr += "_" + sortFlags(flags);
-	return argsStr;
-}
-
-// Sort flags in alphabetical order
-function sortFlags(flags) { return flags.split("").toSorted().join(""); }
-
 // Generate a link to the Wayback Machine
 function getWaybackLink(url, year, month) {
 	const timestamp = year + (month == 0 ? "" : `${month}`.padStart(2, "0"));
 	return `http://web.archive.org/web/${timestamp}/${url}`;
-}
-
-// Return directory of cached page based on its flags
-function getCachedPageDir(args, compatMode) {
-	let flags = args.flags;
-	let compatPath = "";
-	if (args.mode == "orphan") flags = sortFlags(flags + "n");
-	if (flags.includes("n")) flags = flags.replace(/[mo]/g, "");
-	if (compatMode && (!flags.includes("n") || !flags.includes("p"))) compatPath = "compat";
-	return joinPath(cachePath, "html", flags, compatPath);
-}
-
-// Return cached page data, or null if none exists
-async function getCachedPage(id, args, compatMode) {
-	if (!config.doCaching) return null;
-	const cachedPageFile = joinPath(getCachedPageDir(args, compatMode), `${id}`);
-	return await validFile(cachedPageFile) ? await Deno.readFile(cachedPageFile) : null;
-}
-
-// Add page data to the cache, if no cache exists already
-async function cachePage(id, args, compatMode, html) {
-	if (!config.doCaching) return;
-	const cachedPageDir = getCachedPageDir(args, compatMode);
-	const cachedPageFile = joinPath(cachedPageDir, `${id}`);
-	if (await validFile(cachedPageFile)) return;
-	await Deno.mkdir(cachedPageDir, { recursive: true });
-	await Deno.writeTextFile(cachedPageFile, html);
 }
 
 // Make an educated guess of the requesting browser's recency
@@ -1761,7 +1857,7 @@ async function getText(filePath, source) {
 				const iconvOut = (
 					await new Deno.Command("iconv", { args: [filePath, "-cf", "UTF-8", "-t", "WINDOWS-1252"], stdout: "piped" }).output()
 				).stdout;
-	
+
 				const uchardetProcess = new Deno.Command("uchardet", { stdin: "piped", stdout: "piped" }).spawn();
 				const uchardetWriter = uchardetProcess.stdin.getWriter();
 				await uchardetWriter.write(iconvOut);
@@ -1769,7 +1865,7 @@ async function getText(filePath, source) {
 				await uchardetWriter.close();
 				const uchardetStr = decoder.decode((await uchardetProcess.output()).stdout).trim();
 				uchardetProcess.unref();
-	
+
 				const iconv2Process = new Deno.Command("iconv", { args: ["-cf", uchardetStr, "-t", "UTF-8"], stdin: "piped", stdout: "piped" }).spawn();
 				const iconv2Writer = iconv2Process.stdin.getWriter();
 				await iconv2Writer.write(iconvOut);
@@ -1777,7 +1873,7 @@ async function getText(filePath, source) {
 				await iconv2Writer.close();
 				const iconv2Str = decoder.decode((await iconv2Process.output()).stdout);
 				iconv2Process.unref();
-	
+
 				text = iconv2Str;
 				break;
 			}
