@@ -677,8 +677,7 @@ const serverError = (error) => {
 		status = 400;
 	}
 	else {
-		logMessage(error);
-		console.log(error);
+		logMessage(error.stack);
 		errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
 		status = 500;
 	}
