@@ -474,12 +474,9 @@ const serverHandler = async (request, info) => {
 	if (query === null) return error();
 
 	// If enabled, check the cache for file data corresponding to the request and return it if possible
-	if (config.doCaching) {
-		const mode = possibleModes.find(mode => mode.id == query.mode);
-		if (mode.doCache) {
-			const cacheResponse = await serveFromCache(query);
-			if (cacheResponse !== null) return cacheResponse;
-		}
+	if (config.doCaching && possibleModes.find(mode => mode.id == query.mode).doCache) {
+		const cacheResponse = await serveFromCache(query);
+		if (cacheResponse !== null) return cacheResponse;
 	}
 
 	switch (query.mode) {
@@ -525,8 +522,8 @@ const serverHandler = async (request, info) => {
 					return await cacheAndServe(query, embedContainer, "text/html;charset=utf-8");
 				}
 				else {
-					const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
-					return await cacheAndServe(query, file, contentType);
+					const [file, contentType, isModified] = await prepareMedia(filePath, entry, query.flags);
+					return await cacheAndServe(query, file, contentType, isModified ? undefined : filePath);
 				}
 			}
 
@@ -540,8 +537,8 @@ const serverHandler = async (request, info) => {
 			const filePath = getArchivePath(entry);
 
 			if (entry.type != "text/html") {
-				const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
-				return await cacheAndServe(query, file, contentType);
+				const [file, contentType, isModified] = await prepareMedia(filePath, entry, query.flags);
+				return await cacheAndServe(query, file, contentType, isModified ? undefined : filePath);
 			}
 
 			return await cacheAndServe(query, await prepareHtml(filePath, archives, desiredArchive, query), "text/html;charset=utf-8");
@@ -551,7 +548,7 @@ const serverHandler = async (request, info) => {
 			if (archives.length == 0) return error();
 
 			const entry = archives[desiredArchive];
-			return await cacheAndServe(query, await Deno.readFile(getArchivePath(entry)), entry.type);
+			return await cacheAndServe(query, await Deno.readFile(getArchivePath(entry)), entry.type, getArchivePath(entry));
 		}
 		case "inlinks": {
 			if (!config.doInlinks) return error();
@@ -566,36 +563,32 @@ const serverHandler = async (request, info) => {
 			const inlinkQuery = db.prepare(
 				"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
 			).all(query.url);
+			if (inlinkQuery.length == 0)
+				return new Response(templates.inlinks.error.replaceAll("{URL}", query.url), { headers: { "Content-Type": "text/html;charset=utf-8" } });
 
-			let inlinks;
-			if (inlinkQuery.length > 0) {
-				const links = inlinkQuery.map(inlink => {
-					let linkBullet = templates.inlinks.link;
+			const links = inlinkQuery.map(inlink => {
+				let linkBullet = templates.inlinks.link;
 
-					if (inlink.url)
-						linkBullet = linkBullet
-							.replace("{LINK}", !query.flags.includes("e")
-								? `/${joinArgs("view", inlink.source, query.flags)}/${inlink.url}`
-								: inlink.url)
-							.replace("{ORIGINAL}", inlink.url);
-					else
-						linkBullet = linkBullet
-							.replace("{LINK}", !query.flags.includes("e")
-								? `/${joinArgs("orphan", inlink.source, query.flags.replace("n", ""))}/${inlink.path}`
-								: `/${inlink.path}`)
-							.replace("{ORIGINAL}", inlink.path);
+				if (inlink.url)
+					linkBullet = linkBullet
+						.replace("{LINK}", !query.flags.includes("e")
+							? `/${joinArgs("view", inlink.source, query.flags)}/${inlink.url}`
+							: inlink.url)
+						.replace("{ORIGINAL}", inlink.url);
+				else
+					linkBullet = linkBullet
+						.replace("{LINK}", !query.flags.includes("e")
+							? `/${joinArgs("orphan", inlink.source, query.flags.replace("n", ""))}/${inlink.path}`
+							: `/${inlink.path}`)
+						.replace("{ORIGINAL}", inlink.path);
 
-					return linkBullet.replace("{SOURCE}", inlink.source);
-				});
-				inlinks = templates.inlinks.main
-					.replaceAll("{URL}", query.url)
-					.replace("{LINKS}", links.join("\n"));
-			}
-			else
-				inlinks = templates.inlinks.error
-					.replaceAll("{URL}", query.url);
+				return linkBullet.replace("{SOURCE}", inlink.source);
+			});
 
-			return await cacheAndServe(query, inlinks, "text/html", inlinkQuery.length == 0);
+			const inlinks = templates.inlinks.main
+				.replaceAll("{URL}", query.url)
+				.replace("{LINKS}", links.join("\n"));
+			return await cacheAndServe(query, inlinks, "text/html;charset=utf-8");
 		}
 		case "options": {
 			if (query.source == "") return error();
@@ -724,7 +717,7 @@ const charMapExp = new RegExp(`[${Object.keys(charMap).join("")}]`, "g");
 const sanitizeInject = str => str.replace(charMapExp, m => charMap[m]);
 
 // Build home/search pages based on query strings
-async function prepareSearch(params, compatMode) {
+function prepareSearch(params, compatMode) {
 	let html = !compatMode ? templates.search.main : templates.search.compat.main;
 
 	if (params.has("query")) {
@@ -971,24 +964,34 @@ async function prepareHtml(filePath, archives, desiredArchive, query) {
 
 // Load non-HTML data and make changes if necessary
 async function prepareMedia(filePath, entry, flags) {
-	// Convert XBM to GIF
-	if (!flags.includes("p") && entry.type == "image/x-xbitmap")
-		return [(await new Deno.Command("convert", { args: [filePath, "GIF:-"], stdout: "piped" }).output()).stdout, "image/gif"];
-	// Fix problematic GIFs present in The Risc Disc Volume 2
-	if (entry.source == "riscdisc" && entry.type == "image/gif")
-		return [(await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout, entry.type];
+	let [data, contentType, isModified] = [null, entry.type, false];
 
-	return [await Deno.readFile(filePath), entry.type]
+	// Convert XBM to GIF
+	if (!flags.includes("p") && entry.type == "image/x-xbitmap") {
+		data = (await new Deno.Command("convert", { args: [filePath, "GIF:-"], stdout: "piped" }).output()).stdout;
+		contentType = "image/gif";
+		isModified = true;
+	}
+	// Fix problematic GIFs present in The Risc Disc Volume 2
+	if (entry.source == "riscdisc" && entry.type == "image/gif") {
+		data = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
+		isModified = true;
+	}
+
+	if (data === null) data = await Deno.readFile(filePath);
+	return [data, contentType, isModified];
 }
 
 // Create a response object, and cache the passed data if caching is enabled
-async function cacheAndServe(query, data, contentType, doNotCache = false) {
-	if (config.doCaching && !doNotCache) {
+async function cacheAndServe(query, data, contentType, symlink) {
+	if (config.doCaching) {
 		const [cachedFileDir, cachedFileData, cachedFileType] = getCachedFilePaths(query);
 		if (!await validPath(cachedFileData)) {
 			try {
 				await Deno.mkdir(cachedFileDir, { recursive: true });
-				if (typeof(data) == "string")
+				if (symlink !== undefined)
+					await Deno.symlink(await Deno.realPath(symlink), cachedFileData);
+				else if (typeof(data) == "string")
 					await Deno.writeTextFile(cachedFileData, data);
 				else
 					await Deno.writeFile(cachedFileData, data);
