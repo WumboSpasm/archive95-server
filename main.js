@@ -122,10 +122,10 @@ const possibleModes = [
 	},
 	{
 		id: "inlinks",
-		hasSource: true,
+		hasSource: false,
 		hasFlags: true,
 		hasUrl: true,
-		doCache: true,
+		doCache: false, // We actually do caching, but only after the URL is processed first
 	},
 	{
 		id: "options",
@@ -477,8 +477,8 @@ const serverHandler = async (request, info) => {
 	if (config.doCaching) {
 		const mode = possibleModes.find(mode => mode.id == query.mode);
 		if (mode.doCache) {
-			const [data, contentType] = await getCachedFileData(query);
-			if (data !== null) return new Response(data, { headers: { "Content-Type": contentType } });
+			const cacheResponse = await serveFromCache(query);
+			if (cacheResponse !== null) return cacheResponse;
 		}
 	}
 
@@ -489,6 +489,14 @@ const serverHandler = async (request, info) => {
 
 			const entry = archives[desiredArchive];
 			const filePath = getArchivePath(entry);
+
+			// Once the actual entry URL is known, check the cache one more time
+			query.source = entry.source;
+			query.url = entry.url;
+			if (config.doCaching) {
+				const cacheResponse = await serveFromCache(query);
+				if (cacheResponse !== null) return cacheResponse;
+			}
 
 			if (entry.type != "text/html") {
 				// For non-HTML files, serve an embed instead of the actual file if the navbar is enabled
@@ -548,10 +556,16 @@ const serverHandler = async (request, info) => {
 		case "inlinks": {
 			if (!config.doInlinks) return error();
 
-			const sanitizedUrl = sanitizeUrl(query.url);
+			// Sanitize the URL and check if it exists in the cache
+			query.url = sanitizeUrl(query.url);
+			if (config.doCaching) {
+				const cacheResponse = await serveFromCache(query);
+				if (cacheResponse !== null) return cacheResponse;
+			}
+
 			const inlinkQuery = db.prepare(
 				"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
-			).all(sanitizedUrl);
+			).all(query.url);
 
 			let inlinks;
 			if (inlinkQuery.length > 0) {
@@ -574,14 +588,14 @@ const serverHandler = async (request, info) => {
 					return linkBullet.replace("{SOURCE}", inlink.source);
 				});
 				inlinks = templates.inlinks.main
-					.replaceAll("{URL}", sanitizedUrl)
+					.replaceAll("{URL}", query.url)
 					.replace("{LINKS}", links.join("\n"));
 			}
 			else
 				inlinks = templates.inlinks.error
-					.replaceAll("{URL}", sanitizedUrl);
+					.replaceAll("{URL}", query.url);
 
-			return await cacheAndServe(query, inlinks, "text/html");
+			return await cacheAndServe(query, inlinks, "text/html", inlinkQuery.length == 0);
 		}
 		case "options": {
 			if (query.source == "") return error();
@@ -935,9 +949,6 @@ async function prepareSearch(params, compatMode) {
 		html = html
 			.replace("{TITLE}", "Archive95")
 			.replace("{CONTENT}", about);
-
-		if (config.doCaching)
-			await Deno.writeTextFile(homeCachePath, html);
 	}
 
 	return html;
@@ -971,8 +982,8 @@ async function prepareMedia(filePath, entry, flags) {
 }
 
 // Create a response object, and cache the passed data if caching is enabled
-async function cacheAndServe(query, data, contentType) {
-	if (config.doCaching) {
+async function cacheAndServe(query, data, contentType, doNotCache = false) {
+	if (config.doCaching && !doNotCache) {
 		const [cachedFileDir, cachedFileData, cachedFileType] = getCachedFilePaths(query);
 		if (!await validPath(cachedFileData)) {
 			try {
@@ -988,22 +999,23 @@ async function cacheAndServe(query, data, contentType) {
 	return new Response(data, { headers: { "Content-Type": contentType } });
 }
 
-// Retrieve file data from the cache
-async function getCachedFileData(query) {
+// Retrieve file data from the cache and create a response object
+async function serveFromCache(query) {
+	let cacheResponse = null;
 	const [_, cachedFileData, cachedFileType] = getCachedFilePaths(query);
 	if (await validPath(cachedFileData)) {
 		try {
 			const data = await Deno.readFile(cachedFileData);
 			const contentType = await Deno.readTextFile(cachedFileType);
-			return [data, contentType];
+			cacheResponse = new Response(data, { headers: { "Content-Type": contentType } });
 		} catch {}
 	}
-	return [null, ""];
+	return cacheResponse;
 }
 
 // Generate a file path for the given query
 function getCachedFilePaths(query) {
-	const queryString = `${query.mode}|${query.source}|${query.flags}|${sanitizeUrl(query.url)}|${query.compat ? "compat" : ""}`;
+	const queryString = `${query.mode}|${query.source}|${query.flags}|${query.url}|${query.compat ? "compat" : ""}`;
 	const queryHash = createHash("sha1").update(JSON.stringify(queryString)).digest("hex");
 	const cachedFileDir = joinPath(cachePath, queryHash.substring(0, 2), queryHash.substring(2, 4));
 	const cachedFileData = joinPath(cachedFileDir, queryHash);
