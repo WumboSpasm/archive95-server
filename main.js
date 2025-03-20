@@ -212,6 +212,9 @@ const config = Object.assign({}, defaultConfig, JSON.parse(
 const databasePath = joinPath(config.dataPath, "archive95.sqlite");
 const cachePath = joinPath(config.dataPath, "cache");
 
+const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
+const baseExp = /<base[ \n]+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
+
 /*----------------+
  | Build Database |
  +----------------*/
@@ -1758,6 +1761,13 @@ function genericizeMarkup(html, entry) {
 				/<br><center><br>(?:<!--#include virtual=".*?" -->)?<BR><img src="[^"]+\/okto-banner.gif" border=0><\/a>/g,
 				''
 			);
+			// Fix images on pages with base URL
+			if (baseExp.test(html))
+				html = html.replaceAll(linkExp, (_, tagStart, url) => {
+					if (/^(?:src|background)/i.test(tagStart))
+						url = `"${trimQuotes(url.substring(url.lastIndexOf("/") + 1))}"`;
+					return tagStart + url;
+				});
 			break;
 		}
 		case "amigaplus": {
@@ -1871,7 +1881,6 @@ function improvePresentation(html, compatMode = false) {
 
 // Find and return links in the given markup, without performing any operations
 function getLinks(html, baseUrl) {
-	const baseExp = /<base[ \n]+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 	if (baseExp.test(html)) baseUrl = trimQuotes(html.match(baseExp)[1]);
 
 	const links = [];
@@ -1894,11 +1903,8 @@ function getLinks(html, baseUrl) {
 		});
 	};
 
-	const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
 	for (let match; (match = linkExp.exec(html)) !== null;) addLink(match);
-
-	const refreshExp = /(http-equiv *= *"?refresh"?[^>]+content *= *"(?:.*?URL=)?)(.*?)(?=")/i;
-	addLink(html.match(refreshExp), false);
+	addLink(html.match(/(http-equiv *= *"?refresh"?[^>]+content *= *"(?:.*?URL=)?)(.*?)(?=")/i), false);
 
 	return links;
 }
