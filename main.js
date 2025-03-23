@@ -664,18 +664,20 @@ const serverHandler = async (request, info) => {
 		}
 		case "screenshots": {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
-			if (screenshot === undefined) break;
+			if (screenshot === undefined) return error();
 			return await cacheAndServe(query, await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), "image/gif");
 		}
 		case "thumbnails": {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
-			if (screenshot === undefined) break;
+			if (screenshot === undefined) return error();
 			const thumbnail = (await new Deno.Command("convert",
 				{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
 			).output()).stdout;
 			return await cacheAndServe(query, thumbnail, "image/gif");
 		}
 	}
+
+	return error();
 };
 
 const serverError = (error) => {
@@ -1458,7 +1460,10 @@ function isModern(userAgent) {
 function error(url) {
 	let errorHtml, status;
 	if (url) {
-		errorHtml = templates.error.archive.replaceAll("{URL}", url);
+		url = sanitizeInject(url).replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+		errorHtml = templates.error.archive
+			.replace("{TRIMMEDURL}", url.length > 64 ? `${url.substring(0, 64)}...` : url)
+			.replace("{WAYBACKURL}", url);
 		status = 404;
 	}
 	else {
