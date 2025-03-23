@@ -178,6 +178,12 @@ const possibleFlags = [
 		hidden: false,
 	},
 	{
+		id: "f",
+		description: "Force frameless version of pages",
+		invert: false,
+		hidden: false,
+	},
+	{
 		id: "w",
 		description: "Point unarchived URLs to Wayback Machine",
 		invert: true,
@@ -956,6 +962,10 @@ async function prepareHtml(filePath, archives, desiredArchive, query) {
 	let html = await getText(filePath, entry.source);
 	html = genericizeMarkup(html, entry);
 	html = redirectLinks(html, entry, query.flags, getLinks(html, entry.url));
+	if (query.flags.includes("f"))
+		html = html
+			.replace(/<frameset.*?>.*<\/frameset> *\n?/is, '')
+			.replace(/<\/?noframes?> *\n?/gi, '');
 	if (!query.flags.includes("p"))
 		html = improvePresentation(html, query.compat);
 	if (query.mode == "view" && !query.flags.includes("n"))
@@ -1208,6 +1218,9 @@ function redirectLinks(html, entry, flags, rawLinks) {
 
 // Display navigation bar
 function injectNavbar(html, archives, desiredArchive, flags, compatMode = false) {
+	// Pages with frames can't display the navigation bar
+	if (/<frameset.*?>/i.test(html)) return html;
+
 	const entry = archives[desiredArchive];
 	const realUrl = entry.url.replaceAll("%23", "#");
 
@@ -1264,8 +1277,6 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		html = bodyCloseIndex != -1
 			? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
 			: html + "\n" + padding + "\n" + navbar;
-
-		return html;
 	}
 	else {
 		const source = sourceInfo.find(source => source.id == entry.source);
@@ -1297,15 +1308,13 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 		else
 			navbar = navbar.replace("{SCREENSHOTS}", "");
 
-		if (!/<frameset.*?>/i.test(html)) {
-			const bodyOpenIndex = (blankComments(html).match(
-				/^(?:[ \n\t]*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>[ \n\t]*)+)?/is
-			) ?? [""])[0].length;
-			html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
-		}
-
-		return html;
+		const bodyOpenIndex = (blankComments(html).match(
+			/^(?:[ \n\t]*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>[ \n\t]*)+)?/is
+		) ?? [""])[0].length;
+		html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
 	}
+
+	return html;
 }
 
 // Extract useful information from a request
@@ -1828,8 +1837,8 @@ function improvePresentation(html, compatMode = false) {
 		'$1</$2>'
 	).replaceAll(
 		// Add missing "s" to <noframe> elements
-		/(?<=<\/?)noframe(?=>)/gi,
-		match => match + (match == match.toUpperCase() ? "S" : "s")
+		/(<\/?)(noframe)(>)/gi,
+		(_, start, body, end) => start + body + (body == body.toUpperCase() ? "S" : "s") + end
 	);
 
 	// Try to fix any remaining comments with missing closing sequences

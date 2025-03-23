@@ -29,6 +29,7 @@ Archive95 is an unorthodox web archive.
 ## Flags
 - `n`: Hide navigation bar
 - `p`: Disable presentation improvements for modern browsers
+- `f`: Force frameless version of pages
 - `w`: Don't point unarchived URLs to Wayback Machine
 - `e`: Point all URLs to live internet (overrides `w` flag)
 - `m`: Random button includes non-text files
