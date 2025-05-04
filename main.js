@@ -473,7 +473,7 @@ const serverHandler = async (request, info) => {
 	// Serve static files
 	for (const file of staticFiles.concat(sourceInfo.map(source => [`sources/${source.id}.gif`, "image/gif"])))
 		if (requestPath == file[0])
-			return new Response(await Deno.readFile("static/" + file[0]), { headers: { "Content-Type": file[1] } });
+			return new Response(await getFileStream("static/" + file[0]), { headers: { "Content-Type": file[1] } });
 
 	// Append query string to request path
 	requestPath += (!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search;
@@ -1022,7 +1022,7 @@ async function serveFromCache(query) {
 	const [_, cachedFileData, cachedFileType] = getCachedFilePaths(query);
 	if (await validPath(cachedFileData)) {
 		try {
-			const data = await Deno.readFile(cachedFileData);
+			const data = await getFileStream(cachedFileData);
 			const contentType = await Deno.readTextFile(cachedFileType);
 			cacheResponse = new Response(data, { headers: { "Content-Type": contentType } });
 		} catch {}
@@ -2007,6 +2007,9 @@ function blankComments(html) { return html.replaceAll(/<! *[-]+.*?[-]+ *>/gs, ma
 
 // Remove any quotes or whitespace surrounding a string
 function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
+
+// Retrieve file data without consuming memory
+async function getFileStream(path) { return (await fetch(new URL(path, import.meta.url))).body; }
 
 // Log to the appropriate locations
 function logMessage(message) {
