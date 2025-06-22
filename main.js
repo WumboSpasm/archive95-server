@@ -1814,8 +1814,8 @@ function improvePresentation(html, compatMode = false) {
 		'<$1>$2</$3>'
 	).replaceAll(
 		// Fix attributes with missing end quote
-		/([a-z]+ *= *"[^"\n]+)(?=>(?!".*?>))/gis,
-		'$1"'
+		/([a-z]+ *= *"[^"]*?)(>[^"]*?"[^>]*")/gis,
+		'$1"$2'
 	).replaceAll(
 		// Remove spaces from comment closing sequences
 		/(<! *[-]+(?:(?!<! *[-]+).)*?[-]+) +>/gs,
