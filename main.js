@@ -19,9 +19,12 @@ const defaultConfig = {
 	httpsCert: "",
 	httpsKey: "",
 	accessHosts: [],
+	blockedIPs: [],
+	blockedUAs: [],
 	dataPath: "data",
 	logFile: "archive95.log",
 	logToConsole: true,
+	logBlockedRequests: true,
 	doCaching: false,
 	doCompatMode: true,
 	forceCompatMode: false,
@@ -448,7 +451,23 @@ const sourceInfo = db.prepare(`
 `).all();
 
 const serverHandler = async (request, info) => {
-	logMessage(info.remoteAddr.hostname + ": " + request.url);
+	const ipAddress = info.remoteAddr.hostname;
+	const userAgent = request.headers.get("User-Agent") ?? "";
+
+	// Check if IP or user agent is in blocklist
+	const blockRequest =
+		config.blockedIPs.some(blockedIP => ipAddress.startsWith(blockedIP)) ||
+		config.blockedUAs.some(blockedUA => userAgent.includes(blockedUA));
+
+	// Log the request if desired
+	if (!blockRequest || config.logBlockedRequests)
+		logMessage(`${blockRequest ? "BLOCKED " : ""}${ipAddress} (${userAgent}): ${request.url}`);
+
+	// If request needs to be blocked, wait 10 seconds before returning a dummy page
+	if (blockRequest) {
+		await new Promise(resolve => setTimeout(resolve, 10000));
+		return new Response("Hello, world!", { headers: { "Content-Type": "text/html" } });
+	}
 
 	// Make sure request is for a valid URL
 	const requestUrl = URL.parse(request.url);
@@ -461,7 +480,7 @@ const serverHandler = async (request, info) => {
 		throw new Error();
 
 	// Render search page and navbar in basic markup if user agent is not considered modern
-	const compatMode = config.forceCompatMode || config.doCompatMode && !isModern(request.headers.get("User-Agent") ?? "");
+	const compatMode = config.forceCompatMode || config.doCompatMode && !isModern(userAgent);
 
 	// Get body of request URL
 	let requestPath = requestUrl.pathname.replace(/^[/]+/, "");
