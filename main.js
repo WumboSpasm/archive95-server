@@ -986,7 +986,7 @@ async function prepareHtml(filePath, archives, desiredArchive, query) {
 	if (query.flags.includes("f"))
 		html = html
 			.replace(/<frameset.*?>.*<\/frameset> *\n?/is, '')
-			.replace(/<\/?noframes?> *\n?/gi, '');
+			.replace(/<\/?no ?frames?> *\n?/gi, '');
 	if (!query.flags.includes("p"))
 		html = improvePresentation(html, query.compat);
 	if (query.mode == "view" && !query.flags.includes("n"))
@@ -1861,8 +1861,8 @@ function improvePresentation(html, compatMode = false) {
 		'$1</$2>'
 	).replaceAll(
 		// Add missing "s" to <noframe> elements
-		/(<\/?)(noframe)(>)/gi,
-		(_, start, body, end) => start + body + (body == body.toUpperCase() ? "S" : "s") + end
+		/(<\/?)(no) ?(frame)(>)/gi,
+		(_, start, no, frame, end) => start + no + frame + (frame == frame.toUpperCase() ? "S" : "s") + end
 	);
 
 	// Try to fix any remaining comments with missing closing sequences
