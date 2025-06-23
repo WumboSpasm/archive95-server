@@ -983,10 +983,14 @@ async function prepareHtml(filePath, archives, desiredArchive, query) {
 	let html = await getText(filePath, entry.source);
 	html = genericizeMarkup(html, entry);
 	html = redirectLinks(html, entry, query.flags, getLinks(html, entry.url));
-	if (query.flags.includes("f"))
-		html = html
-			.replace(/<frameset.*?>.*<\/frameset> *\n?/is, '')
-			.replace(/<\/?no ?frames?> *\n?/gi, '');
+
+	const framesetExp = /<frameset.*?>.*<\/frameset> *\n?/is;
+	const noframesExp = /<\/?no ?frames?> *\n?/gi;
+	if (!framesetExp.test(html) && noframesExp.test(html))
+		html = html.replace(noframesExp, '');
+	else if (query.flags.includes("f"))
+		html = html.replace(framesetExp, '').replace(noframesExp, '');
+
 	if (!query.flags.includes("p"))
 		html = improvePresentation(html, query.compat);
 	if (query.mode == "view" && !query.flags.includes("n"))
