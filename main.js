@@ -1856,9 +1856,9 @@ function improvePresentation(html, compatMode = false) {
 		/<(marquee)[ ]+text *= *"(.*?)".*?>/gis,
 		'<$1>$2</$1>'
 	).replaceAll(
-		// Add missing closing tags to link elements
-		/(<a[ \n](?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=$|<a[ \n])/gis,
-		'$1</a>'
+		// Add missing closing tags to link/table elements
+		/(<(a|table)[ \n](?:(?!<\/\2>).)*?>(?:(?!<\/\2>).)*?)(?=$|<\2[ \n])/gis,
+		'$1</$2>'
 	).replaceAll(
 		// Add missing closing tags to list elements
 		/(<(dt|dd)>(?:(?!<\/\1>).)*?)(?=<(?:dl|dt|dd|\/dl))/gis,
