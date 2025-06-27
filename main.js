@@ -216,7 +216,7 @@ const databasePath = joinPath(config.dataPath, "archive95.sqlite");
 const cachePath = joinPath(config.dataPath, "cache");
 
 const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
-const baseExp = /<base[ \n]+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
+const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 
 // Load config file if found
 if (await validPath(args["config"])) {
@@ -343,7 +343,7 @@ if (args["build"]) {
 						else
 							entry.content = text
 								.replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-								.replaceAll(/[\n\t ]+/g, " ").trim();
+								.replaceAll(/\s+/g, " ").trim();
 					}
 				}
 				entries.push(entry);
@@ -483,7 +483,7 @@ const serverHandler = async (request, info) => {
 	const compatMode = config.forceCompatMode || config.doCompatMode && !isModern(userAgent);
 
 	// Get body of request URL
-	let requestPath = requestUrl.pathname.replace(/^[/]+/, "");
+	let requestPath = requestUrl.pathname.replace(/^\/+/, "");
 
 	// Serve homepage/search results
 	if (requestPath == "")
@@ -1298,7 +1298,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 			: style + "\n" + html;
 
 		const padding = '<div style="height:120px"></div>';
-		const bodyCloseIndex = blankComments(html).search(/(?:(?:<\/(?:body|noframes|html)>[ \n\t]*)+)?$/i);
+		const bodyCloseIndex = blankComments(html).search(/(?:(?:<\/(?:body|noframes|html)>\s*)+)?$/i);
 		html = bodyCloseIndex != -1
 			? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
 			: html + "\n" + padding + "\n" + navbar;
@@ -1334,7 +1334,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 			navbar = navbar.replace("{SCREENSHOTS}", "");
 
 		const bodyOpenIndex = (blankComments(html).match(
-			/^(?:[ \n\t]*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>[ \n\t]*)+)?/is
+			/^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>\s*)+)?/is
 		) ?? [""])[0].length;
 		html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
 	}
@@ -1361,7 +1361,7 @@ function parseQuery(requestPath, compatMode) {
 	query.mode = mode.id;
 
 	if (mode.hasUrl) {
-		const url = safeDecode(requestPath.substring(argsStr.length + 1).replace(/^[/]+/, ""));
+		const url = safeDecode(requestPath.substring(argsStr.length + 1).replace(/^\/+/, ""));
 		if (url == "") return null;
 		query.url = url;
 	}
@@ -1504,7 +1504,7 @@ function error(url) {
 function textContent(html) {
 	const titleMatch = [...html.matchAll(/<title>(((?!<\/title>).)*?)<\/title>/gis)];
 	const title = titleMatch.length > 0
-		? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, " ").replaceAll(/[\n\t ]+/g, " ").trim()
+		? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, " ").replaceAll(/\s+/g, " ").trim()
 		: "";
 
 	const content = html.replaceAll(
@@ -1520,13 +1520,13 @@ function textContent(html) {
 		/<[^>]+alt *= *([^ >]+).*?>/gis,
 		" $1 "
 	).replaceAll(
-		/<! *[-]+.*?[-]+ *>/gs,
+		/<! *-+.*?-+ *>/gs,
 		""
 	).replaceAll(
 		/<.*?>/gs,
 		" "
 	).replaceAll(
-		/[\n\t ]+/g,
+		/\s+/g,
 		" "
 	).trim();
 
@@ -1643,13 +1643,13 @@ function genericizeMarkup(html, entry) {
 			if (entry.path.startsWith("WWW_BBCNC_ORG_UK"))
 				html = html.replaceAll(
 					// In bbcnc.org.uk only, the brackets are inside the link elements
-					/(?<=<a[ \n].*?>(?:[ \n]+)?)\[(.*?)\](?=(?:[ \n]+)?<\/a>)/gis,
+					/(?<=<a\s.*?>(?:\s+)?)\[(.*?)\](?=(?:\s+)?<\/a>)/gis,
 					'$1'
 				);
 			else
 				html = html.replaceAll(
 					// Uncomment opening link tags
-					/<(?:(?:-- ?)|!(?:-- ?)?)(a[ \n].*?)(?: ?--)?>/gis,
+					/<(?:(?:-- ?)|!(?:-- ?)?)(a\s.*?)(?: ?--)?>/gis,
 					'<$1>'
 				).replaceAll(
 					// Uncomment closing link tags
@@ -1657,7 +1657,7 @@ function genericizeMarkup(html, entry) {
 					'</$1>'
 				).replaceAll(
 					// Remove brackets surrounding link elements
-					/[\[]+(<a[ \n].*?>.*?<\/a>)[\]]+/gis,
+					/\[+(<a\s.*?>.*?<\/a>)\]+/gis,
 					'$1'
 				);
 			if (entry.path.startsWith("WWW_HOTWIRED_COM"))
@@ -1784,7 +1784,7 @@ function genericizeMarkup(html, entry) {
 			).replaceAll(
 				// Remove indents before header elements
 				/(<head>)(.*?)(<\/head>)/gis,
-				(_, headOpen, headBody, headClose) => headOpen + headBody.replaceAll(/^[ ]+/gm, '') + headClose
+				(_, headOpen, headBody, headClose) => headOpen + headBody.replaceAll(/^ +/gm, '') + headClose
 			).replaceAll(
 				// Remove header message
 				/(?:<body[^>]+>)?<p align="center">Archived Pages from 20th Century!!<center>\n?<br>(?:<!--#include virtual="[^"]+" -->)?\n?<BR>/gs,
@@ -1814,7 +1814,7 @@ function genericizeMarkup(html, entry) {
 		}
 		case "netonacd": {
 			// Move real URLs back to original attribute
-			html = html.replaceAll(/"([^"]+)"?[ \n]+tppabs="(.*?)"/g, '"$2"');
+			html = html.replaceAll(/"([^"]+)"?\s+tppabs="(.*?)"/g, '"$2"');
 			break;
 		}
 	}
@@ -1841,23 +1841,23 @@ function improvePresentation(html, compatMode = false) {
 		'$1"$2'
 	).replaceAll(
 		// Remove spaces from comment closing sequences
-		/(<! *[-]+(?:(?!<! *[-]+).)*?[-]+) +>/gs,
+		/(<! *-+(?:(?!<! *-+).)*?-+) +>/gs,
 		'$1>',
 	).replaceAll(
 		// Fix single-line comments with missing closing sequence
-		/<!( *[-]+)([^<]+)(?<![-]+ *)>/g,
+		/<!( *-+)([^<]+)(?<!-+ *)>/g,
 		'<!$1$2-->'
 	).replaceAll(
 		// Fix multi-line comments with missing closing sequence
-		/<!( *[-]+)([^<]+)(?<![-]+ *)>(?!(?:(?!<! *[-]+).)*?[-]+>)/gs,
+		/<!( *-+)([^<]+)(?<!-+ *)>(?!(?:(?!<! *-+).)*?-+>)/gs,
 		'<!$1$2-->'
 	).replaceAll(
 		// Fix non-standard <marquee> syntax
-		/<(marquee)[ ]+text *= *"(.*?)".*?>/gis,
+		/<(marquee) +text *= *"(.*?)".*?>/gis,
 		'<$1>$2</$1>'
 	).replaceAll(
 		// Add missing closing tags to link/table elements
-		/(<(a|table)[ \n](?:(?!<\/\2>).)*?>(?:(?!<\/\2>).)*?)(?=$|<\2[ \n])/gis,
+		/(<(a|table)\s(?:(?!<\/\2>).)*?>(?:(?!<\/\2>).)*?)(?=$|<\2\s)/gis,
 		'$1</$2>'
 	).replaceAll(
 		// Add missing closing tags to list elements
@@ -2026,7 +2026,7 @@ function safeDecode(string) {
 }
 
 // Replace comments with whitespace
-function blankComments(html) { return html.replaceAll(/<! *[-]+.*?[-]+ *>/gs, match => " ".repeat(match.length)); }
+function blankComments(html) { return html.replaceAll(/<! *-+.*?-+ *>/gs, match => " ".repeat(match.length)); }
 
 // Remove any quotes or whitespace surrounding a string
 function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
