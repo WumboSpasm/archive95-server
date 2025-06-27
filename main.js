@@ -3,7 +3,7 @@ import { Database } from "jsr:@db/sqlite@0.12";
 import { join as joinPath } from "jsr:@std/path";
 import { parseArgs } from "jsr:@std/cli/parse-args";
 
-const flags = parseArgs(Deno.args, {
+const args = parseArgs(Deno.args, {
 	boolean: ["build", "wipe-cache"],
 	string: ["config"],
 	default: { "build": false, "wipe-cache": false, "config": "archive95.json" }
@@ -13,7 +13,7 @@ const flags = parseArgs(Deno.args, {
  | Important Global Constants |
  +----------------------------*/
 
-const defaultConfig = {
+const config = {
 	httpPort: 8989,
 	httpsPort: 8990,
 	httpsCert: "",
@@ -52,56 +52,56 @@ const staticFiles = [
 
 const templates = {
 	search: {
-		main: await Deno.readTextFile("templates/search.html"),
-		about: await Deno.readTextFile("templates/search_about.html"),
-		source: await Deno.readTextFile("templates/search_source.html"),
-		result: await Deno.readTextFile("templates/search_result.html"),
-		navigate: await Deno.readTextFile("templates/search_navigate.html"),
+		main: getTemplate("search.html"),
+		about: getTemplate("search_about.html"),
+		source: getTemplate("search_source.html"),
+		result: getTemplate("search_result.html"),
+		navigate: getTemplate("search_navigate.html"),
 		compat: {
-			main: await Deno.readTextFile("templates/compat/search.html"),
-			about: await Deno.readTextFile("templates/compat/search_about.html"),
-			source: await Deno.readTextFile("templates/compat/search_source.html"),
-			result: await Deno.readTextFile("templates/compat/search_result.html"),
+			main: getTemplate("compat/search.html"),
+			about: getTemplate("compat/search_about.html"),
+			source: getTemplate("compat/search_source.html"),
+			result: getTemplate("compat/search_result.html"),
 		},
 	},
 	sources: {
-		main: await Deno.readTextFile("templates/sources.html"),
-		source: await Deno.readTextFile("templates/sources_source.html"),
+		main: getTemplate("sources.html"),
+		source: getTemplate("sources_source.html"),
 	},
 	navbar: {
-		main: await Deno.readTextFile("templates/navbar.html"),
-		archive: await Deno.readTextFile("templates/navbar_archive.html"),
-		screenshot: await Deno.readTextFile("templates/navbar_screenshot.html"),
+		main: getTemplate("navbar.html"),
+		archive: getTemplate("navbar_archive.html"),
+		screenshot: getTemplate("navbar_screenshot.html"),
 		compat: {
-			main: await Deno.readTextFile("templates/compat/navbar.html"),
-			screenshot: await Deno.readTextFile("templates/compat/navbar_screenshot.html"),
+			main: getTemplate("compat/navbar.html"),
+			screenshot: getTemplate("compat/navbar_screenshot.html"),
 		},
 	},
 	embed: {
-		main: await Deno.readTextFile("templates/embed.html"),
-		text: await Deno.readTextFile("templates/embed_text.html"),
-		image: await Deno.readTextFile("templates/embed_image.html"),
-		audio: await Deno.readTextFile("templates/embed_audio.html"),
-		video: await Deno.readTextFile("templates/embed_video.html"),
-		unsupported: await Deno.readTextFile("templates/embed_unsupported.html"),
+		main: getTemplate("embed.html"),
+		text: getTemplate("embed_text.html"),
+		image: getTemplate("embed_image.html"),
+		audio: getTemplate("embed_audio.html"),
+		video: getTemplate("embed_video.html"),
+		unsupported: getTemplate("embed_unsupported.html"),
 	},
 	options: {
-		main: await Deno.readTextFile("templates/options.html"),
-		option: await Deno.readTextFile("templates/options_option.html"),
+		main: getTemplate("options.html"),
+		option: getTemplate("options_option.html"),
 	},
 	inlinks: {
-		main: await Deno.readTextFile("templates/inlinks.html"),
-		link: await Deno.readTextFile("templates/inlinks_link.html"),
-		error: await Deno.readTextFile("templates/inlinks_error.html"),
+		main: getTemplate("inlinks.html"),
+		link: getTemplate("inlinks_link.html"),
+		error: getTemplate("inlinks_error.html"),
 	},
 	error: {
-		archive: await Deno.readTextFile("templates/error_archive.html"),
-		generic: await Deno.readTextFile("templates/error_generic.html"),
-		server: await Deno.readTextFile("templates/error_server.html"),
+		archive: getTemplate("error_archive.html"),
+		generic: getTemplate("error_generic.html"),
+		server: getTemplate("error_server.html"),
 	},
 };
 
-const possibleModes = [
+const pageModes = [
 	{
 		id: "view",
 		hasSource: true,
@@ -167,7 +167,7 @@ const possibleModes = [
 	},
 ];
 
-const possibleFlags = [
+const pageFlags = [
 	{
 		id: "n",
 		description: "Show navigation bar",
@@ -212,26 +212,26 @@ const possibleFlags = [
 	},
 ];
 
-const config = Object.assign({}, defaultConfig, JSON.parse(
-	await validPath(flags["config"])
-		? await Deno.readTextFile(flags["config"])
-		: "{}"
-));
-
 const databasePath = joinPath(config.dataPath, "archive95.sqlite");
 const cachePath = joinPath(config.dataPath, "cache");
 
 const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
 const baseExp = /<base[ \n]+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 
+// Load config file if found
+if (await validPath(args["config"])) {
+	Object.assign(config, JSON.parse(await Deno.readTextFile(args["config"])));
+	logMessage(`loaded config file: ${await Deno.realPath(args["config"])}`);
+}
+
 /*----------------+
  | Build Database |
  +----------------*/
 
-if (flags["build"]) {
+if (args["build"]) {
 	const startTime = Date.now();
 
-	if (flags["wipe-cache"]) {
+	if (args["wipe-cache"]) {
 		logMessage("wiping cache...");
 		await Deno.remove(cachePath, { recursive: true });
 	}
@@ -502,7 +502,7 @@ const serverHandler = async (request, info) => {
 	if (query === null) return error();
 
 	// If enabled, check the cache for file data corresponding to the request and return it if possible
-	if (config.doCaching && possibleModes.find(mode => mode.id == query.mode).doCache) {
+	if (config.doCaching && pageModes.find(mode => mode.id == query.mode).doCache) {
 		const cacheResponse = await serveFromCache(query);
 		if (cacheResponse !== null) return cacheResponse;
 	}
@@ -627,15 +627,15 @@ const serverHandler = async (request, info) => {
 			// Links masquerading as checkboxes are used to alter the flags in the URL and change the destination of the return link
 			// This is because the archive component of the site cannot use forms and query strings to modify the output
 			const optionsList = [];
-			for (const option of possibleFlags) {
-				if (option.hidden) continue;
-				const checked = query.flags.includes(option.id);
-				const newFlags = checked ? query.flags.replace(option.id, "") : query.flags + option.id;
+			for (const flag of pageFlags) {
+				if (flag.hidden) continue;
+				const checked = query.flags.includes(flag.id);
+				const newFlags = checked ? query.flags.replace(flag.id, "") : query.flags + flag.id;
 				optionsList.push(
 					templates.options.option
 						.replace("{OPTIONURL}", `/${joinArgs("options", query.source, newFlags)}/${entry.url}`)
-						.replace("{FILL}", checked != option.invert ? "*" : "&nbsp;&nbsp;")
-						.replace("{DESCRIPTION}", option.description)
+						.replace("{FILL}", checked != flag.invert ? "*" : "&nbsp;&nbsp;")
+						.replace("{DESCRIPTION}", flag.description)
 				);
 			}
 
@@ -1356,7 +1356,7 @@ function parseQuery(requestPath, compatMode) {
 	const argsA = argsStr.split("_");
 	const argsB = argsA[0].split("-");
 
-	const mode = possibleModes.find(mode => mode.id == argsB[0]);
+	const mode = pageModes.find(mode => mode.id == argsB[0]);
 	if (mode === undefined) return null;
 	query.mode = mode.id;
 
@@ -1369,7 +1369,7 @@ function parseQuery(requestPath, compatMode) {
 	if (mode.hasSource && argsB.length > 1 && sourceInfo.some(source => source.id == argsB[1]))
 		query.source = argsB[1];
 	if (mode.hasFlags && argsA.length > 1)
-		for (const flag of possibleFlags)
+		for (const flag of pageFlags)
 			if (argsA[1].includes(flag.id))
 				query.flags += flag.id;
 
@@ -1823,7 +1823,7 @@ function genericizeMarkup(html, entry) {
 
 // Attempt to fix invalid/deprecated/non-standard markup
 function improvePresentation(html, compatMode = false) {
-	if (!compatMode && !flags["build"]) {
+	if (!compatMode && !args["build"]) {
 		const style = '<link rel="stylesheet" href="/presentation.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
 		html = matchHead !== null
@@ -2030,6 +2030,9 @@ function blankComments(html) { return html.replaceAll(/<! *[-]+.*?[-]+ *>/gs, ma
 
 // Remove any quotes or whitespace surrounding a string
 function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
+
+// Return contents of template files
+function getTemplate(file) { return Deno.readTextFileSync(`templates/${file}`); }
 
 // Retrieve file data without consuming memory
 async function getFileStream(path) { return (await fetch(new URL(path, import.meta.url))).body; }
