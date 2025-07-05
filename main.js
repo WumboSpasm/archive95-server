@@ -545,7 +545,7 @@ const serverHandler = async (request, info) => {
 					let embedContainer = templates.embed.main
 						.replace("{URL}", entry.sanitizedUrl)
 						.replace("{EMBED}", embed);
-					embedContainer = injectNavbar(embedContainer, archives, desiredArchive, query.flags);
+					embedContainer = injectNavbar(embedContainer, archives, desiredArchive, query.flags, query.compat);
 
 					return await cacheAndServe(query, embedContainer, "text/html;charset=utf-8");
 				}
