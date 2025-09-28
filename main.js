@@ -1959,27 +1959,11 @@ async function getText(filePath, source) {
 		switch (source) {
 			case "wwwdir": {
 				// World Wide Web Directory has some double-encoding weirdness that needs to be untangled
-				const iconvOut = (
-					await new Deno.Command("iconv", { args: [filePath, "-cf", "UTF-8", "-t", "WINDOWS-1252"], stdout: "piped" }).output()
-				).stdout;
-
-				const uchardetProcess = new Deno.Command("uchardet", { stdin: "piped", stdout: "piped" }).spawn();
-				const uchardetWriter = uchardetProcess.stdin.getWriter();
-				await uchardetWriter.write(iconvOut);
-				await uchardetWriter.ready;
-				await uchardetWriter.close();
-				const uchardetStr = decoder.decode((await uchardetProcess.output()).stdout).trim();
-				uchardetProcess.unref();
-
-				const iconv2Process = new Deno.Command("iconv", { args: ["-cf", uchardetStr, "-t", "UTF-8"], stdin: "piped", stdout: "piped" }).spawn();
-				const iconv2Writer = iconv2Process.stdin.getWriter();
-				await iconv2Writer.write(iconvOut);
-				await iconv2Writer.ready;
-				await iconv2Writer.close();
-				const iconv2Str = decoder.decode((await iconv2Process.output()).stdout);
-				iconv2Process.unref();
-
-				text = iconv2Str;
+				text = decoder.decode((
+					await new Deno.Command("bash", { args: ["-c",
+						`HTML="$(iconv '${filePath.replaceAll("'", "\\'")}' -cf UTF-8 -t WINDOWS-1252)"; iconv -cf $(uchardet <(echo -nE "$HTML")) -t UTF-8 <(echo -nE "$HTML")`
+					], stdout: "piped" }).output()
+				).stdout);
 				break;
 			}
 			case "einblicke": {
@@ -1989,8 +1973,8 @@ async function getText(filePath, source) {
 			}
 			default: {
 				let uchardetStr = decoder.decode((await new Deno.Command("uchardet", { args: [filePath], stdout: "piped" }).output()).stdout).trim();
-				// For some reason, files encoded in MAC-CENTRALEUROPE only convert correctly if interpreted as WINDOWS-1253
-				if (uchardetStr == "MAC-CENTRALEUROPE") uchardetStr = "WINDOWS-1253";
+				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
+				if (uchardetStr == "MAC-CENTRALEUROPE" || uchardetStr == "IBM865") uchardetStr = "WINDOWS-1253";
 				if (uchardetStr != "ASCII" && uchardetStr != "UTF-8")
 					text = decoder.decode((
 						await new Deno.Command("iconv", { args: [filePath, "-cf", uchardetStr, "-t", "UTF-8"], stdout: "piped" }).output()
