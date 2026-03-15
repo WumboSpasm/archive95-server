@@ -2008,7 +2008,7 @@ function logMessage(message) {
 }
 
 // Run Deno.lstat without throwing error if path doesn't exist
-export function getPathInfo(path) {
+function getPathInfo(path) {
 	try { return Deno.lstatSync(path); } catch {}
 	return null;
 }
