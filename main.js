@@ -1,3 +1,4 @@
+import { contentType } from 'jsr:@std/media-types@1.1.0';
 import { createHash } from "node:crypto";
 import { Database } from "jsr:@db/sqlite@0.12";
 import { join as joinPath } from "jsr:@std/path";
@@ -31,24 +32,6 @@ const config = {
 	resultsPerPage: 50,
 	doInlinks: true,
 };
-
-const staticFiles = [
-	["logo.gif", "image/gif"],
-	["dice.gif", "image/gif"],
-	["compat/logo.gif", "image/gif"],
-	["compat/dice.gif", "image/gif"],
-	["compat/options.gif", "image/gif"],
-	["compat/random.gif", "image/gif"],
-	["compat/home.gif", "image/gif"],
-	["compat/screenshot.gif", "image/gif"],
-	["banners/flashpoint.gif", "image/gif"],
-	["banners/discmaster.gif", "image/gif"],
-	["banners/theoldnet.gif", "image/gif"],
-	["banners/anybrowser.gif", "image/gif"],
-	["search.css", "text/css"],
-	["navbar.css", "text/css"],
-	["presentation.css", "text/css"],
-];
 
 const templates = {
 	search: {
@@ -219,7 +202,7 @@ const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gi
 const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 
 // Load config file if found
-if (await validPath(args["config"])) {
+if (getPathInfo(args["config"])?.isFile) {
 	Object.assign(config, JSON.parse(await Deno.readTextFile(args["config"])));
 	logMessage(`loaded config file: ${await Deno.realPath(args["config"])}`);
 }
@@ -237,9 +220,9 @@ if (args["build"]) {
 	}
 
 	logMessage("creating new database...");
-	if (await validPath(databasePath)) await Deno.remove(databasePath);
-	if (await validPath(databasePath + "-shm")) await Deno.remove(databasePath + "-shm");
-	if (await validPath(databasePath + "-wal")) await Deno.remove(databasePath + "-wal");
+	if (getPathInfo(databasePath)?.isFile) await Deno.remove(databasePath);
+	if (getPathInfo(databasePath + "-shm")?.isFile) await Deno.remove(databasePath + "-shm");
+	if (getPathInfo(databasePath + "-wal")?.isFile) await Deno.remove(databasePath + "-wal");
 	const db = new Database(databasePath, { create: true });
 	db.exec("PRAGMA journal_mode = WAL");
 	db.exec("PRAGMA shrink_memory");
@@ -301,7 +284,7 @@ if (args["build"]) {
 		// Attempt to load type cache
 		await Deno.mkdir(cachePath, { recursive: true });
 		const typesPath = joinPath(cachePath, "types");
-		const typesList = await validPath(typesPath)
+		const typesList = getPathInfo(typesPath)?.isFile
 			? (await Deno.readTextFile(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
 			: [];
 
@@ -483,7 +466,7 @@ const serverHandler = async (request, info) => {
 	const compatMode = config.forceCompatMode || config.doCompatMode && !isModern(userAgent);
 
 	// Get body of request URL
-	let requestPath = requestUrl.pathname.replace(/^\/+/, "");
+	const requestPath = requestUrl.pathname.replace(/^\/+/, "");
 
 	// Initialize response headers
 	const headers = new Headers();
@@ -494,18 +477,15 @@ const serverHandler = async (request, info) => {
 	if (requestPath == "")
 		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: headers });
 
-	// Serve static files
-	for (const file of staticFiles.concat(sourceInfo.map(source => [`sources/${source.id}.gif`, "image/gif"])))
-		if (requestPath == file[0]) {
-			headers.set("Content-Type", file[1]);
-			return new Response(await getFileStream("static/" + file[0]), { headers: headers });
-		}
-
-	// Append query string to request path
-	requestPath += (!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search;
+	// Try serving from static file directory
+	const staticFilePath = "static/" + requestPath;
+	if (getPathInfo(staticFilePath)?.isFile) {
+		headers.set("Content-Type", contentType(staticFilePath.substring(staticFilePath.lastIndexOf("."))) ?? "application/octet-stream");
+		return new Response(await getFileStream(staticFilePath), { headers: headers });
+	}
 
 	// Extract information from the request
-	const query = parseQuery(requestPath, compatMode);
+	const query = parseQuery(requestPath + ((!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search), compatMode);
 	if (query === null) return error();
 
 	// If enabled, check the cache for file data corresponding to the request and return it if possible
@@ -1036,7 +1016,7 @@ async function prepareMedia(filePath, entry, flags) {
 async function cacheAndServe(query, data, headers, symlink) {
 	if (config.doCaching) {
 		const [cachedFileDir, cachedFileData, cachedFileType] = getCachedFilePaths(query);
-		if (!await validPath(cachedFileData)) {
+		if (!getPathInfo(cachedFileData)?.isFile) {
 			try {
 				await Deno.mkdir(cachedFileDir, { recursive: true });
 				if (symlink !== undefined)
@@ -1056,7 +1036,7 @@ async function cacheAndServe(query, data, headers, symlink) {
 async function serveFromCache(query, headers) {
 	let cacheResponse = null;
 	const [_, cachedFileData, cachedFileType] = getCachedFilePaths(query);
-	if (await validPath(cachedFileData)) {
+	if (getPathInfo(cachedFileData)?.isFile) {
 		try {
 			const data = await getFileStream(cachedFileData);
 			const contentType = await Deno.readTextFile(cachedFileType);
@@ -1966,7 +1946,7 @@ function getLinks(html, baseUrl) {
 
 // Retrieve text from file and convert to UTF-8 if necessary
 async function getText(filePath, source) {
-	if (!await validPath(filePath) || Deno.stat(filePath).size == 0) return "";
+	if (!getPathInfo(filePath).isFile || Deno.stat(filePath).size == 0) return "";
 	let text;
 	try {
 		const decoder = new TextDecoder();
@@ -2046,8 +2026,8 @@ function logMessage(message) {
 	if (config.logToConsole) console.log(message);
 }
 
-// Check if a file or folder exists and is accessible
-async function validPath(path) {
-	try { await Deno.lstat(path); } catch { return false; }
-	return true;
+// Run Deno.lstat without throwing error if path doesn't exist
+export function getPathInfo(path) {
+	try { return Deno.lstatSync(path); } catch {}
+	return null;
 }
