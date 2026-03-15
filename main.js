@@ -202,13 +202,13 @@ if (args["build"]) {
 
 	if (args["wipe-cache"]) {
 		logMessage("wiping cache...");
-		await Deno.remove(cachePath, { recursive: true });
+		Deno.removeSync(cachePath, { recursive: true });
 	}
 
 	logMessage("creating new database...");
-	if (getPathInfo(databasePath)?.isFile) await Deno.remove(databasePath);
-	if (getPathInfo(databasePath + "-shm")?.isFile) await Deno.remove(databasePath + "-shm");
-	if (getPathInfo(databasePath + "-wal")?.isFile) await Deno.remove(databasePath + "-wal");
+	if (getPathInfo(databasePath)?.isFile) Deno.removeSync(databasePath);
+	if (getPathInfo(databasePath + "-shm")?.isFile) Deno.removeSync(databasePath + "-shm");
+	if (getPathInfo(databasePath + "-wal")?.isFile) Deno.removeSync(databasePath + "-wal");
 	const db = new Database(databasePath, { create: true });
 	db.exec("PRAGMA journal_mode = WAL");
 	db.exec("PRAGMA shrink_memory");
@@ -231,7 +231,7 @@ if (args["build"]) {
 		sort INTEGER PRIMARY KEY
 	)`).run();
 
-	const sourceData = JSON.parse(await Deno.readTextFile(joinPath(config.dataPath, "sources.json")));
+	const sourceData = JSON.parse(Deno.readTextFileSync(joinPath(config.dataPath, "sources.json")));
 
 	logMessage("adding sources to database...");
 	const sourceQuery = db.prepare(`INSERT INTO sources (id, title, author, archiveDate, publishDate, description, integrity, link, year, month, urlMode, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -268,17 +268,17 @@ if (args["build"]) {
 
 	const entryData = await (async () => {
 		// Attempt to load type cache
-		await Deno.mkdir(cachePath, { recursive: true });
+		Deno.mkdirSync(cachePath, { recursive: true });
 		const typesPath = joinPath(cachePath, "types");
 		const typesList = getPathInfo(typesPath)?.isFile
-			? (await Deno.readTextFile(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
+			? (Deno.readTextFileSync(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
 			: [];
 
 		// Load in entry data
 		const entries = [];
 		let currentEntry = 0;
 		for (const source of sourceData) {
-			for (const entryLine of (await Deno.readTextFile(joinPath(config.dataPath, `sources/${source.id}.txt`))).split(/[\r\n]+/g)) {
+			for (const entryLine of (Deno.readTextFileSync(joinPath(config.dataPath, `sources/${source.id}.txt`))).split(/[\r\n]+/g)) {
 				const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
 				const filePath = joinPath(config.dataPath, `sources/${source.id}/${path}`);
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
@@ -377,7 +377,7 @@ if (args["build"]) {
 		sanitizedUrl TEXT NOT NULL
 	)`).run();
 
-	const screenshotData = (await Deno.readTextFile(joinPath(config.dataPath, "screenshots.txt"))).split(/[\r\n]+/g).map((screenshot, s, data) => {
+	const screenshotData = (Deno.readTextFileSync(joinPath(config.dataPath, "screenshots.txt"))).split(/[\r\n]+/g).map((screenshot, s, data) => {
 		screenshot = screenshot.split("\t");
 		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
 		return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
@@ -476,7 +476,7 @@ const serverHandler = async (request, info) => {
 
 	// If enabled, check the cache for file data corresponding to the request and return it if possible
 	if (config.doCaching && pageModes.find(mode => mode.id == query.mode).doCache) {
-		const cacheResponse = await serveFromCache(query, headers);
+		const cacheResponse = serveFromCache(query, headers);
 		if (cacheResponse !== null) return cacheResponse;
 	}
 
@@ -492,7 +492,7 @@ const serverHandler = async (request, info) => {
 			query.source = entry.source;
 			query.url = entry.url;
 			if (config.doCaching) {
-				const cacheResponse = await serveFromCache(query, headers);
+				const cacheResponse = serveFromCache(query, headers);
 				if (cacheResponse !== null) return cacheResponse;
 			}
 
@@ -520,16 +520,16 @@ const serverHandler = async (request, info) => {
 						.replace("{EMBED}", embed);
 					embedContainer = injectNavbar(embedContainer, archives, desiredArchive, query.flags, query.compat);
 
-					return await cacheAndServe(query, embedContainer, headers);
+					return cacheAndServe(query, embedContainer, headers);
 				}
 				else {
 					const [file, contentType, isModified] = await prepareMedia(filePath, entry, query.flags);
 					headers.set("Content-Type", contentType);
-					return await cacheAndServe(query, file, headers, isModified ? undefined : filePath);
+					return cacheAndServe(query, file, headers, isModified ? undefined : filePath);
 				}
 			}
 
-			return await cacheAndServe(query, await prepareHtml(filePath, archives, desiredArchive, query), headers);
+			return cacheAndServe(query, await prepareHtml(filePath, archives, desiredArchive, query), headers);
 		}
 		case "orphan": {
 			const [archives, desiredArchive] = getArchives(query);
@@ -541,10 +541,10 @@ const serverHandler = async (request, info) => {
 			if (entry.type != "text/html") {
 				const [file, contentType, isModified] = await prepareMedia(filePath, entry, query.flags);
 				headers.set("Content-Type", contentType);
-				return await cacheAndServe(query, file, headers, isModified ? undefined : filePath);
+				return cacheAndServe(query, file, headers, isModified ? undefined : filePath);
 			}
 
-			return await cacheAndServe(query, await prepareHtml(filePath, archives, desiredArchive, query), headers);
+			return cacheAndServe(query, await prepareHtml(filePath, archives, desiredArchive, query), headers);
 		}
 		case "raw": {
 			const [archives, desiredArchive] = getArchives(query);
@@ -552,7 +552,7 @@ const serverHandler = async (request, info) => {
 
 			const entry = archives[desiredArchive];
 			headers.set("Content-Type", entry.type);
-			return await cacheAndServe(query, await Deno.readFile(getArchivePath(entry)), headers, getArchivePath(entry));
+			return cacheAndServe(query, Deno.readFileSync(getArchivePath(entry)), headers, getArchivePath(entry));
 		}
 		case "inlinks": {
 			if (!config.doInlinks) return error();
@@ -560,7 +560,7 @@ const serverHandler = async (request, info) => {
 			// Sanitize the URL and check if it exists in the cache
 			query.url = sanitizeUrl(query.url);
 			if (config.doCaching) {
-				const cacheResponse = await serveFromCache(query, headers);
+				const cacheResponse = serveFromCache(query, headers);
 				if (cacheResponse !== null) return cacheResponse;
 			}
 
@@ -592,7 +592,7 @@ const serverHandler = async (request, info) => {
 			const inlinks = templates.inlinks.main
 				.replaceAll("{URL}", query.url)
 				.replace("{LINKS}", links.join("\n"));
-			return await cacheAndServe(query, inlinks, headers);
+			return cacheAndServe(query, inlinks, headers);
 		}
 		case "options": {
 			if (query.source == "") return error();
@@ -619,7 +619,7 @@ const serverHandler = async (request, info) => {
 				.replace("{OPTIONS}", optionsList.join("\n"))
 				.replace("{ARCHIVEURL}", `/${joinArgs("view", query.source, query.flags)}/${entry.url}`);
 			headers.set("Content-Type", "text/html");
-			return await cacheAndServe(query, options, headers);
+			return cacheAndServe(query, options, headers);
 		}
 		case "random": {
 			const entry = getRandom(query.flags, query.source);
@@ -662,7 +662,7 @@ const serverHandler = async (request, info) => {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
 			if (screenshot === undefined) return error();
 			headers.set("Content-Type", "image/gif");
-			return await cacheAndServe(query, await Deno.readFile(joinPath(config.dataPath, "screenshots", screenshot.path)), headers);
+			return cacheAndServe(query, Deno.readFileSync(joinPath(config.dataPath, "screenshots", screenshot.path)), headers);
 		}
 		case "thumbnails": {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
@@ -671,7 +671,7 @@ const serverHandler = async (request, info) => {
 				{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
 			).output()).stdout;
 			headers.set("Content-Type", "image/gif");
-			return await cacheAndServe(query, thumbnail, headers);
+			return cacheAndServe(query, thumbnail, headers);
 		}
 	}
 
@@ -994,24 +994,24 @@ async function prepareMedia(filePath, entry, flags) {
 		isModified = true;
 	}
 
-	if (data === null) data = await Deno.readFile(filePath);
+	if (data === null) data = Deno.readFileSync(filePath);
 	return [data, contentType, isModified];
 }
 
 // Create a response object, and cache the passed data if caching is enabled
-async function cacheAndServe(query, data, headers, symlink) {
+function cacheAndServe(query, data, headers, symlink) {
 	if (config.doCaching) {
 		const [cachedFileDir, cachedFileData, cachedFileType] = getCachedFilePaths(query);
 		if (!getPathInfo(cachedFileData)?.isFile) {
 			try {
-				await Deno.mkdir(cachedFileDir, { recursive: true });
+				Deno.mkdirSync(cachedFileDir, { recursive: true });
 				if (symlink !== undefined)
-					await Deno.symlink(await Deno.realPath(symlink), cachedFileData);
+					Deno.symlinkSync(Deno.realPathSync(symlink), cachedFileData);
 				else if (typeof(data) == "string")
-					await Deno.writeTextFile(cachedFileData, data);
+					Deno.writeTextFileSync(cachedFileData, data);
 				else
-					await Deno.writeFile(cachedFileData, data);
-				await Deno.writeTextFile(cachedFileType, headers.get("Content-Type"));
+					Deno.writeFileSync(cachedFileData, data);
+				Deno.writeTextFileSync(cachedFileType, headers.get("Content-Type"));
 			} catch {}
 		}
 	}
@@ -1019,12 +1019,12 @@ async function cacheAndServe(query, data, headers, symlink) {
 }
 
 // Retrieve file data from the cache and create a response object
-async function serveFromCache(query, headers) {
+function serveFromCache(query, headers) {
 	let cacheResponse = null;
 	const [_, cachedFileData, cachedFileType] = getCachedFilePaths(query);
 	if (getPathInfo(cachedFileData)?.isFile) {
 		try {
-			headers.set("Content-Type", await Deno.readTextFile(cachedFileType));
+			headers.set("Content-Type", Deno.readTextFileSync(cachedFileType));
 			cacheResponse = new Response(Deno.openSync(cachedFileData).readable, { headers: headers });
 		} catch {}
 	}
@@ -1946,7 +1946,7 @@ async function getText(filePath, source) {
 			}
 			case "einblicke": {
 				// Einblicke ins Internet is already UTF-8 and anything that isn't detected as such causes issues, so don't try to convert it
-				text = await Deno.readTextFile(filePath);
+				text = Deno.readTextFileSync(filePath);
 				break;
 			}
 			default: {
@@ -1958,11 +1958,11 @@ async function getText(filePath, source) {
 						await new Deno.Command("iconv", { args: [filePath, "-cf", uchardetStr, "-t", "UTF-8"], stdout: "piped" }).output()
 					).stdout);
 				else
-					text = await Deno.readTextFile(filePath);
+					text = Deno.readTextFileSync(filePath);
 			}
 		}
 	}
-	catch { text = await Deno.readTextFile(filePath); }
+	catch { text = Deno.readTextFileSync(filePath); }
 	return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }
 
