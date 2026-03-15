@@ -481,7 +481,7 @@ const serverHandler = async (request, info) => {
 	const staticFilePath = "static/" + requestPath;
 	if (getPathInfo(staticFilePath)?.isFile) {
 		headers.set("Content-Type", contentType(staticFilePath.substring(staticFilePath.lastIndexOf("."))) ?? "application/octet-stream");
-		return new Response(await getFileStream(staticFilePath), { headers: headers });
+		return new Response(Deno.openSync(staticFilePath).readable, { headers: headers });
 	}
 
 	// Extract information from the request
@@ -1038,10 +1038,8 @@ async function serveFromCache(query, headers) {
 	const [_, cachedFileData, cachedFileType] = getCachedFilePaths(query);
 	if (getPathInfo(cachedFileData)?.isFile) {
 		try {
-			const data = await getFileStream(cachedFileData);
-			const contentType = await Deno.readTextFile(cachedFileType);
-			headers.set("Content-Type", contentType);
-			cacheResponse = new Response(data, { headers: headers });
+			headers.set("Content-Type", await Deno.readTextFile(cachedFileType));
+			cacheResponse = new Response(Deno.openSync(cachedFileData).readable, { headers: headers });
 		} catch {}
 	}
 	return cacheResponse;
@@ -2015,9 +2013,6 @@ function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1")
 
 // Return contents of template files
 function getTemplate(file) { return Deno.readTextFileSync(`templates/${file}`); }
-
-// Retrieve file data without consuming memory
-async function getFileStream(path) { return (await fetch(new URL(path, import.meta.url))).body; }
 
 // Log to the appropriate locations
 function logMessage(message) {
