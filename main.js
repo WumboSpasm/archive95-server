@@ -4,34 +4,26 @@ import { Database } from "jsr:@db/sqlite@0.12";
 import { join as joinPath } from "jsr:@std/path";
 import { parseArgs } from "jsr:@std/cli/parse-args";
 
+// Parse command-line arguments
 const args = parseArgs(Deno.args, {
 	boolean: ["build", "wipe-cache"],
 	string: ["config"],
 	default: { "build": false, "wipe-cache": false, "config": "archive95.json" }
 });
 
+// Attempt to load config file, otherwise use defaults
+const config = JSON.parse(Deno.readTextFileSync('data/config_template.json'));
+const configPath = args['config'];
+if (getPathInfo(configPath)?.isFile) {
+	Object.assign(config, JSON.parse(Deno.readTextFileSync(configPath)));
+	logMessage(`loaded config file: ${Deno.realPathSync(configPath)}`);
+}
+else
+	logMessage('no config file found, using default config');
+
 /*----------------------------+
  | Important Global Constants |
  +----------------------------*/
-
-const config = {
-	httpPort: 8989,
-	httpsPort: 8990,
-	httpsCert: "",
-	httpsKey: "",
-	accessHosts: [],
-	blockedIPs: [],
-	blockedUAs: [],
-	dataPath: "data",
-	logFile: "archive95.log",
-	logToConsole: true,
-	logBlockedRequests: true,
-	doCaching: false,
-	doCompatMode: true,
-	forceCompatMode: false,
-	resultsPerPage: 50,
-	doInlinks: true,
-};
 
 const templates = {
 	search: {
@@ -200,12 +192,6 @@ const cachePath = joinPath(config.dataPath, "cache");
 
 const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
 const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
-
-// Load config file if found
-if (getPathInfo(args["config"])?.isFile) {
-	Object.assign(config, JSON.parse(await Deno.readTextFile(args["config"])));
-	logMessage(`loaded config file: ${await Deno.realPath(args["config"])}`);
-}
 
 /*----------------+
  | Build Database |
@@ -707,22 +693,22 @@ const serverError = (error) => {
 	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" } });
 };
 
-// Start server on HTTP, and if configured to do so, HTTPS
+// Start server on HTTP
 Deno.serve({
 	port: config.httpPort,
 	hostname: config.hostName,
 	onError: serverError,
 }, serverHandler);
-if (config.httpsCert && config.httpsKey)
-	try {
-		Deno.serve({
-			port: config.httpsPort,
-			cert: Deno.readTextFileSync(config.httpsCert),
-			key: Deno.readTextFileSync(config.httpsKey),
-			hostName: config.hostName,
-			onError: serverError,
-		}, serverHandler);
-	} catch {}
+
+// If configured, start server on HTTPS
+if (config.httpsPort && config.httpsCert && config.httpsKey)
+	Deno.serve({
+		port: config.httpsPort,
+		cert: Deno.readTextFileSync(config.httpsCert),
+		key: Deno.readTextFileSync(config.httpsKey),
+		hostName: config.hostName,
+		onError: serverError,
+	}, serverHandler);
 
 /*-------------------------+
  | Server Helper Functions |
