@@ -509,15 +509,17 @@ const serverHandler = async (request, info) => {
 					)))));
 
 					if (plaintext)
-						embed = embed.replace("{TEXT}", await getText(filePath, entry.source));
+						embed = buildHtml(embed, { "TEXT": await getText(filePath, entry.source) });
 					else
-						embed = embed
-							.replaceAll("{FILE}", `/${joinArgs("view", entry.source, query.flags + "n")}/${entry.url}`)
-							.replaceAll("{TYPE}", entry.type);
+						embed = buildHtml(embed, {
+							"FILE": `/${joinArgs("view", entry.source, query.flags + "n")}/${entry.url}`,
+							"TYPE": entry.type,
+						});
 
-					let embedContainer = templates.embed.main
-						.replace("{URL}", entry.sanitizedUrl)
-						.replace("{EMBED}", embed);
+					let embedContainer = buildHtml(templates.embed.main, {
+						"URL": entry.sanitizedUrl,
+						"EMBED": embed,
+					});
 					embedContainer = injectNavbar(embedContainer, archives, desiredArchive, query.flags, query.compat);
 
 					return cacheAndServe(query, embedContainer, headers);
@@ -568,30 +570,29 @@ const serverHandler = async (request, info) => {
 				"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
 			).all(query.url);
 			if (inlinkQuery.length == 0)
-				return new Response(templates.inlinks.error.replaceAll("{URL}", query.url), { headers: headers });
+				return new Response(buildHtml(templates.inlinks.error, { "URL": query.url }), { headers: headers });
 
 			const links = inlinkQuery.map(inlink => {
-				let linkBullet = templates.inlinks.link;
-
-				if (inlink.url)
-					linkBullet = linkBullet
-						.replace("{LINK}", !query.flags.includes("e")
-							? `/${joinArgs("view", inlink.source, query.flags)}/${inlink.url}`
-							: inlink.url)
-						.replace("{ORIGINAL}", inlink.url);
-				else
-					linkBullet = linkBullet
-						.replace("{LINK}", !query.flags.includes("e")
-							? `/${joinArgs("orphan", inlink.source, query.flags.replace("n", ""))}/${inlink.path}`
-							: `/${inlink.path}`)
-						.replace("{ORIGINAL}", inlink.path);
-
-				return linkBullet.replace("{SOURCE}", inlink.source);
+				const linkDefs = { "SOURCE": inlink.source };
+				if (inlink.url) {
+					linkDefs["LINK"] = !query.flags.includes("e")
+						? `/${joinArgs("view", inlink.source, query.flags)}/${inlink.url}`
+						: inlink.url;
+					linkDefs["ORIGINAL"] = inlink.url;
+				}
+				else {
+					linkDefs["LINK"] = !query.flags.includes("e")
+						? `/${joinArgs("orphan", inlink.source, query.flags.replace("n", ""))}/${inlink.path}`
+						: `/${inlink.path}`;
+					linkDefs["ORIGINAL"] = inlink.path;
+				}
+				return buildHtml(templates.inlinks.link, linkDefs);
 			});
 
-			const inlinks = templates.inlinks.main
-				.replaceAll("{URL}", query.url)
-				.replace("{LINKS}", links.join("\n"));
+			const inlinks = buildHtml(templates.inlinks.main, {
+				"URL": query.url,
+				"LINKS": links.join("\n"),
+			});
 			return cacheAndServe(query, inlinks, headers);
 		}
 		case "options": {
@@ -607,17 +608,17 @@ const serverHandler = async (request, info) => {
 				if (flag.hidden) continue;
 				const checked = query.flags.includes(flag.id);
 				const newFlags = checked ? query.flags.replace(flag.id, "") : query.flags + flag.id;
-				optionsList.push(
-					templates.options.option
-						.replace("{OPTIONURL}", `/${joinArgs("options", query.source, newFlags)}/${entry.url}`)
-						.replace("{FILL}", checked != flag.invert ? "*" : "&nbsp;&nbsp;")
-						.replace("{DESCRIPTION}", flag.description)
-				);
+				optionsList.push(buildHtml(templates.options.option, {
+					"OPTIONURL": `/${joinArgs("options", query.source, newFlags)}/${entry.url}`,
+					"FILL": checked != flag.invert ? "*" : "&nbsp;&nbsp;",
+					"DESCRIPTION": flag.description,
+				}));
 			}
 
-			const options = templates.options.main
-				.replace("{OPTIONS}", optionsList.join("\n"))
-				.replace("{ARCHIVEURL}", `/${joinArgs("view", query.source, query.flags)}/${entry.url}`);
+			const options = buildHtml(templates.options.main, {
+				"OPTIONS": optionsList.join("\n"),
+				"ARCHIVEURL": `/${joinArgs("view", query.source, query.flags)}/${entry.url}`,
+			});
 			headers.set("Content-Type", "text/html");
 			return cacheAndServe(query, options, headers);
 		}
@@ -636,26 +637,27 @@ const serverHandler = async (request, info) => {
 
 			const sourceRows = [];
 			for (const source of sourceInfo)
-				sourceRows.push(templates.sources.source
-					.replace("{TITLE}", source.title)
-					.replace("{AUTHOR}", source.author)
-					.replace("{ARCHIVEDATE}", source.archiveDate)
-					.replace("{PUBLISHDATE}", source.publishDate)
-					.replace("{DESCRIPTION}", source.description)
-					.replace("{INTEGRITY}", source.integrity)
-					.replace("{URLCOUNT}", source.urlCount.toLocaleString())
-					.replace("{ORPHANCOUNT}", source.orphanCount.toLocaleString())
-					.replace("{TOTALCOUNT}", source.totalCount.toLocaleString())
-					.replace("{PERCENT}", Math.round((source.totalCount / grandTotal) * 1000) / 10)
-					.replaceAll("{ID}", source.id)
-					.replaceAll("{LINK}", source.link)
-				);
+				sourceRows.push(buildHtml(templates.sources.source, {
+					"ID": source.id,
+					"TITLE": source.title,
+					"AUTHOR": source.author,
+					"ARCHIVEDATE": source.archiveDate,
+					"PUBLISHDATE": source.publishDate,
+					"DESCRIPTION": source.description,
+					"INTEGRITY": source.integrity,
+					"LINK": source.link,
+					"URLCOUNT": source.urlCount.toLocaleString(),
+					"ORPHANCOUNT": source.orphanCount.toLocaleString(),
+					"TOTALCOUNT": source.totalCount.toLocaleString(),
+					"PERCENT": Math.round((source.totalCount / grandTotal) * 1000) / 10,
+				}));
 
-			const sourcesPage = templates.sources.main
-				.replace("{URLTOTAL}", urlTotal.toLocaleString())
-				.replace("{ORPHANTOTAL}", orphanTotal.toLocaleString())
-				.replace("{GRANDTOTAL}", grandTotal.toLocaleString())
-				.replace("{SOURCES}", sourceRows.join("\n"));
+			const sourcesPage = buildHtml(templates.sources.main, {
+				"URLTOTAL": urlTotal.toLocaleString(),
+				"ORPHANTOTAL": orphanTotal.toLocaleString(),
+				"GRANDTOTAL": grandTotal.toLocaleString(),
+				"SOURCES": sourceRows.join("\n"),
+			});
 			return new Response(sourcesPage, { headers: headers });
 		}
 		case "screenshots": {
@@ -679,17 +681,18 @@ const serverHandler = async (request, info) => {
 };
 
 const serverError = (error) => {
-	let errorHtml = templates.error.server;
+	let message = "";
 	let status;
 	if (!error.message) {
-		errorHtml = errorHtml.replace("{MESSAGE}", "Connections through this host are not allowed.");
+		message = "Connections through this host are not allowed.";
 		status = 400;
 	}
 	else {
 		logMessage(error.stack);
-		errorHtml = errorHtml.replace("{MESSAGE}", "The server had trouble processing your request.");
+		message = "The server had trouble processing your request.";
 		status = 500;
 	}
+	const errorHtml = buildHtml(templates.error.server, { "MESSAGE": message });
 	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" } });
 };
 
@@ -726,7 +729,7 @@ const sanitizeInject = str => str.replace(charMapExp, m => charMap[m]);
 
 // Build home/search pages based on query strings
 function prepareSearch(params, compatMode) {
-	let html = !compatMode ? templates.search.main : templates.search.compat.main;
+	const searchDefs = {};
 
 	if (params.has("query")) {
 		const search = {
@@ -743,14 +746,15 @@ function prepareSearch(params, compatMode) {
 		queryParam.html = sanitizeInject(queryParam.original.replaceAll("&", "&amp;"));
 		queryParam.search = queryParam.html.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-		html = html
-			.replace("{QUERY}", queryParam.html)
-			.replace("{INURL}", search.inUrl ? " checked" : "")
-			.replace("{INTITLE}", search.inTitle ? " checked" : "")
-			.replace("{INCONTENT}", search.inContent ? " checked" : "")
-			.replace("{FORMATSALL}", search.formatsAll ? " checked" : "")
-			.replace("{FORMATSTEXT}", search.formatsText ? " checked" : "")
-			.replace("{FORMATSMEDIA}", search.formatsMedia ? " checked" : "");
+		Object.assign(searchDefs, {
+			"QUERY": queryParam.html,
+			"INURL": search.inUrl ? " checked" : "",
+			"INTITLE": search.inTitle ? " checked" : "",
+			"INCONTENT": search.inContent ? " checked" : "",
+			"FORMATSALL": search.formatsAll ? " checked" : "",
+			"FORMATSTEXT": search.formatsText ? " checked" : "",
+			"FORMATSMEDIA": search.formatsMedia ? " checked" : "",
+		});
 
 		let whereConditions = [];
 		if (search.inUrl)
@@ -860,14 +864,14 @@ function prepareSearch(params, compatMode) {
 			const archiveUrl = result.url
 				? `/view-${result.source}/${result.url.replaceAll("#", "%23")}`
 				: `/orphan-${result.source}/${result.path.replaceAll("#", "%23")}`;
-			resultSegments.push(
-				(!compatMode ? templates.search.result : templates.search.compat.result)
-					.replace("{ARCHIVE}", archiveUrl)
-					.replace("{TITLE}", titleInject)
-					.replace("{URL}", urlInject)
-					.replace("{SOURCE}", result.source + (result.url ? "" : " (orphan)"))
-					.replace("{TEXT}", contentInject)
-			);
+			const resultTemplate = !compatMode ? templates.search.result : templates.search.compat.result;
+			resultSegments.push(buildHtml(resultTemplate, {
+				"ARCHIVE": archiveUrl,
+				"TITLE": titleInject,
+				"URL": urlInject,
+				"SOURCE": result.source + (result.url ? "" : " (orphan)"),
+				"TEXT": contentInject,
+			}));
 			if (compatMode) resultSegments.push("\t\t<hr>");
 		}
 
@@ -878,21 +882,21 @@ function prepareSearch(params, compatMode) {
 		if (!compatMode) {
 			const prevText = "&lt;&lt; Prev";
 			const nextText = "Next &gt;&gt;";
-			const navigate = templates.search.navigate
-				.replace("{TOTAL}", totalResults)
-				.replace("{S}", searchQuery.length > 1 ? "s" : "")
-				.replace("{QUERY}", queryParam.search)
-				.replace("{PREVIOUS}", prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`)
-				.replace("{NEXT}", nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`);
+			const navigate = buildHtml(templates.search.navigate, {
+				"TOTAL": totalResults,
+				"S": searchQuery.length > 1 ? "s" : "",
+				"QUERY": queryParam.search,
+				"PREVIOUS": prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`,
+				"NEXT": nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`,
+			});
 
 			resultSegments.unshift(navigate);
 			if (nextId != -1)
 				resultSegments.push(navigate);
 
 			const resultsString = searchQuery.length == 0 ? "No results were found for the given query." : resultSegments.join("\n");
-			html = html
-				.replace("{HEADER}", "Search results")
-				.replace("{CONTENT}", resultsString);
+			searchDefs["HEADER"] = "Search results"
+			searchDefs["CONTENT"] = resultsString;
 		}
 		else {
 			if (searchQuery.length > 0) {
@@ -910,49 +914,50 @@ function prepareSearch(params, compatMode) {
 			}
 
 			resultSegments.unshift(`\t\t<h2>${totalResults} results for "${queryParam.search}"</h2>`);
-			html = html.replace("{CONTENT}", resultSegments.join("\n"));
+			searchDefs["CONTENT"] = resultSegments.join("\n");
 		}
 
-		html = html.replace("{TITLE}", `Search results for "${queryParam.search}"`)
+		searchDefs["TITLE"] = `Search results for "${queryParam.search}"`;
 	}
 	else {
-		html = html
-			.replace("{QUERY}", "")
-			.replace("{INURL}", " checked")
-			.replace("{INTITLE}", " checked")
-			.replace("{INCONTENT}", " checked")
-			.replace("{FORMATSALL}", " checked")
-			.replace("{FORMATSTEXT}",  "")
-			.replace("{FORMATSMEDIA}", "");
+		Object.assign(searchDefs, {
+			"QUERY": "",
+			"INURL": " checked",
+			"INTITLE": " checked",
+			"INCONTENT": " checked",
+			"FORMATSALL": " checked",
+			"FORMATSTEXT":  "",
+			"FORMATSMEDIA": "",
+		});
 
+		const sourceTemplate = !compatMode ? templates.search.source : templates.search.compat.source;
 		const sources = [];
 		for (const source of sourceInfo)
-			sources.push(
-				(!compatMode ? templates.search.source : templates.search.compat.source)
-					.replace("{LINK}", source.link)
-					.replace("{TITLE}", source.title)
-					.replace("{AUTHOR}", source.author)
-					.replace("{DATE}", source.archiveDate)
-					.replace("{COUNT}", source.totalCount.toLocaleString())
-			);
+			sources.push(buildHtml(sourceTemplate, {
+				"LINK": source.link,
+				"TITLE": source.title,
+				"AUTHOR": source.author,
+				"DATE": source.archiveDate,
+				"COUNT": source.totalCount.toLocaleString(),
+			}));
 
-		let about = (!compatMode ? templates.search.about : templates.search.compat.about)
-			.replace("{SOURCES}", sources.join("\n"))
-			.replace("{TOTAL}", sourceInfo.reduce((total, source) => total + source.totalCount, 0).toLocaleString());
+		const aboutDefs = {
+			"SOURCES": sources.join("\n"),
+			"TOTAL": sourceInfo.reduce((total, source) => total + source.totalCount, 0).toLocaleString(),
+		};
 
 		if (compatMode) {
 			const randomEntry = getRandom();
-			about = about.replace("{RANDOM}", `/view-${randomEntry.source}/${randomEntry.url}`);
+			aboutDefs["RANDOM"] = `/view-${randomEntry.source}/${randomEntry.url}`;
 		}
 		else
-			html = html.replace("{HEADER}", "About this website");
+			searchDefs["HEADER"] = "About this website";
 
-		html = html
-			.replace("{TITLE}", "Archive95")
-			.replace("{CONTENT}", about);
+		searchDefs["TITLE"] = "Archive95";
+		searchDefs["CONTENT"] = buildHtml(!compatMode ? templates.search.about : templates.search.compat.about, aboutDefs);
 	}
 
-	return html;
+	return buildHtml(!compatMode ? templates.search.main : templates.search.compat.main, searchDefs);
 }
 
 // Load, parse, and modify HTML data according to the query
@@ -1229,45 +1234,44 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 
 	if (!compatMode) {
 		const rootSource = sourceInfo.find(source => source.id == entry.source);
-		let navbar = templates.navbar.main
-			.replaceAll("{URL}", realUrl)
-			.replace("{SHOWWARNING}", entry.warn ? "" : " hidden")
-			.replace("{SOURCE}", `/sources#${entry.source}`)
-			.replace("{SHOWINLINKS}", config.doInlinks ? "" : " hidden")
-			.replace("{WAYBACK}", getWaybackLink(realUrl, rootSource.year, rootSource.month))
-			.replace("{RAW}", `/${joinArgs("raw", entry.source)}/${entry.path}`)
-			.replace("{INLINKS}", `/${joinArgs("inlinks", null, flags)}/${entry.url}`)
-			.replace("{OPTIONS}", `/${joinArgs("options", entry.source, flags)}/${entry.url}`)
-			.replace("{RANDOM}", `/${joinArgs("random", null, flags)}/`);
+		const navbarDefs = {
+			"URL": realUrl,
+			"SHOWWARNING": entry.warn ? "" : " hidden",
+			"SOURCE": `/sources#${entry.source}`,
+			"SHOWINLINKS": config.doInlinks ? "" : " hidden",
+			"WAYBACK": getWaybackLink(realUrl, rootSource.year, rootSource.month),
+			"RAW": `/${joinArgs("raw", entry.source)}/${entry.path}`,
+			"INLINKS": `/${joinArgs("inlinks", null, flags)}/${entry.url}`,
+			"OPTIONS": `/${joinArgs("options", entry.source, flags)}/${entry.url}`,
+			"RANDOM": `/${joinArgs("random", null, flags)}/`,
+		};
 
 		const archiveButtons = [];
 		for (let a = 0; a < archives.length; a++) {
 			const archive = archives[a];
 			const source = sourceInfo.find(source => source.id == archive.source);
-			archiveButtons.push(
-				templates.navbar.archive
-					.replace("{ACTIVE}", a == desiredArchive ? ' class="navbar-active"' : "")
-					.replace("{URL}", `/${joinArgs("view", source.id, flags)}/${archive.url}`)
-					.replace("{ICON}", `/sources/${source.id}.gif`)
-					.replace("{TITLE}", source.title)
-					.replace("{DATE}", source.archiveDate)
-			);
+			archiveButtons.push(buildHtml(templates.navbar.archive, {
+				"ACTIVE": a == desiredArchive ? ' class="navbar-active"' : "",
+				"URL": `/${joinArgs("view", source.id, flags)}/${archive.url}`,
+				"ICON": `/sources/${source.id}.gif`,
+				"TITLE": source.title,
+				"DATE": source.archiveDate,
+			}));
 		}
-		navbar = navbar.replace("{ARCHIVES}", archiveButtons.join("\n"));
+		navbarDefs["ARCHIVES"] = archiveButtons.join("\n");
 
 		const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
 		if (screenshotQuery.length > 0) {
 			const screenshots = [];
 			for (const screenshotPath of screenshotQuery)
-				screenshots.push(
-					templates.navbar.screenshot
-						.replace("{IMAGE}", "/screenshots/" + screenshotPath)
-						.replace("{THUMB}", "/thumbnails/" + screenshotPath)
-				);
-			navbar = navbar.replace("{SCREENSHOTS}", screenshots.join("\n"));
+				screenshots.push(buildHtml(templates.navbar.screenshot, {
+					"IMAGE": "/screenshots/" + screenshotPath,
+					"THUMB": "/thumbnails/" + screenshotPath,
+				}));
+			navbarDefs["SCREENSHOTS"] = screenshots.join("\n");
 		}
 		else
-			navbar = navbar.replace("{SCREENSHOTS}", "");
+			navbarDefs["SCREENSHOTS"] = "";
 
 		const style = '<link rel="stylesheet" href="/navbar.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
@@ -1277,6 +1281,7 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 
 		const padding = '<div style="height:120px"></div>';
 		const bodyCloseIndex = blankComments(html).search(/(?:(?:<\/(?:body|noframes|html)>\s*)+)?$/i);
+		const navbar = buildHtml(templates.navbar.main, navbarDefs);
 		html = bodyCloseIndex != -1
 			? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
 			: html + "\n" + padding + "\n" + navbar;
@@ -1284,40 +1289,60 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 	else {
 		const source = sourceInfo.find(source => source.id == entry.source);
 		const randomEntry = getRandom(flags);
-		let navbar = templates.navbar.compat.main
-			.replace("{URL}", realUrl)
-			.replace("{SOURCE}", source.title)
-			.replace("{DATE}", source.archiveDate)
-			.replace("{OPTIONS}", `/${joinArgs("options", entry.source, flags)}/${entry.url}`)
-			.replace("{RANDOM}", `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`);
+		const navbarDefs = {
+			"URL": realUrl,
+			"SOURCE": source.title,
+			"DATE": source.archiveDate,
+			"OPTIONS": `/${joinArgs("options", entry.source, flags)}/${entry.url}`,
+			"RANDOM": `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`,
+		};
 
 		if (archives.length > 1) {
 			const archiveButtons = [];
 			for (let a = 0; a < archives.length; a++)
 				if (a != desiredArchive)
 					archiveButtons.push(`<a href="/${joinArgs("view", archives[a].source, flags)}/${archives[a].url}">${archives[a].source}</a>`);
-			navbar = navbar.replace("{ARCHIVES}", "Other archives: " + archiveButtons.join(", "));
+			navbarDefs["ARCHIVES"] = "Other archives: " + archiveButtons.join(", ");
 		}
 		else
-			navbar = navbar.replace("{ARCHIVES}", "");
+			navbarDefs["ARCHIVES"] = "";
 
 		const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
 		if (screenshotQuery.length > 0) {
 			const screenshots = [];
 			for (const screenshotPath of screenshotQuery)
-				screenshots.push(templates.navbar.compat.screenshot.replace("{IMAGE}", "/screenshots/" + screenshotPath));
-			navbar = navbar.replace("{SCREENSHOTS}", screenshots.join("\n"));
+				screenshots.push(buildHtml(templates.navbar.compat.screenshot, { "IMAGE": "/screenshots/" + screenshotPath }));
+			navbarDefs["SCREENSHOTS"] = screenshots.join("\n");
 		}
 		else
-			navbar = navbar.replace("{SCREENSHOTS}", "");
+			navbarDefs["SCREENSHOTS"] = "";
 
 		const bodyOpenIndex = (blankComments(html).match(
 			/^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>\s*)+)?/is
 		) ?? [""])[0].length;
+		const navbar = buildHtml(templates.navbar.compat.main, navbarDefs);
 		html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
 	}
 
 	return html;
+}
+
+// Safely fill HTML template with text definitions
+function buildHtml(template, defs) {
+	const varSlices = [];
+	const varExp = /(?:(^|\n)(\t*))?\{(.*?)\}/gs;
+	for (let match; (match = varExp.exec(template)) !== null;) {
+		const value = defs[match[3]].toString();
+		const newLine = match[1] ?? '';
+		const tabs = match[2] ?? '';
+		const formattedValue = value ? newLine + value.replaceAll(/^/gm, tabs) : '';
+		varSlices.push({
+			start: match.index,
+			end: match.index + match[0].length,
+			value: formattedValue,
+		});
+	}
+	return replaceSlices(template, varSlices);
 }
 
 // Extract useful information from a request
@@ -1462,9 +1487,10 @@ function error(url) {
 	let errorHtml, status;
 	if (url) {
 		url = sanitizeInject(url).replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-		errorHtml = templates.error.archive
-			.replace("{TRIMMEDURL}", url.length > 64 ? `${url.substring(0, 64)}...` : url)
-			.replace("{WAYBACKURL}", url);
+		errorHtml = buildHtml(templates.error.archive, {
+			"TRIMMEDURL": url.length > 64 ? `${url.substring(0, 64)}...` : url,
+			"WAYBACKURL": url,
+		});
 		status = 404;
 	}
 	else {
@@ -1989,6 +2015,18 @@ function safeDecode(string) {
 		}
 	}
 	return chars.join("");
+}
+
+// Replace slices of a string with different values
+function replaceSlices(str, slices) {
+	let offset = 0;
+	let newStr = '';
+	for (const slice of slices.toSorted((a, b) => a.start - b.start)) {
+		newStr += str.substring(0, slice.start - offset) + slice.value;
+		str = str.substring(slice.end - offset);
+		offset = slice.end;
+	}
+	return newStr + str;
 }
 
 // Replace comments with whitespace
