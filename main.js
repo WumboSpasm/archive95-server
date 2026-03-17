@@ -1,5 +1,4 @@
 import { contentType } from 'jsr:@std/media-types@1.1.0';
-import { createHash } from "node:crypto";
 import { Database } from "jsr:@db/sqlite@0.12";
 import { join as joinPath } from "jsr:@std/path";
 import { parseArgs } from "jsr:@std/cli/parse-args";
@@ -82,63 +81,54 @@ const pageModes = [
 		hasSource: true,
 		hasFlags: true,
 		hasUrl: true,
-		doCache: true,
 	},
 	{
 		id: "orphan",
 		hasSource: true,
 		hasFlags: true,
 		hasUrl: true,
-		doCache: true,
 	},
 	{
 		id: "raw",
 		hasSource: true,
 		hasFlags: false,
 		hasUrl: true,
-		doCache: true,
 	},
 	{
 		id: "inlinks",
 		hasSource: false,
 		hasFlags: true,
 		hasUrl: true,
-		doCache: false, // We actually do caching, but only after the URL is processed first
 	},
 	{
 		id: "options",
 		hasSource: true,
 		hasFlags: true,
 		hasUrl: true,
-		doCache: true,
 	},
 	{
 		id: "random",
 		hasSource: true,
 		hasFlags: true,
 		hasUrl: false,
-		doCache: false,
 	},
 	{
 		id: "sources",
 		hasSource: false,
 		hasFlags: false,
 		hasUrl: false,
-		doCache: false,
 	},
 	{
 		id: "screenshots",
 		hasSource: false,
 		hasFlags: false,
 		hasUrl: true,
-		doCache: true,
 	},
 	{
 		id: "thumbnails",
 		hasSource: false,
 		hasFlags: false,
 		hasUrl: true,
-		doCache: true,
 	},
 ];
 
@@ -474,12 +464,6 @@ const serverHandler = async (request, info) => {
 	const query = parseQuery(requestPath + ((!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search), compatMode);
 	if (query === null) return error();
 
-	// If enabled, check the cache for file data corresponding to the request and return it if possible
-	if (config.doCaching && pageModes.find(mode => mode.id == query.mode).doCache) {
-		const cacheResponse = serveFromCache(query, headers);
-		if (cacheResponse !== null) return cacheResponse;
-	}
-
 	switch (query.mode) {
 		case "view": {
 			const [archives, desiredArchive] = getArchives(query);
@@ -487,14 +471,6 @@ const serverHandler = async (request, info) => {
 
 			const entry = archives[desiredArchive];
 			const filePath = getArchivePath(entry);
-
-			// Once the actual entry URL is known, check the cache one more time
-			query.source = entry.source;
-			query.url = entry.url;
-			if (config.doCaching) {
-				const cacheResponse = serveFromCache(query, headers);
-				if (cacheResponse !== null) return cacheResponse;
-			}
 
 			if (entry.type != "text/html") {
 				// For non-HTML files, serve an embed instead of the actual file if the navbar is enabled
@@ -522,16 +498,16 @@ const serverHandler = async (request, info) => {
 					});
 					embedContainer = injectNavbar(embedContainer, archives, desiredArchive, query.flags, query.compat);
 
-					return cacheAndServe(query, embedContainer, headers);
+					return new Response(embedContainer, { headers: headers });
 				}
 				else {
-					const [file, contentType, isModified] = await prepareMedia(filePath, entry, query.flags);
+					const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
 					headers.set("Content-Type", contentType);
-					return cacheAndServe(query, file, headers, isModified ? undefined : filePath);
+					return new Response(file, { headers: headers });
 				}
 			}
 
-			return cacheAndServe(query, await prepareHtml(filePath, archives, desiredArchive, query), headers);
+			return new Response(await prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
 		}
 		case "orphan": {
 			const [archives, desiredArchive] = getArchives(query);
@@ -541,12 +517,12 @@ const serverHandler = async (request, info) => {
 			const filePath = getArchivePath(entry);
 
 			if (entry.type != "text/html") {
-				const [file, contentType, isModified] = await prepareMedia(filePath, entry, query.flags);
+				const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
 				headers.set("Content-Type", contentType);
-				return cacheAndServe(query, file, headers, isModified ? undefined : filePath);
+				return new Response(file, { headers: headers });
 			}
 
-			return cacheAndServe(query, await prepareHtml(filePath, archives, desiredArchive, query), headers);
+			return new Response(await prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
 		}
 		case "raw": {
 			const [archives, desiredArchive] = getArchives(query);
@@ -554,17 +530,11 @@ const serverHandler = async (request, info) => {
 
 			const entry = archives[desiredArchive];
 			headers.set("Content-Type", entry.type);
-			return cacheAndServe(query, Deno.readFileSync(getArchivePath(entry)), headers, getArchivePath(entry));
+			return new Response(Deno.readFileSync(getArchivePath(entry)), { headers: headers });
 		}
 		case "inlinks": {
 			if (!config.doInlinks) return error();
-
-			// Sanitize the URL and check if it exists in the cache
 			query.url = sanitizeUrl(query.url);
-			if (config.doCaching) {
-				const cacheResponse = serveFromCache(query, headers);
-				if (cacheResponse !== null) return cacheResponse;
-			}
 
 			const inlinkQuery = db.prepare(
 				"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
@@ -593,7 +563,7 @@ const serverHandler = async (request, info) => {
 				"URL": query.url,
 				"LINKS": links.join("\n"),
 			});
-			return cacheAndServe(query, inlinks, headers);
+			return new Response(inlinks, { headers: headers });
 		}
 		case "options": {
 			if (query.source == "") return error();
@@ -620,7 +590,7 @@ const serverHandler = async (request, info) => {
 				"ARCHIVEURL": `/${joinArgs("view", query.source, query.flags)}/${entry.url}`,
 			});
 			headers.set("Content-Type", "text/html");
-			return cacheAndServe(query, options, headers);
+			return new Response(options, { headers: headers });
 		}
 		case "random": {
 			const entry = getRandom(query.flags, query.source);
@@ -664,7 +634,7 @@ const serverHandler = async (request, info) => {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
 			if (screenshot === undefined) return error();
 			headers.set("Content-Type", "image/gif");
-			return cacheAndServe(query, Deno.readFileSync(joinPath(config.dataPath, "screenshots", screenshot.path)), headers);
+			return new Response(Deno.readFileSync(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: headers });
 		}
 		case "thumbnails": {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
@@ -673,7 +643,7 @@ const serverHandler = async (request, info) => {
 				{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
 			).output()).stdout;
 			headers.set("Content-Type", "image/gif");
-			return cacheAndServe(query, thumbnail, headers);
+			return new Response(thumbnail, { headers: headers });
 		}
 	}
 
@@ -985,65 +955,19 @@ async function prepareHtml(filePath, archives, desiredArchive, query) {
 
 // Load non-HTML data and make changes if necessary
 async function prepareMedia(filePath, entry, flags) {
-	let [data, contentType, isModified] = [null, entry.type, false];
+	let [data, contentType] = [null, entry.type];
 
 	// Convert XBM to GIF
 	if (!flags.includes("p") && entry.type == "image/x-xbitmap") {
 		data = (await new Deno.Command("convert", { args: [filePath, "GIF:-"], stdout: "piped" }).output()).stdout;
 		contentType = "image/gif";
-		isModified = true;
 	}
 	// Fix problematic GIFs present in The Risc Disc Volume 2
-	if (entry.source == "riscdisc" && entry.type == "image/gif") {
+	if (entry.source == "riscdisc" && entry.type == "image/gif")
 		data = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
-		isModified = true;
-	}
 
 	if (data === null) data = Deno.readFileSync(filePath);
-	return [data, contentType, isModified];
-}
-
-// Create a response object, and cache the passed data if caching is enabled
-function cacheAndServe(query, data, headers, symlink) {
-	if (config.doCaching) {
-		const [cachedFileDir, cachedFileData, cachedFileType] = getCachedFilePaths(query);
-		if (!getPathInfo(cachedFileData)?.isFile) {
-			try {
-				Deno.mkdirSync(cachedFileDir, { recursive: true });
-				if (symlink !== undefined)
-					Deno.symlinkSync(Deno.realPathSync(symlink), cachedFileData);
-				else if (typeof(data) == "string")
-					Deno.writeTextFileSync(cachedFileData, data);
-				else
-					Deno.writeFileSync(cachedFileData, data);
-				Deno.writeTextFileSync(cachedFileType, headers.get("Content-Type"));
-			} catch {}
-		}
-	}
-	return new Response(data, { headers: headers });
-}
-
-// Retrieve file data from the cache and create a response object
-function serveFromCache(query, headers) {
-	let cacheResponse = null;
-	const [_, cachedFileData, cachedFileType] = getCachedFilePaths(query);
-	if (getPathInfo(cachedFileData)?.isFile) {
-		try {
-			headers.set("Content-Type", Deno.readTextFileSync(cachedFileType));
-			cacheResponse = new Response(Deno.openSync(cachedFileData).readable, { headers: headers });
-		} catch {}
-	}
-	return cacheResponse;
-}
-
-// Generate a file path for the given query
-function getCachedFilePaths(query) {
-	const queryString = `${query.mode}|${query.source}|${query.flags}|${query.url}|${query.compat ? "compat" : ""}`;
-	const queryHash = createHash("sha1").update(JSON.stringify(queryString)).digest("hex");
-	const cachedFileDir = joinPath(cachePath, queryHash.substring(0, 2), queryHash.substring(2, 4));
-	const cachedFileData = joinPath(cachedFileDir, queryHash);
-	const cachedFileType = cachedFileData + ".type";
-	return [cachedFileDir, cachedFileData, cachedFileType];
+	return [data, contentType];
 }
 
 // Point links to archives, or the original URLs if "e" flag is enabled
