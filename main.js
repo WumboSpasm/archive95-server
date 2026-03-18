@@ -1,13 +1,13 @@
 import { contentType } from 'jsr:@std/media-types@1.1.0';
-import { Database } from "jsr:@db/sqlite@0.12";
-import { join as joinPath } from "jsr:@std/path";
-import { parseArgs } from "jsr:@std/cli/parse-args";
+import { Database } from 'jsr:@db/sqlite@0.12';
+import { join as joinPath } from 'jsr:@std/path';
+import { parseArgs } from 'jsr:@std/cli/parse-args';
 
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
-	boolean: ["build", "wipe-cache"],
-	string: ["config"],
-	default: { "build": false, "wipe-cache": false, "config": "config.json" }
+	boolean: ['build', 'wipe-cache'],
+	string: ['config'],
+	default: { 'build': false, 'wipe-cache': false, 'config': 'config.json' }
 });
 
 // Attempt to load config file, otherwise use defaults
@@ -26,60 +26,60 @@ else
 
 const templates = {
 	search: {
-		main: getTemplate("search.html"),
-		about: getTemplate("search_about.html"),
-		source: getTemplate("search_source.html"),
-		result: getTemplate("search_result.html"),
-		navigate: getTemplate("search_navigate.html"),
+		main: getTemplate('search.html'),
+		about: getTemplate('search_about.html'),
+		source: getTemplate('search_source.html'),
+		result: getTemplate('search_result.html'),
+		navigate: getTemplate('search_navigate.html'),
 		compat: {
-			main: getTemplate("compat/search.html"),
-			about: getTemplate("compat/search_about.html"),
-			source: getTemplate("compat/search_source.html"),
-			result: getTemplate("compat/search_result.html"),
+			main: getTemplate('compat/search.html'),
+			about: getTemplate('compat/search_about.html'),
+			source: getTemplate('compat/search_source.html'),
+			result: getTemplate('compat/search_result.html'),
 		},
 	},
 	sources: {
-		main: getTemplate("sources.html"),
-		source: getTemplate("sources_source.html"),
+		main: getTemplate('sources.html'),
+		source: getTemplate('sources_source.html'),
 	},
 	navbar: {
-		main: getTemplate("navbar.html"),
-		archive: getTemplate("navbar_archive.html"),
-		screenshot: getTemplate("navbar_screenshot.html"),
+		main: getTemplate('navbar.html'),
+		archive: getTemplate('navbar_archive.html'),
+		screenshot: getTemplate('navbar_screenshot.html'),
 		compat: {
-			main: getTemplate("compat/navbar.html"),
-			screenshot: getTemplate("compat/navbar_screenshot.html"),
+			main: getTemplate('compat/navbar.html'),
+			screenshot: getTemplate('compat/navbar_screenshot.html'),
 		},
 	},
 	embed: {
-		main: getTemplate("embed.html"),
-		text: getTemplate("embed_text.html"),
-		image: getTemplate("embed_image.html"),
-		audio: getTemplate("embed_audio.html"),
-		video: getTemplate("embed_video.html"),
-		unsupported: getTemplate("embed_unsupported.html"),
+		main: getTemplate('embed.html'),
+		text: getTemplate('embed_text.html'),
+		image: getTemplate('embed_image.html'),
+		audio: getTemplate('embed_audio.html'),
+		video: getTemplate('embed_video.html'),
+		unsupported: getTemplate('embed_unsupported.html'),
 	},
 	options: {
-		main: getTemplate("options.html"),
-		option: getTemplate("options_option.html"),
+		main: getTemplate('options.html'),
+		option: getTemplate('options_option.html'),
 	},
 	inlinks: {
-		main: getTemplate("inlinks.html"),
-		link: getTemplate("inlinks_link.html"),
-		error: getTemplate("inlinks_error.html"),
+		main: getTemplate('inlinks.html'),
+		link: getTemplate('inlinks_link.html'),
+		error: getTemplate('inlinks_error.html'),
 	},
 	error: {
-		archive: getTemplate("error_archive.html"),
-		generic: getTemplate("error_generic.html"),
-		server: getTemplate("error_server.html"),
+		archive: getTemplate('error_archive.html'),
+		generic: getTemplate('error_generic.html'),
+		server: getTemplate('error_server.html'),
 	},
 };
 
-const pageModes = JSON.parse(Deno.readTextFileSync("data/modes.json"));
-const pageFlags = JSON.parse(Deno.readTextFileSync("data/flags.json"));
+const pageModes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
+const pageFlags = JSON.parse(Deno.readTextFileSync('data/flags.json'));
 
-const databasePath = joinPath(config.buildPath, "archive95.sqlite");
-const cachePath = joinPath(config.buildPath, "cache");
+const databasePath = joinPath(config.buildPath, 'archive95.sqlite');
+const cachePath = joinPath(config.buildPath, 'cache');
 
 const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
 const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
@@ -88,25 +88,25 @@ const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
  | Build Database |
  +----------------*/
 
-if (args["build"]) {
+if (args['build']) {
 	const startTime = Date.now();
 
-	if (args["wipe-cache"]) {
-		logMessage("wiping cache...");
+	if (args['wipe-cache']) {
+		logMessage('wiping cache...');
 		Deno.removeSync(cachePath, { recursive: true });
 	}
 
-	logMessage("creating new database...");
+	logMessage('creating new database...');
 	if (getPathInfo(databasePath)?.isFile) Deno.removeSync(databasePath);
-	if (getPathInfo(databasePath + "-shm")?.isFile) Deno.removeSync(databasePath + "-shm");
-	if (getPathInfo(databasePath + "-wal")?.isFile) Deno.removeSync(databasePath + "-wal");
+	if (getPathInfo(databasePath + '-shm')?.isFile) Deno.removeSync(databasePath + '-shm');
+	if (getPathInfo(databasePath + '-wal')?.isFile) Deno.removeSync(databasePath + '-wal');
 	const db = new Database(databasePath, { create: true });
-	db.exec("PRAGMA journal_mode = WAL");
-	db.exec("PRAGMA shrink_memory");
+	db.exec('PRAGMA journal_mode = WAL');
+	db.exec('PRAGMA shrink_memory');
 
 	/* Sources */
 
-	logMessage("creating sources table...");
+	logMessage('creating sources table...');
 	db.prepare(`CREATE TABLE sources (
 		id TEXT NOT NULL,
 		title TEXT NOT NULL,
@@ -122,9 +122,9 @@ if (args["build"]) {
 		sort INTEGER PRIMARY KEY
 	)`).run();
 
-	const sourceData = JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, "sources.json")));
+	const sourceData = JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, 'sources.json')));
 
-	logMessage("adding sources to database...");
+	logMessage('adding sources to database...');
 	const sourceQuery = db.prepare(`INSERT INTO sources (id, title, author, archiveDate, publishDate, description, integrity, link, year, month, urlMode, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 	for (let s = 0; s < sourceData.length; s++) {
 		const source = sourceData[s];
@@ -134,7 +134,7 @@ if (args["build"]) {
 
 	/* Entries, Inlinks */
 
-	logMessage("creating files table...");
+	logMessage('creating files table...');
 	db.prepare(`CREATE TABLE files (
 		id INTEGER PRIMARY KEY,
 		path TEXT NOT NULL,
@@ -149,7 +149,7 @@ if (args["build"]) {
 	)`).run();
 
 	if (config.doInlinks) {
-		logMessage("creating links table...");
+		logMessage('creating links table...');
 		db.prepare(`CREATE TABLE links (
 			id TEXT NOT NULL,
 			url TEXT NOT NULL,
@@ -160,9 +160,9 @@ if (args["build"]) {
 	const entryData = await (async () => {
 		// Attempt to load type cache
 		Deno.mkdirSync(cachePath, { recursive: true });
-		const typesPath = joinPath(cachePath, "types");
+		const typesPath = joinPath(cachePath, 'types');
 		const typesList = getPathInfo(typesPath)?.isFile
-			? (Deno.readTextFileSync(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split("\t"))
+			? (Deno.readTextFileSync(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split('\t'))
 			: [];
 
 		// Load in entry data
@@ -170,7 +170,7 @@ if (args["build"]) {
 		let currentEntry = 0;
 		for (const source of sourceData) {
 			for (const entryLine of (Deno.readTextFileSync(joinPath(config.inputPath, `sources/${source.id}.txt`))).split(/[\r\n]+/g)) {
-				const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
+				const [path, url, warn, skip] = overwriteArray(['undefined', '', 'false', 'false'], entryLine.split('\t'));
 				const filePath = joinPath(config.inputPath, `sources/${source.id}/${path}`);
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
 				const entry = {
@@ -179,8 +179,8 @@ if (args["build"]) {
 					sanitizedUrl: sanitizeUrl(url),
 					source: source.id,
 					type: null,
-					warn: warn.toLowerCase() == "true",
-					skip: skip.toLowerCase() == "true",
+					warn: warn.toLowerCase() == 'true',
+					skip: skip.toLowerCase() == 'true',
 					title: null,
 					content: null,
 					links: [],
@@ -193,17 +193,17 @@ if (args["build"]) {
 						const t = typesList.push([filePath, await mimeType(filePath)]);
 						entry.type = typesList[t - 1][1];
 					}
-					if (entry.type.startsWith("text/")) {
+					if (entry.type.startsWith('text/')) {
 						const text = await getText(filePath, entry.source);
-						if (entry.type == "text/html") {
+						if (entry.type == 'text/html') {
 							const html = improvePresentation(genericizeMarkup(text, entry));
 							Object.assign(entry, textContent(html));
 							if (config.doInlinks) entry.links = getLinks(html, entry.url);
 						}
 						else
 							entry.content = text
-								.replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-								.replaceAll(/\s+/g, " ").trim();
+								.replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+								.replaceAll(/\s+/g, ' ').trim();
 					}
 				}
 				entries.push(entry);
@@ -211,24 +211,24 @@ if (args["build"]) {
 		}
 
 		// Write type cache
-		Deno.writeTextFile(joinPath(cachePath, "types"), typesList.map(typeLine => typeLine.join("\t")).join("\n"));
+		Deno.writeTextFile(joinPath(cachePath, 'types'), typesList.map(typeLine => typeLine.join('\t')).join('\n'));
 
 		// Sort entries and give them IDs based on the new order
-		logMessage("sorting files...");
+		logMessage('sorting files...');
 		const sortFunctions = [
 			i => !i.skip,
-			i => !!i.type?.startsWith("text/"),
+			i => !!i.type?.startsWith('text/'),
 			i => !!i.title,
-			i => i.title == "",
+			i => i.title == '',
 		];
-		const sortFields = ["title", "sanitizedUrl", "path"];
+		const sortFields = ['title', 'sanitizedUrl', 'path'];
 		entries.sort((a, b) => {
 			let compare;
 			for (const func of sortFunctions)
 				if ((compare = func(b) - func(a)))
 					return compare;
 			for (const field of sortFields)
-				if (a[field] && b[field] && (compare = a[field].localeCompare(b[field], "en", { sensitivity: "base" })))
+				if (a[field] && b[field] && (compare = a[field].localeCompare(b[field], 'en', { sensitivity: 'base' })))
 					return compare;
 			return 0;
 		});
@@ -237,9 +237,9 @@ if (args["build"]) {
 		return entries;
 	})();
 
-	logMessage("adding files to database...");
-	const fileQuery = db.prepare("INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip, title, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-	const linkQuery = db.prepare("INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)");
+	logMessage('adding files to database...');
+	const fileQuery = db.prepare('INSERT INTO files (id, path, url, sanitizedUrl, source, type, warn, skip, title, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+	const linkQuery = db.prepare('INSERT INTO links (id, url, sanitizedUrl) VALUES (?, ?, ?)');
 	for (let e = 0; e < entryData.length; e++) {
 		const entry = entryData[e];
 		logMessage(`[${e + 1}/${entryData.length}] adding file sources/${entry.source}/${entry.path}...`);
@@ -254,28 +254,28 @@ if (args["build"]) {
 		}
 	}
 
-	logMessage("creating files_brief view...");
+	logMessage('creating files_brief view...');
 	db.prepare(`CREATE VIEW files_brief AS
 		SELECT id, path, url, sanitizedUrl, source, type, warn FROM files WHERE skip = 0
 	`).run();
 
 	/* Screenshots */
 
-	logMessage("creating screenshots table...");
+	logMessage('creating screenshots table...');
 	db.prepare(`CREATE TABLE screenshots (
 		path TEXT NOT NULL,
 		url TEXT NOT NULL,
 		sanitizedUrl TEXT NOT NULL
 	)`).run();
 
-	const screenshotData = (Deno.readTextFileSync(joinPath(config.inputPath, "screenshots.txt"))).split(/[\r\n]+/g).map((screenshot, s, data) => {
-		screenshot = screenshot.split("\t");
+	const screenshotData = (Deno.readTextFileSync(joinPath(config.inputPath, 'screenshots.txt'))).split(/[\r\n]+/g).map((screenshot, s, data) => {
+		screenshot = screenshot.split('\t');
 		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
 		return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
 	});
 
-	logMessage("adding screenshots to database...");
-	const screenshotQuery = db.prepare("INSERT INTO screenshots (path, url, sanitizedUrl) VALUES (?, ?, ?)");
+	logMessage('adding screenshots to database...');
+	const screenshotQuery = db.prepare('INSERT INTO screenshots (path, url, sanitizedUrl) VALUES (?, ?, ?)');
 	for (let s = 0; s < screenshotData.length; s++) {
 		const screenshot = screenshotData[s];
 		logMessage(`[${s + 1}/${screenshotData.length}] adding screenshot ${screenshot.path}...`);
@@ -296,10 +296,10 @@ if (args["build"]) {
  | Server Initialization |
  +-----------------------*/
 
-logMessage("initializing database...");
+logMessage('initializing database...');
 const db = new Database(databasePath, { strict: true, readonly: true });
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA shrink_memory");
+db.exec('PRAGMA journal_mode = WAL');
+db.exec('PRAGMA shrink_memory');
 
 const sourceInfo = db.prepare(`
 	SELECT sources.*,
@@ -312,7 +312,7 @@ const sourceInfo = db.prepare(`
 
 const serverHandler = async (request, info) => {
 	const ipAddress = info.remoteAddr.hostname;
-	const userAgent = request.headers.get("User-Agent") ?? "";
+	const userAgent = request.headers.get('User-Agent') ?? '';
 
 	// Check if IP or user agent is in blocklist
 	const blockRequest =
@@ -321,12 +321,12 @@ const serverHandler = async (request, info) => {
 
 	// Log the request if desired
 	if (!blockRequest || config.logBlockedRequests)
-		logMessage(`${blockRequest ? "BLOCKED " : ""}${ipAddress} (${userAgent}): ${request.url}`);
+		logMessage(`${blockRequest ? 'BLOCKED ' : ''}${ipAddress} (${userAgent}): ${request.url}`);
 
 	// If request needs to be blocked, wait 10 seconds before returning a dummy page
 	if (blockRequest) {
 		await new Promise(resolve => setTimeout(resolve, 10000));
-		return new Response("Hello, world!", { headers: { "Content-Type": "text/html" } });
+		return new Response('Hello, world!', { headers: { 'Content-Type': 'text/html' } });
 	}
 
 	// Make sure request is for a valid URL
@@ -336,66 +336,66 @@ const serverHandler = async (request, info) => {
 	// If access host is configured, do not allow connections through any other hostname
 	// (ancient browsers that do not send the Host header are exempt from this rule)
 	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname)
-	&& (!(config.forceCompatMode || config.doCompatMode) || request.headers.has("Host")))
+	&& (!(config.forceCompatMode || config.doCompatMode) || request.headers.has('Host')))
 		throw new Error();
 
 	// Render search page and navbar in basic markup if user agent is not considered modern
 	const compatMode = config.forceCompatMode || config.doCompatMode && !isModern(userAgent);
 
 	// Get body of request URL
-	const requestPath = requestUrl.pathname.replace(/^\/+/, "");
+	const requestPath = requestUrl.pathname.replace(/^\/+/, '');
 
 	// Initialize response headers
 	const headers = new Headers();
-	headers.set("Content-Type", "text/html; charset=UTF-8");
-	headers.set("Cache-Control", "max-age=14400");
+	headers.set('Content-Type', 'text/html; charset=UTF-8');
+	headers.set('Cache-Control', 'max-age=14400');
 
 	// Serve homepage/search results
-	if (requestPath == "")
+	if (requestPath == '')
 		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: headers });
 
 	// Try serving from static file directory
-	const staticFilePath = "static/" + requestPath;
+	const staticFilePath = 'static/' + requestPath;
 	if (getPathInfo(staticFilePath)?.isFile) {
-		headers.set("Content-Type", contentType(staticFilePath.substring(staticFilePath.lastIndexOf("."))) ?? "application/octet-stream");
+		headers.set('Content-Type', contentType(staticFilePath.substring(staticFilePath.lastIndexOf('.'))) ?? 'application/octet-stream');
 		return new Response(Deno.openSync(staticFilePath).readable, { headers: headers });
 	}
 
 	// Extract information from the request
-	const query = parseQuery(requestPath + ((!requestUrl.search && request.url.endsWith("?")) ? "?" : requestUrl.search), compatMode);
+	const query = parseQuery(requestPath + ((!requestUrl.search && request.url.endsWith('?')) ? '?' : requestUrl.search), compatMode);
 	if (query === null) return error();
 
 	switch (query.mode) {
-		case "view": {
+		case 'view': {
 			const [archives, desiredArchive] = getArchives(query);
 			if (archives.length == 0) return error(query.url);
 
 			const entry = archives[desiredArchive];
 			const filePath = getArchivePath(entry);
 
-			if (entry.type != "text/html") {
+			if (entry.type != 'text/html') {
 				// For non-HTML files, serve an embed instead of the actual file if the navbar is enabled
-				if (!query.flags.includes("n")) {
-					const plaintext = entry.type.startsWith("text/") || entry.type.startsWith("message/") || entry.type == "application/mbox";
+				if (!query.flags.includes('n')) {
+					const plaintext = entry.type.startsWith('text/') || entry.type.startsWith('message/') || entry.type == 'application/mbox';
 					let embed = (
 						plaintext ? templates.embed.text : (
-						entry.type.startsWith("image/") ? templates.embed.image : (
-						entry.type.startsWith("audio/") ? templates.embed.audio : (
-						entry.type.startsWith("video/") ? templates.embed.video : (
+						entry.type.startsWith('image/') ? templates.embed.image : (
+						entry.type.startsWith('audio/') ? templates.embed.audio : (
+						entry.type.startsWith('video/') ? templates.embed.video : (
 						templates.embed.unsupported
 					)))));
 
 					if (plaintext)
-						embed = buildHtml(embed, { "TEXT": await getText(filePath, entry.source) });
+						embed = buildHtml(embed, { 'TEXT': await getText(filePath, entry.source) });
 					else
 						embed = buildHtml(embed, {
-							"FILE": `/${joinArgs("view", entry.source, query.flags + "n")}/${entry.url}`,
-							"TYPE": entry.type,
+							'FILE': `/${joinArgs('view', entry.source, query.flags + 'n')}/${entry.url}`,
+							'TYPE': entry.type,
 						});
 
 					let embedContainer = buildHtml(templates.embed.main, {
-						"URL": entry.sanitizedUrl,
-						"EMBED": embed,
+						'URL': entry.sanitizedUrl,
+						'EMBED': embed,
 					});
 					embedContainer = injectNavbar(embedContainer, archives, desiredArchive, query.flags, query.compat);
 
@@ -403,73 +403,73 @@ const serverHandler = async (request, info) => {
 				}
 				else {
 					const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
-					headers.set("Content-Type", contentType);
+					headers.set('Content-Type', contentType);
 					return new Response(file, { headers: headers });
 				}
 			}
 
 			return new Response(await prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
 		}
-		case "orphan": {
+		case 'orphan': {
 			const [archives, desiredArchive] = getArchives(query);
 			if (archives.length == 0) return error();
 
 			const entry = archives[desiredArchive];
 			const filePath = getArchivePath(entry);
 
-			if (entry.type != "text/html") {
+			if (entry.type != 'text/html') {
 				const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
-				headers.set("Content-Type", contentType);
+				headers.set('Content-Type', contentType);
 				return new Response(file, { headers: headers });
 			}
 
 			return new Response(await prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
 		}
-		case "raw": {
+		case 'raw': {
 			const [archives, desiredArchive] = getArchives(query);
 			if (archives.length == 0) return error();
 
 			const entry = archives[desiredArchive];
-			headers.set("Content-Type", entry.type);
+			headers.set('Content-Type', entry.type);
 			return new Response(Deno.readFileSync(getArchivePath(entry)), { headers: headers });
 		}
-		case "inlinks": {
+		case 'inlinks': {
 			if (!config.doInlinks) return error();
 			query.url = sanitizeUrl(query.url);
 
 			const inlinkQuery = db.prepare(
-				"SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?"
+				'SELECT path, files.url, files.sanitizedUrl, source FROM files LEFT JOIN links ON files.id = links.id WHERE links.sanitizedUrl = ?'
 			).all(query.url);
 			if (inlinkQuery.length == 0)
-				return new Response(buildHtml(templates.inlinks.error, { "URL": query.url }), { headers: headers });
+				return new Response(buildHtml(templates.inlinks.error, { 'URL': query.url }), { headers: headers });
 
 			const links = inlinkQuery.map(inlink => {
-				const linkDefs = { "SOURCE": inlink.source };
+				const linkDefs = { 'SOURCE': inlink.source };
 				if (inlink.url) {
-					linkDefs["LINK"] = !query.flags.includes("e")
-						? `/${joinArgs("view", inlink.source, query.flags)}/${inlink.url}`
+					linkDefs['LINK'] = !query.flags.includes('e')
+						? `/${joinArgs('view', inlink.source, query.flags)}/${inlink.url}`
 						: inlink.url;
-					linkDefs["ORIGINAL"] = inlink.url;
+					linkDefs['ORIGINAL'] = inlink.url;
 				}
 				else {
-					linkDefs["LINK"] = !query.flags.includes("e")
-						? `/${joinArgs("orphan", inlink.source, query.flags.replace("n", ""))}/${inlink.path}`
+					linkDefs['LINK'] = !query.flags.includes('e')
+						? `/${joinArgs('orphan', inlink.source, query.flags.replace('n', ''))}/${inlink.path}`
 						: `/${inlink.path}`;
-					linkDefs["ORIGINAL"] = inlink.path;
+					linkDefs['ORIGINAL'] = inlink.path;
 				}
 				return buildHtml(templates.inlinks.link, linkDefs);
 			});
 
 			const inlinks = buildHtml(templates.inlinks.main, {
-				"URL": query.url,
-				"LINKS": links.join("\n"),
+				'URL': query.url,
+				'LINKS': links.join('\n'),
 			});
 			return new Response(inlinks, { headers: headers });
 		}
-		case "options": {
-			if (query.source == "") return error();
+		case 'options': {
+			if (query.source == '') return error();
 
-			const entry = db.prepare("SELECT * FROM files_brief WHERE source = ? AND url = ?").get(query.source, query.url);
+			const entry = db.prepare('SELECT * FROM files_brief WHERE source = ? AND url = ?').get(query.source, query.url);
 			if (entry === undefined) return error();
 
 			// Links masquerading as checkboxes are used to alter the flags in the URL and change the destination of the return link
@@ -478,30 +478,30 @@ const serverHandler = async (request, info) => {
 			for (const flag of pageFlags) {
 				if (flag.hidden) continue;
 				const checked = query.flags.includes(flag.id);
-				const newFlags = checked ? query.flags.replace(flag.id, "") : query.flags + flag.id;
+				const newFlags = checked ? query.flags.replace(flag.id, '') : query.flags + flag.id;
 				optionsList.push(buildHtml(templates.options.option, {
-					"OPTIONURL": `/${joinArgs("options", query.source, newFlags)}/${entry.url}`,
-					"FILL": checked != flag.invert ? "*" : "&nbsp;&nbsp;",
-					"DESCRIPTION": flag.description,
+					'OPTIONURL': `/${joinArgs('options', query.source, newFlags)}/${entry.url}`,
+					'FILL': checked != flag.invert ? '*' : '&nbsp;&nbsp;',
+					'DESCRIPTION': flag.description,
 				}));
 			}
 
 			const options = buildHtml(templates.options.main, {
-				"OPTIONS": optionsList.join("\n"),
-				"ARCHIVEURL": `/${joinArgs("view", query.source, query.flags)}/${entry.url}`,
+				'OPTIONS': optionsList.join('\n'),
+				'ARCHIVEURL': `/${joinArgs('view', query.source, query.flags)}/${entry.url}`,
 			});
-			headers.set("Content-Type", "text/html");
+			headers.set('Content-Type', 'text/html');
 			return new Response(options, { headers: headers });
 		}
-		case "random": {
+		case 'random': {
 			const entry = getRandom(query.flags, query.source);
 			return Response.redirect(requestUrl.origin + (
 				entry.url
-					? `/${joinArgs("view", entry.source, query.flags)}/${entry.url}`
-					: `/${joinArgs("orphan", entry.source, query.flags)}/${entry.path}`
+					? `/${joinArgs('view', entry.source, query.flags)}/${entry.url}`
+					: `/${joinArgs('orphan', entry.source, query.flags)}/${entry.path}`
 			));
 		}
-		case "sources": {
+		case 'sources': {
 			const urlTotal = sourceInfo.reduce((total, source) => total + source.urlCount, 0);
 			const orphanTotal = sourceInfo.reduce((total, source) => total + source.orphanCount, 0);
 			const grandTotal = sourceInfo.reduce((total, source) => total + source.totalCount, 0);
@@ -509,41 +509,41 @@ const serverHandler = async (request, info) => {
 			const sourceRows = [];
 			for (const source of sourceInfo)
 				sourceRows.push(buildHtml(templates.sources.source, {
-					"ID": source.id,
-					"TITLE": source.title,
-					"AUTHOR": source.author,
-					"ARCHIVEDATE": source.archiveDate,
-					"PUBLISHDATE": source.publishDate,
-					"DESCRIPTION": source.description,
-					"INTEGRITY": source.integrity,
-					"LINK": source.link,
-					"URLCOUNT": source.urlCount.toLocaleString(),
-					"ORPHANCOUNT": source.orphanCount.toLocaleString(),
-					"TOTALCOUNT": source.totalCount.toLocaleString(),
-					"PERCENT": Math.round((source.totalCount / grandTotal) * 1000) / 10,
+					'ID': source.id,
+					'TITLE': source.title,
+					'AUTHOR': source.author,
+					'ARCHIVEDATE': source.archiveDate,
+					'PUBLISHDATE': source.publishDate,
+					'DESCRIPTION': source.description,
+					'INTEGRITY': source.integrity,
+					'LINK': source.link,
+					'URLCOUNT': source.urlCount.toLocaleString(),
+					'ORPHANCOUNT': source.orphanCount.toLocaleString(),
+					'TOTALCOUNT': source.totalCount.toLocaleString(),
+					'PERCENT': Math.round((source.totalCount / grandTotal) * 1000) / 10,
 				}));
 
 			const sourcesPage = buildHtml(templates.sources.main, {
-				"URLTOTAL": urlTotal.toLocaleString(),
-				"ORPHANTOTAL": orphanTotal.toLocaleString(),
-				"GRANDTOTAL": grandTotal.toLocaleString(),
-				"SOURCES": sourceRows.join("\n"),
+				'URLTOTAL': urlTotal.toLocaleString(),
+				'ORPHANTOTAL': orphanTotal.toLocaleString(),
+				'GRANDTOTAL': grandTotal.toLocaleString(),
+				'SOURCES': sourceRows.join('\n'),
 			});
 			return new Response(sourcesPage, { headers: headers });
 		}
-		case "screenshots": {
-			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
+		case 'screenshots': {
+			const screenshot = db.prepare('SELECT path FROM screenshots WHERE path = ?').get(query.url);
 			if (screenshot === undefined) return error();
-			headers.set("Content-Type", "image/gif");
-			return new Response(Deno.readFileSync(joinPath(config.buildPath, "screenshots", screenshot.path)), { headers: headers });
+			headers.set('Content-Type', 'image/gif');
+			return new Response(Deno.readFileSync(joinPath(config.buildPath, 'screenshots', screenshot.path)), { headers: headers });
 		}
-		case "thumbnails": {
-			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
+		case 'thumbnails': {
+			const screenshot = db.prepare('SELECT path FROM screenshots WHERE path = ?').get(query.url);
 			if (screenshot === undefined) return error();
-			const thumbnail = (await new Deno.Command("convert",
-				{ args: [joinPath(config.buildPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
+			const thumbnail = (await new Deno.Command('convert',
+				{ args: [joinPath(config.buildPath, 'screenshots', screenshot.path), '-geometry', 'x64', '-'], stdout: 'piped' }
 			).output()).stdout;
-			headers.set("Content-Type", "image/gif");
+			headers.set('Content-Type', 'image/gif');
 			return new Response(thumbnail, { headers: headers });
 		}
 	}
@@ -552,19 +552,19 @@ const serverHandler = async (request, info) => {
 };
 
 const serverError = (error) => {
-	let message = "";
+	let message = '';
 	let status;
 	if (!error.message) {
-		message = "Connections through this host are not allowed.";
+		message = 'Connections through this host are not allowed.';
 		status = 400;
 	}
 	else {
 		logMessage(error.stack);
-		message = "The server had trouble processing your request.";
+		message = 'The server had trouble processing your request.';
 		status = 500;
 	}
-	const errorHtml = buildHtml(templates.error.server, { "MESSAGE": message });
-	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" } });
+	const errorHtml = buildHtml(templates.error.server, { 'MESSAGE': message });
+	return new Response(errorHtml, { status: status, headers: { 'Content-Type': 'text/html' } });
 };
 
 // Start server on HTTP
@@ -590,70 +590,70 @@ if (config.httpsPort && config.httpsCert && config.httpsKey)
 
 // Escape characters that have the potential to screw with markup / enable XSS injections
 const charMap = {
-	"{": "&lcub;",
-	"}": "&rcub;",
-	'"': "&quot;",
-	"$": "&dollar;",
+	'{': '&lcub;',
+	'}': '&rcub;',
+	'"': '&quot;',
+	'$': '&dollar;',
 };
-const charMapExp = new RegExp(`[${Object.keys(charMap).join("")}]`, "g");
+const charMapExp = new RegExp(`[${Object.keys(charMap).join('')}]`, 'g');
 const sanitizeInject = str => str.replace(charMapExp, m => charMap[m]);
 
 // Build home/search pages based on query strings
 function prepareSearch(params, compatMode) {
 	const searchDefs = {};
 
-	if (params.has("query")) {
+	if (params.has('query')) {
 		const search = {
-			inUrl: !params.has("in") || params.has("in", "url"),
-			inTitle: !params.has("in") || params.has("in", "title"),
-			inContent: !params.has("in") || params.has("in", "content"),
-			formatsAll: !params.has("formats") || params.get("formats") == "all",
-			formatsText: params.get("formats") == "text",
-			formatsMedia: params.get("formats") == "media",
+			inUrl: !params.has('in') || params.has('in', 'url'),
+			inTitle: !params.has('in') || params.has('in', 'title'),
+			inContent: !params.has('in') || params.has('in', 'content'),
+			formatsAll: !params.has('formats') || params.get('formats') == 'all',
+			formatsText: params.get('formats') == 'text',
+			formatsMedia: params.get('formats') == 'media',
 		};
 
-		const queryParam = { original: safeDecode(params.get("query").replaceAll("%", "%25")) };
+		const queryParam = { original: safeDecode(params.get('query').replaceAll('%', '%25')) };
 		queryParam.compare = queryParam.original.toLowerCase();
-		queryParam.html = sanitizeInject(queryParam.original.replaceAll("&", "&amp;"));
-		queryParam.search = queryParam.html.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+		queryParam.html = sanitizeInject(queryParam.original.replaceAll('&', '&amp;'));
+		queryParam.search = queryParam.html.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 		Object.assign(searchDefs, {
-			"QUERY": queryParam.html,
-			"INURL": search.inUrl ? " checked" : "",
-			"INTITLE": search.inTitle ? " checked" : "",
-			"INCONTENT": search.inContent ? " checked" : "",
-			"FORMATSALL": search.formatsAll ? " checked" : "",
-			"FORMATSTEXT": search.formatsText ? " checked" : "",
-			"FORMATSMEDIA": search.formatsMedia ? " checked" : "",
+			'QUERY': queryParam.html,
+			'INURL': search.inUrl ? ' checked' : '',
+			'INTITLE': search.inTitle ? ' checked' : '',
+			'INCONTENT': search.inContent ? ' checked' : '',
+			'FORMATSALL': search.formatsAll ? ' checked' : '',
+			'FORMATSTEXT': search.formatsText ? ' checked' : '',
+			'FORMATSMEDIA': search.formatsMedia ? ' checked' : '',
 		});
 
 		let whereConditions = [];
 		if (search.inUrl)
-			whereConditions.push("url LIKE ?1");
+			whereConditions.push('url LIKE ?1');
 		if (search.inTitle)
-			whereConditions.push("title LIKE ?1");
+			whereConditions.push('title LIKE ?1');
 		if (search.inContent)
-			whereConditions.push("content LIKE ?1");
+			whereConditions.push('content LIKE ?1');
 
 		// Escape any wildcard characters that exist in the search query
 		if (/[%_^]/g.test(queryParam.compare))
 			whereConditions = whereConditions.map(condition => `(${condition} ESCAPE '^')`);
 
-		let whereString = whereConditions.join(" OR ");
+		let whereString = whereConditions.join(' OR ');
 		if (search.formatsText)
 			whereString += " AND type LIKE 'text/%'";
 		else if (search.formatsMedia)
 			whereString += " AND type NOT LIKE 'text/%'";
 
-		const lastId = parseInt(params.get("last"));
-		const firstId = !lastId ? parseInt(params.get("first")) : NaN;
+		const lastId = parseInt(params.get('last'));
+		const firstId = !lastId ? parseInt(params.get('first')) : NaN;
 		const compareId = lastId || firstId || 0;
 
 		const resultsPerPage = Math.max(5, config.resultsPerPage);
 		const searchQuery = queryParam.compare.length < 3 ? [] : db.prepare(`
 			SELECT id, path, url, source, title, content FROM files
-			WHERE id ${lastId ? "<=" : ">="} ?2 AND skip = 0 AND (${whereString})
-			ORDER BY id ${lastId ? "DESC" : "ASC"} LIMIT ${resultsPerPage + 2}
+			WHERE id ${lastId ? '<=' : '>='} ?2 AND skip = 0 AND (${whereString})
+			ORDER BY id ${lastId ? 'DESC' : 'ASC'} LIMIT ${resultsPerPage + 2}
 		`).all(`%${queryParam.compare.replaceAll(/([%_^])/g, '^$1')}%`, compareId);
 		if (lastId) searchQuery.reverse();
 
@@ -686,13 +686,13 @@ function prepareSearch(params, compatMode) {
 
 		const resultSegments = [];
 		for (const result of searchQuery.slice(resultStart, resultStart + resultsPerPage)) {
-			let titleInject = sanitizeInject(result.title ?? "");
+			let titleInject = sanitizeInject(result.title ?? '');
 			let titleMatchIndex = -1;
 			if (titleInject) {
 				if (search.inTitle && (titleMatchIndex = titleInject.toLowerCase().indexOf(queryParam.compare)) != -1)
 					titleInject =
 						titleInject.substring(0, titleMatchIndex) +
-						"<b>" + titleInject.substring(titleMatchIndex, titleMatchIndex + queryParam.compare.length) + "</b>" +
+						'<b>' + titleInject.substring(titleMatchIndex, titleMatchIndex + queryParam.compare.length) + '</b>' +
 						titleInject.substring(titleMatchIndex + queryParam.compare.length);
 			}
 			else
@@ -705,76 +705,76 @@ function prepareSearch(params, compatMode) {
 				if (search.inUrl && (urlMatchIndex = urlInject.toLowerCase().indexOf(queryParam.compare)) != -1)
 					urlInject =
 						urlInject.substring(0, urlMatchIndex) +
-						"<b>" + urlInject.substring(urlMatchIndex, urlMatchIndex + queryParam.compare.length) + "</b>" +
+						'<b>' + urlInject.substring(urlMatchIndex, urlMatchIndex + queryParam.compare.length) + '</b>' +
 						urlInject.substring(urlMatchIndex + queryParam.compare.length);
 			}
 			else
 				urlInject = result.path;
 
-			let contentInject = result.content ?? "";
+			let contentInject = result.content ?? '';
 			let contentMatchIndex = -1;
 			if (search.inContent && (contentMatchIndex = contentInject.toLowerCase().indexOf(queryParam.compare)) != -1) {
 				const minBound = contentMatchIndex - 30;
 				const maxBound = minBound + 200;
 				contentInject = sanitizeInject(
 					contentInject.substring(minBound, contentMatchIndex) +
-					"<b>" + contentInject.substring(contentMatchIndex, contentMatchIndex + queryParam.compare.length) + "</b>" +
+					'<b>' + contentInject.substring(contentMatchIndex, contentMatchIndex + queryParam.compare.length) + '</b>' +
 					contentInject.substring(contentMatchIndex + queryParam.compare.length, maxBound)
 				).trim();
 				if (!compatMode) {
-					if (minBound > 0) contentInject = "&hellip;" + contentInject;
+					if (minBound > 0) contentInject = '&hellip;' + contentInject;
 				}
 				else {
-					if (minBound > 0) contentInject = "..." + contentInject;
-					if (maxBound < result.content.length) contentInject += "...";
+					if (minBound > 0) contentInject = '...' + contentInject;
+					if (maxBound < result.content.length) contentInject += '...';
 				}
 			}
 			else
-				contentInject = sanitizeInject(contentInject.substring(0, 200) + (compatMode && contentInject.length > 200 ? "..." : ""));
+				contentInject = sanitizeInject(contentInject.substring(0, 200) + (compatMode && contentInject.length > 200 ? '...' : ''));
 
 			const archiveUrl = result.url
-				? `/view-${result.source}/${result.url.replaceAll("#", "%23")}`
-				: `/orphan-${result.source}/${result.path.replaceAll("#", "%23")}`;
+				? `/view-${result.source}/${result.url.replaceAll('#', '%23')}`
+				: `/orphan-${result.source}/${result.path.replaceAll('#', '%23')}`;
 			const resultTemplate = !compatMode ? templates.search.result : templates.search.compat.result;
 			resultSegments.push(buildHtml(resultTemplate, {
-				"ARCHIVE": archiveUrl,
-				"TITLE": titleInject,
-				"URL": urlInject,
-				"SOURCE": result.source + (result.url ? "" : " (orphan)"),
-				"TEXT": contentInject,
+				'ARCHIVE': archiveUrl,
+				'TITLE': titleInject,
+				'URL': urlInject,
+				'SOURCE': result.source + (result.url ? '' : ' (orphan)'),
+				'TEXT': contentInject,
 			}));
-			if (compatMode) resultSegments.push("\t\t<hr>");
+			if (compatMode) resultSegments.push('\t\t<hr>');
 		}
 
-		params.delete("first");
-		params.delete("last");
+		params.delete('first');
+		params.delete('last');
 
-		const totalResults = (prevId != -1 || nextId != -1) ? (resultsPerPage + "+") : searchQuery.length;
+		const totalResults = (prevId != -1 || nextId != -1) ? (resultsPerPage + '+') : searchQuery.length;
 		if (!compatMode) {
-			const prevText = "&lt;&lt; Prev";
-			const nextText = "Next &gt;&gt;";
+			const prevText = '&lt;&lt; Prev';
+			const nextText = 'Next &gt;&gt;';
 			const navigate = buildHtml(templates.search.navigate, {
-				"TOTAL": totalResults,
-				"S": searchQuery.length > 1 ? "s" : "",
-				"QUERY": queryParam.search,
-				"PREVIOUS": prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`,
-				"NEXT": nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`,
+				'TOTAL': totalResults,
+				'S': searchQuery.length > 1 ? 's' : '',
+				'QUERY': queryParam.search,
+				'PREVIOUS': prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`,
+				'NEXT': nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`,
 			});
 
 			resultSegments.unshift(navigate);
 			if (nextId != -1)
 				resultSegments.push(navigate);
 
-			const resultsString = searchQuery.length == 0 ? "No results were found for the given query." : resultSegments.join("\n");
-			searchDefs["HEADER"] = "Search results"
-			searchDefs["CONTENT"] = resultsString;
+			const resultsString = searchQuery.length == 0 ? 'No results were found for the given query.' : resultSegments.join('\n');
+			searchDefs['HEADER'] = 'Search results';
+			searchDefs['CONTENT'] = resultsString;
 		}
 		else {
 			if (searchQuery.length > 0) {
-				resultSegments.unshift("\t\t<hr>");
+				resultSegments.unshift('\t\t<hr>');
 				if (prevId != -1 || nextId != -1) {
-					const prevText = "Prev Page";
-					const nextText = "Next Page";
+					const prevText = 'Prev Page';
+					const nextText = 'Next Page';
 					const prevButton = prevId == -1 ? prevText : `<a href="?${params.toString()}&last=${prevId}">${prevText}</a>`;
 					const nextButton = nextId == -1 ? nextText : `<a href="?${params.toString()}&first=${nextId}">${nextText}</a>`;
 					const navigate = `\t\t${prevButton}, ${nextButton}`;
@@ -785,47 +785,47 @@ function prepareSearch(params, compatMode) {
 			}
 
 			resultSegments.unshift(`\t\t<h2>${totalResults} results for "${queryParam.search}"</h2>`);
-			searchDefs["CONTENT"] = resultSegments.join("\n");
+			searchDefs['CONTENT'] = resultSegments.join('\n');
 		}
 
-		searchDefs["TITLE"] = `Search results for "${queryParam.search}"`;
+		searchDefs['TITLE'] = `Search results for "${queryParam.search}"`;
 	}
 	else {
 		Object.assign(searchDefs, {
-			"QUERY": "",
-			"INURL": " checked",
-			"INTITLE": " checked",
-			"INCONTENT": " checked",
-			"FORMATSALL": " checked",
-			"FORMATSTEXT":  "",
-			"FORMATSMEDIA": "",
+			'QUERY': '',
+			'INURL': ' checked',
+			'INTITLE': ' checked',
+			'INCONTENT': ' checked',
+			'FORMATSALL': ' checked',
+			'FORMATSTEXT':  '',
+			'FORMATSMEDIA': '',
 		});
 
 		const sourceTemplate = !compatMode ? templates.search.source : templates.search.compat.source;
 		const sources = [];
 		for (const source of sourceInfo)
 			sources.push(buildHtml(sourceTemplate, {
-				"LINK": source.link,
-				"TITLE": source.title,
-				"AUTHOR": source.author,
-				"DATE": source.archiveDate,
-				"COUNT": source.totalCount.toLocaleString(),
+				'LINK': source.link,
+				'TITLE': source.title,
+				'AUTHOR': source.author,
+				'DATE': source.archiveDate,
+				'COUNT': source.totalCount.toLocaleString(),
 			}));
 
 		const aboutDefs = {
-			"SOURCES": sources.join("\n"),
-			"TOTAL": sourceInfo.reduce((total, source) => total + source.totalCount, 0).toLocaleString(),
+			'SOURCES': sources.join('\n'),
+			'TOTAL': sourceInfo.reduce((total, source) => total + source.totalCount, 0).toLocaleString(),
 		};
 
 		if (compatMode) {
 			const randomEntry = getRandom();
-			aboutDefs["RANDOM"] = `/view-${randomEntry.source}/${randomEntry.url}`;
+			aboutDefs['RANDOM'] = `/view-${randomEntry.source}/${randomEntry.url}`;
 		}
 		else
-			searchDefs["HEADER"] = "About this website";
+			searchDefs['HEADER'] = 'About this website';
 
-		searchDefs["TITLE"] = "Archive95";
-		searchDefs["CONTENT"] = buildHtml(!compatMode ? templates.search.about : templates.search.compat.about, aboutDefs);
+		searchDefs['TITLE'] = 'Archive95';
+		searchDefs['CONTENT'] = buildHtml(!compatMode ? templates.search.about : templates.search.compat.about, aboutDefs);
 	}
 
 	return buildHtml(!compatMode ? templates.search.main : templates.search.compat.main, searchDefs);
@@ -843,12 +843,12 @@ async function prepareHtml(filePath, archives, desiredArchive, query) {
 	const noframesExp = /<\/?no ?frames?> *\n?/gi;
 	if (!framesetExp.test(html) && noframesExp.test(html))
 		html = html.replace(noframesExp, '');
-	else if (query.flags.includes("f"))
+	else if (query.flags.includes('f'))
 		html = html.replace(framesetExp, '').replace(noframesExp, '');
 
-	if (!query.flags.includes("p"))
+	if (!query.flags.includes('p'))
 		html = improvePresentation(html, query.compat);
-	if (query.mode == "view" && !query.flags.includes("n"))
+	if (query.mode == 'view' && !query.flags.includes('n'))
 		html = injectNavbar(html, archives, desiredArchive, query.flags, query.compat);
 
 	return html;
@@ -859,13 +859,13 @@ async function prepareMedia(filePath, entry, flags) {
 	let [data, contentType] = [null, entry.type];
 
 	// Convert XBM to GIF
-	if (!flags.includes("p") && entry.type == "image/x-xbitmap") {
-		data = (await new Deno.Command("convert", { args: [filePath, "GIF:-"], stdout: "piped" }).output()).stdout;
-		contentType = "image/gif";
+	if (!flags.includes('p') && entry.type == 'image/x-xbitmap') {
+		data = (await new Deno.Command('convert', { args: [filePath, 'GIF:-'], stdout: 'piped' }).output()).stdout;
+		contentType = 'image/gif';
 	}
 	// Fix problematic GIFs present in The Risc Disc Volume 2
-	if (entry.source == "riscdisc" && entry.type == "image/gif")
-		data = (await new Deno.Command("convert", { args: [filePath, "+repage", "-"], stdout: "piped" }).output()).stdout;
+	if (entry.source == 'riscdisc' && entry.type == 'image/gif')
+		data = (await new Deno.Command('convert', { args: [filePath, '+repage', '-'], stdout: 'piped' }).output()).stdout;
 
 	if (data === null) data = Deno.readFileSync(filePath);
 	return [data, contentType];
@@ -874,8 +874,8 @@ async function prepareMedia(filePath, entry, flags) {
 // Point links to archives, or the original URLs if "e" flag is enabled
 function redirectLinks(html, entry, flags, rawLinks) {
 	const rootSource = sourceInfo.find(source => source.id == entry.source);
-	const flagsNav = flags.replace("n", "");
-	const flagsNoNav = flagsNav + "n";
+	const flagsNav = flags.replace('n', '');
+	const flagsNoNav = flagsNav + 'n';
 
 	const unmatchedLinks = rawLinks.map(link => {
 		const matchStart = link.lastIndex - link.fullMatch.length;
@@ -885,7 +885,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		if (parsedUrl !== null)
 			parsedUrlStr = parsedUrl.href;
 		else {
-			const parsedPath = URL.parse(link.rawUrl, "http://abc/" + entry.path);
+			const parsedPath = URL.parse(link.rawUrl, 'http://abc/' + entry.path);
 			if (parsedPath !== null)
 				parsedUrlStr = parsedPath.pathname;
 			else
@@ -925,7 +925,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		const comparePathsQuery = [];
 		for (const link of unmatchedLinks) {
 			if (!link.hasHttp) {
-				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
+				const parsedUrl = URL.parse(link.rawUrl, 'http://abc/' + entry.path);
 				if (parsedUrl !== null) {
 					const comparePath = parsedUrl.pathname.substring(1).toLowerCase();
 					comparePaths.push(comparePath + parsedUrl.hash);
@@ -944,7 +944,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		if (comparePaths.length > 0) {
 			const entryQuery = db.prepare(`
 				SELECT path, url, source, skip FROM files
-				WHERE source = ? AND path COLLATE NOCASE IN (${Array(comparePathsQuery.length).fill("?").join(", ")})
+				WHERE source = ? AND path COLLATE NOCASE IN (${Array(comparePathsQuery.length).fill('?').join(', ')})
 			`).all(entry.source, ...comparePathsQuery).filter(nearestEntryOnly);
 
 			for (const compareEntry of entryQuery) {
@@ -952,8 +952,8 @@ function redirectLinks(html, entry, flags, rawLinks) {
 				for (let l = 0; l < unmatchedLinks.length; l++) {
 					if (comparePaths[l] === null) continue;
 					const pathVariations = [comparePaths[l]];
-					let pathAnchor = "";
-					const anchorIndex = comparePaths[l].lastIndexOf("#");
+					let pathAnchor = '';
+					const anchorIndex = comparePaths[l].lastIndexOf('#');
 					if (anchorIndex != -1) {
 						pathVariations.push(comparePaths[l].substring(0, anchorIndex));
 						pathAnchor = comparePaths[l].substring(anchorIndex);
@@ -966,14 +966,14 @@ function redirectLinks(html, entry, flags, rawLinks) {
 							continue;
 						}
 						const entryUrl = compareEntry.url + pathAnchor;
-						if (flags.includes("e"))
+						if (flags.includes('e'))
 							unmatchedLinks[l].url = entryUrl || `/${compareEntry.path}`;
 						else if (entryUrl)
 							unmatchedLinks[l].url = `/${
-								joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
+								joinArgs('view', entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
 							}/${entryUrl}`;
 						else
-							unmatchedLinks[l].url = `/${joinArgs("orphan", entry.source, flagsNav)}/${compareEntry.path}`;
+							unmatchedLinks[l].url = `/${joinArgs('orphan', entry.source, flagsNav)}/${compareEntry.path}`;
 						matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
 						comparePaths.splice(l, 1);
 						l -= 1;
@@ -983,11 +983,11 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		}
 	}
 
-	if (!flags.includes("e")) {
+	if (!flags.includes('e')) {
 		const compareUrls = [...new Set(unmatchedLinks.map(link => link.sanitizedUrl))];
 		const entryQuery = db.prepare(`
 			SELECT path, sanitizedUrl, source FROM files_brief
-			WHERE sanitizedUrl IN (${Array(compareUrls.length).fill("?").join(", ")})
+			WHERE sanitizedUrl IN (${Array(compareUrls.length).fill('?').join(', ')})
 		`).all(...compareUrls).filter(nearestEntryOnly);
 
 		if (entryQuery.length > 0) {
@@ -997,7 +997,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 				for (let l = 0; l < unmatchedLinks.length; l++)
 					if (sourceLocalEntry.sanitizedUrl == unmatchedLinks[l].sanitizedUrl) {
 						unmatchedLinks[l].url = `/${
-							joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
+							joinArgs('view', entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
 						}/${unmatchedLinks[l].url}`;
 						matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
 						l -= 1;
@@ -1010,7 +1010,7 @@ function redirectLinks(html, entry, flags, rawLinks) {
 					for (let l = 0; l < unmatchedLinks.length; l++)
 						if (sourceExternalEntry.sanitizedUrl == unmatchedLinks[l].sanitizedUrl) {
 							unmatchedLinks[l].url = `/${
-								joinArgs("view", sourceExternalEntry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
+								joinArgs('view', sourceExternalEntry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)
 							}/${unmatchedLinks[l].url}`;
 							matchedLinks.push(unmatchedLinks.splice(l, 1)[0]);
 							l -= 1;
@@ -1023,21 +1023,21 @@ function redirectLinks(html, entry, flags, rawLinks) {
 		for (let l = 0; l < unmatchedLinks.length; l++) {
 			if (rootSource.urlMode == 2 && !unmatchedLinks[l].hasHttp)
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
-					? "[unarchived-media]"
-					: "[unarchived-link]";
-			else if (!flags.includes("w"))
+					? '[unarchived-media]'
+					: '[unarchived-link]';
+			else if (!flags.includes('w'))
 				unmatchedLinks[l].url = unmatchedLinks[l].isEmbedded
-					? `/${joinArgs("view", entry.source, flagsNoNav)}/${unmatchedLinks[l].url}`
+					? `/${joinArgs('view', entry.source, flagsNoNav)}/${unmatchedLinks[l].url}`
 					: getWaybackLink(unmatchedLinks[l].url, rootSource.year, rootSource.month);
 			else
 				unmatchedLinks[l].url =
-					`/${joinArgs("view", entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)}/${unmatchedLinks[l].url}`;
+					`/${joinArgs('view', entry.source, unmatchedLinks[l].isEmbedded ? flagsNoNav : flags)}/${unmatchedLinks[l].url}`;
 		}
 	}
 
 	// Update markup with new links
 	let offset = 0;
-	let newHtml = "";
+	let newHtml = '';
 	for (const link of unmatchedLinks.concat(matchedLinks).toSorted((a, b) => a.start - b.start)) {
 		newHtml += html.substring(0, link.start - offset) + link.attribute + (link.doQuotes ? `"${link.url}"` : link.url);
 		html = html.substring(link.end - offset);
@@ -1055,20 +1055,20 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 	if (/<frameset.*?>/i.test(html)) return html;
 
 	const entry = archives[desiredArchive];
-	const realUrl = entry.url.replaceAll("%23", "#");
+	const realUrl = entry.url.replaceAll('%23', '#');
 
 	if (!compatMode) {
 		const rootSource = sourceInfo.find(source => source.id == entry.source);
 		const navbarDefs = {
-			"URL": realUrl,
-			"SHOWWARNING": entry.warn ? "" : " hidden",
-			"SOURCE": `/sources#${entry.source}`,
-			"SHOWINLINKS": config.doInlinks ? "" : " hidden",
-			"WAYBACK": getWaybackLink(realUrl, rootSource.year, rootSource.month),
-			"RAW": `/${joinArgs("raw", entry.source)}/${entry.path}`,
-			"INLINKS": `/${joinArgs("inlinks", null, flags)}/${entry.url}`,
-			"OPTIONS": `/${joinArgs("options", entry.source, flags)}/${entry.url}`,
-			"RANDOM": `/${joinArgs("random", null, flags)}/`,
+			'URL': realUrl,
+			'SHOWWARNING': entry.warn ? '' : ' hidden',
+			'SOURCE': `/sources#${entry.source}`,
+			'SHOWINLINKS': config.doInlinks ? '' : ' hidden',
+			'WAYBACK': getWaybackLink(realUrl, rootSource.year, rootSource.month),
+			'RAW': `/${joinArgs('raw', entry.source)}/${entry.path}`,
+			'INLINKS': `/${joinArgs('inlinks', null, flags)}/${entry.url}`,
+			'OPTIONS': `/${joinArgs('options', entry.source, flags)}/${entry.url}`,
+			'RANDOM': `/${joinArgs('random', null, flags)}/`,
 		};
 
 		const archiveButtons = [];
@@ -1076,77 +1076,77 @@ function injectNavbar(html, archives, desiredArchive, flags, compatMode = false)
 			const archive = archives[a];
 			const source = sourceInfo.find(source => source.id == archive.source);
 			archiveButtons.push(buildHtml(templates.navbar.archive, {
-				"ACTIVE": a == desiredArchive ? ' class="navbar-active"' : "",
-				"URL": `/${joinArgs("view", source.id, flags)}/${archive.url}`,
-				"ICON": `/sources/${source.id}.gif`,
-				"TITLE": source.title,
-				"DATE": source.archiveDate,
+				'ACTIVE': a == desiredArchive ? ' class="navbar-active"' : '',
+				'URL': `/${joinArgs('view', source.id, flags)}/${archive.url}`,
+				'ICON': `/sources/${source.id}.gif`,
+				'TITLE': source.title,
+				'DATE': source.archiveDate,
 			}));
 		}
-		navbarDefs["ARCHIVES"] = archiveButtons.join("\n");
+		navbarDefs['ARCHIVES'] = archiveButtons.join('\n');
 
-		const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
+		const screenshotQuery = db.prepare('SELECT path FROM screenshots WHERE sanitizedUrl = ?').all(entry.sanitizedUrl).map(screenshot => screenshot.path);
 		if (screenshotQuery.length > 0) {
 			const screenshots = [];
 			for (const screenshotPath of screenshotQuery)
 				screenshots.push(buildHtml(templates.navbar.screenshot, {
-					"IMAGE": "/screenshots/" + screenshotPath,
-					"THUMB": "/thumbnails/" + screenshotPath,
+					'IMAGE': '/screenshots/' + screenshotPath,
+					'THUMB': '/thumbnails/' + screenshotPath,
 				}));
-			navbarDefs["SCREENSHOTS"] = screenshots.join("\n");
+			navbarDefs['SCREENSHOTS'] = screenshots.join('\n');
 		}
 		else
-			navbarDefs["SCREENSHOTS"] = "";
+			navbarDefs['SCREENSHOTS'] = '';
 
 		const style = '<link rel="stylesheet" href="/navbar.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
 		html = matchHead !== null
-			? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
-			: style + "\n" + html;
+			? (html.substring(0, matchHead.index + matchHead[0].length) + '\n' + style + html.substring(matchHead.index + matchHead[0].length))
+			: style + '\n' + html;
 
 		const padding = '<div style="height:120px"></div>';
 		const bodyCloseIndex = blankComments(html).search(/(?:(?:<\/(?:body|noframes|html)>\s*)+)?$/i);
 		const navbar = buildHtml(templates.navbar.main, navbarDefs);
 		html = bodyCloseIndex != -1
-			? (html.substring(0, bodyCloseIndex) + padding + "\n" + navbar + "\n" + html.substring(bodyCloseIndex))
-			: html + "\n" + padding + "\n" + navbar;
+			? (html.substring(0, bodyCloseIndex) + padding + '\n' + navbar + '\n' + html.substring(bodyCloseIndex))
+			: html + '\n' + padding + '\n' + navbar;
 	}
 	else {
 		const source = sourceInfo.find(source => source.id == entry.source);
 		const randomEntry = getRandom(flags);
 		const navbarDefs = {
-			"URL": realUrl,
-			"SOURCE": source.title,
-			"DATE": source.archiveDate,
-			"OPTIONS": `/${joinArgs("options", entry.source, flags)}/${entry.url}`,
-			"RANDOM": `/${joinArgs("view", randomEntry.source, flags)}/${randomEntry.url}`,
+			'URL': realUrl,
+			'SOURCE': source.title,
+			'DATE': source.archiveDate,
+			'OPTIONS': `/${joinArgs('options', entry.source, flags)}/${entry.url}`,
+			'RANDOM': `/${joinArgs('view', randomEntry.source, flags)}/${randomEntry.url}`,
 		};
 
 		if (archives.length > 1) {
 			const archiveButtons = [];
 			for (let a = 0; a < archives.length; a++)
 				if (a != desiredArchive)
-					archiveButtons.push(`<a href="/${joinArgs("view", archives[a].source, flags)}/${archives[a].url}">${archives[a].source}</a>`);
-			navbarDefs["ARCHIVES"] = "Other archives: " + archiveButtons.join(", ");
+					archiveButtons.push(`<a href="/${joinArgs('view', archives[a].source, flags)}/${archives[a].url}">${archives[a].source}</a>`);
+			navbarDefs['ARCHIVES'] = 'Other archives: ' + archiveButtons.join(', ');
 		}
 		else
-			navbarDefs["ARCHIVES"] = "";
+			navbarDefs['ARCHIVES'] = '';
 
-		const screenshotQuery = db.prepare("SELECT path FROM screenshots WHERE sanitizedUrl = ?").all(entry.sanitizedUrl).map(screenshot => screenshot.path);
+		const screenshotQuery = db.prepare('SELECT path FROM screenshots WHERE sanitizedUrl = ?').all(entry.sanitizedUrl).map(screenshot => screenshot.path);
 		if (screenshotQuery.length > 0) {
 			const screenshots = [];
 			for (const screenshotPath of screenshotQuery)
-				screenshots.push(buildHtml(templates.navbar.compat.screenshot, { "IMAGE": "/screenshots/" + screenshotPath }));
-			navbarDefs["SCREENSHOTS"] = screenshots.join("\n");
+				screenshots.push(buildHtml(templates.navbar.compat.screenshot, { 'IMAGE': '/screenshots/' + screenshotPath }));
+			navbarDefs['SCREENSHOTS'] = screenshots.join('\n');
 		}
 		else
-			navbarDefs["SCREENSHOTS"] = "";
+			navbarDefs['SCREENSHOTS'] = '';
 
 		const bodyOpenIndex = (blankComments(html).match(
 			/^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>\s*)+)?/is
-		) ?? [""])[0].length;
+		) ?? [''])[0].length;
 		const navbar = buildHtml(templates.navbar.compat.main, navbarDefs);
-		html = html.substring(0, bodyOpenIndex) + navbar + "\n" + html.substring(bodyOpenIndex);
+		html = html.substring(0, bodyOpenIndex) + navbar + '\n' + html.substring(bodyOpenIndex);
 	}
 
 	return html;
@@ -1173,24 +1173,24 @@ function buildHtml(template, defs) {
 // Extract useful information from a request
 function parseQuery(requestPath, compatMode) {
 	const query = {
-		mode: "",
-		source: "",
-		flags: "",
-		url: "",
+		mode: '',
+		source: '',
+		flags: '',
+		url: '',
 		compat: compatMode,
 	};
 
-	const argsStr = requestPath.substring(0, Math.max(0, requestPath.indexOf("/")) || requestPath.length);
-	const argsA = argsStr.split("_");
-	const argsB = argsA[0].split("-");
+	const argsStr = requestPath.substring(0, Math.max(0, requestPath.indexOf('/')) || requestPath.length);
+	const argsA = argsStr.split('_');
+	const argsB = argsA[0].split('-');
 
 	const mode = pageModes.find(mode => mode.id == argsB[0]);
 	if (mode === undefined) return null;
 	query.mode = mode.id;
 
 	if (mode.hasUrl) {
-		const url = safeDecode(requestPath.substring(argsStr.length + 1).replace(/^\/+/, ""));
-		if (url == "") return null;
+		const url = safeDecode(requestPath.substring(argsStr.length + 1).replace(/^\/+/, ''));
+		if (url == '') return null;
 		query.url = url;
 	}
 
@@ -1202,10 +1202,10 @@ function parseQuery(requestPath, compatMode) {
 				query.flags += flag.id;
 
 	// Treat certain flags and settings as disabled if they are redundant or not applicable to the current request
-	if (query.mode != "view" || (query.mode == "orphan" && !query.flags.includes("p"))) query.compat = false;
-	if (query.mode != "options" && (query.mode == "orphan" || query.flags.includes("n"))) {
-		query.flags = query.flags.replaceAll(/[mo]/g, "");
-		if (query.mode == "orphan") query.flags = query.flags.replace("n", "");
+	if (query.mode != 'view' || (query.mode == 'orphan' && !query.flags.includes('p'))) query.compat = false;
+	if (query.mode != 'options' && (query.mode == 'orphan' || query.flags.includes('n'))) {
+		query.flags = query.flags.replaceAll(/[mo]/g, '');
+		if (query.mode == 'orphan') query.flags = query.flags.replace('n', '');
 	}
 
 	return query;
@@ -1213,23 +1213,23 @@ function parseQuery(requestPath, compatMode) {
 
 // Join arguments back into a string, ie. mode[-source][_flags]
 function joinArgs(mode, source, flags) {
-	let argsStr = mode ?? "";
-	if (source) argsStr += "-" + source;
-	if (flags) argsStr += "_" + sortFlags(flags);
+	let argsStr = mode ?? '';
+	if (source) argsStr += '-' + source;
+	if (flags) argsStr += '_' + sortFlags(flags);
 	return argsStr;
 }
 
 // Sort flags in alphabetical order
-function sortFlags(flags) { return flags.split("").toSorted().join(""); }
+function sortFlags(flags) { return flags.split('').toSorted().join(''); }
 
 // Return all archived files for a given query
 function getArchives(query) {
 	let archives = [];
 	let desiredArchive = 0;
 
-	if (query.mode == "view") {
+	if (query.mode == 'view') {
 		const sanitizedUrl = sanitizeUrl(query.url);
-		archives = db.prepare("SELECT * FROM files_brief WHERE sanitizedUrl = ?").all(sanitizedUrl);
+		archives = db.prepare('SELECT * FROM files_brief WHERE sanitizedUrl = ?').all(sanitizedUrl);
 		if (archives.length == 0) return [[], -1];
 		if (archives.length > 1) {
 			// Sort archives from oldest to newest
@@ -1251,7 +1251,7 @@ function getArchives(query) {
 			}
 		}
 	}
-	else if (query.mode == "orphan" || query.mode == "raw") {
+	else if (query.mode == 'orphan' || query.mode == 'raw') {
 		if (!query.source || !query.url) return [[], -1];
 		const entry = db.prepare(`SELECT * FROM files_brief WHERE source = ? AND path = ?`).get(query.source, query.url);
 		if (entry === undefined) return [[], -1];
@@ -1260,34 +1260,34 @@ function getArchives(query) {
 
 	// Encode number sign to make sure it's properly identified as part of the URL
 	for (const archive of archives)
-		archive.url = archive.url.replaceAll("#", "%23");
+		archive.url = archive.url.replaceAll('#', '%23');
 
 	return [archives, desiredArchive];
 }
 
 // Return the filesystem path for an archived file
-function getArchivePath(entry) { return joinPath(config.buildPath, "sources", entry.source, entry.path); }
+function getArchivePath(entry) { return joinPath(config.buildPath, 'sources', entry.source, entry.path); }
 
 // Return a random entry
-function getRandom(flags = "", source) {
+function getRandom(flags = '', source) {
 	const whereConditions = [];
 	const whereParameters = [];
-	if (!flags.includes("m"))
+	if (!flags.includes('m'))
 		whereConditions.push("type = 'text/html'");
-	if (!flags.includes("o"))
+	if (!flags.includes('o'))
 		whereConditions.push("sanitizedUrl != ''");
 	if (source) {
-		whereConditions.push("source = ?");
+		whereConditions.push('source = ?');
 		whereParameters.push(source);
 	}
 	return db.prepare(
-		`SELECT path, url, source FROM files_brief ${whereConditions.length > 0 ? ("WHERE " + whereConditions.join(" AND ")) : ""} ORDER BY random() LIMIT 1`
+		`SELECT path, url, source FROM files_brief ${whereConditions.length > 0 ? ('WHERE ' + whereConditions.join(' AND ')) : ''} ORDER BY random() LIMIT 1`
 	).get(...whereParameters);
 }
 
 // Generate a link to the Wayback Machine
 function getWaybackLink(url, year, month) {
-	const timestamp = year + (month == 0 ? "" : `${month}`.padStart(2, "0"));
+	const timestamp = year + (month == 0 ? '' : `${month}`.padStart(2, '0'));
 	return `http://web.archive.org/web/${timestamp}/${url}`;
 }
 
@@ -1295,14 +1295,14 @@ function getWaybackLink(url, year, month) {
 function isModern(userAgent) {
 	const fieldMatch = userAgent.match(/(?:Chrome|Firefox|Safari)\/[0-9.]+/) ?? [];
 	if (fieldMatch.length > 0) {
-		const splitField = fieldMatch[0].split("/");
+		const splitField = fieldMatch[0].split('/');
 		const browser = {
 			name: splitField[0],
 			version: parseFloat(splitField[1]),
 		};
-		return (browser.name == "Chrome"  && browser.version >= 80)
-			|| (browser.name == "Firefox" && browser.version >= 72)
-			|| (browser.name == "Safari"  && browser.version >= 604);
+		return (browser.name == 'Chrome'  && browser.version >= 80)
+			|| (browser.name == 'Firefox' && browser.version >= 72)
+			|| (browser.name == 'Safari'  && browser.version >= 604);
 	}
 	return false;
 }
@@ -1311,10 +1311,10 @@ function isModern(userAgent) {
 function error(url) {
 	let errorHtml, status;
 	if (url) {
-		url = sanitizeInject(url).replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+		url = sanitizeInject(url).replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 		errorHtml = buildHtml(templates.error.archive, {
-			"TRIMMEDURL": url.length > 64 ? `${url.substring(0, 64)}...` : url,
-			"WAYBACKURL": url,
+			'TRIMMEDURL': url.length > 64 ? `${url.substring(0, 64)}...` : url,
+			'WAYBACKURL': url,
 		});
 		status = 404;
 	}
@@ -1322,7 +1322,7 @@ function error(url) {
 		errorHtml = templates.error.generic;
 		status = 400;
 	}
-	return new Response(errorHtml, { status: status, headers: { "Content-Type": "text/html" } });
+	return new Response(errorHtml, { status: status, headers: { 'Content-Type': 'text/html' } });
 }
 
 /*------------------------+
@@ -1333,30 +1333,30 @@ function error(url) {
 function textContent(html) {
 	const titleMatch = [...html.matchAll(/<title>(((?!<\/title>).)*?)<\/title>/gis)];
 	const title = titleMatch.length > 0
-		? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, " ").replaceAll(/\s+/g, " ").trim()
-		: "";
+		? titleMatch[titleMatch.length - 1][1].replaceAll(/<.*?>/gs, ' ').replaceAll(/\s+/g, ' ').trim()
+		: '';
 
 	const content = html.replaceAll(
 		/<title>.*?<\/title>/gis,
-		"",
+		'',
 	).replaceAll(
 		/<script(?: [^>]*)?>.*?<\/script>/gis,
-		""
+		''
 	).replaceAll(
 		/<[^>]+alt *= *"(.*?)".*?>/gis,
-		" $1 "
+		' $1 '
 	).replaceAll(
 		/<[^>]+alt *= *([^ >]+).*?>/gis,
-		" $1 "
+		' $1 '
 	).replaceAll(
 		/<! *-+.*?-+ *>/gs,
-		""
+		''
 	).replaceAll(
 		/<.*?>/gs,
-		" "
+		' '
 	).replaceAll(
 		/\s+/g,
-		" "
+		' '
 	).trim();
 
 	return { title: title, content: content };
@@ -1368,7 +1368,7 @@ function resolveLinks(entry, mode, rawLinks, entryData) {
 	if (mode > 0) {
 		const comparePaths = rawLinks.map(link => {
 			if (!link.hasHttp) {
-				const parsedUrl = URL.parse(link.rawUrl, "http://abc/" + entry.path);
+				const parsedUrl = URL.parse(link.rawUrl, 'http://abc/' + entry.path);
 				if (parsedUrl !== null) return parsedUrl.pathname.substring(1).toLowerCase();
 			}
 			return null;
@@ -1403,17 +1403,17 @@ function resolveLinks(entry, mode, rawLinks, entryData) {
 async function mimeType(filePath) {
 	const decoder = new TextDecoder();
 	const types = (await Promise.all([
-		new Deno.Command("mimetype", { args: ["-bM", filePath], stdout: "piped" }).output(),
-		new Deno.Command("mimetype", { args: ["-b",  filePath], stdout: "piped" }).output(),
+		new Deno.Command('mimetype', { args: ['-bM', filePath], stdout: 'piped' }).output(),
+		new Deno.Command('mimetype', { args: ['-b',  filePath], stdout: 'piped' }).output(),
 	])).map(type => decoder.decode(type.stdout).trim());
-	if (types[0] == "text/plain") {
-		if (types[1] != "image/x-xbitmap") {
-			const fileInfo = decoder.decode((await new Deno.Command("file", { args: ["-b", filePath], stdout: "piped" }).output()).stdout);
-			if (fileInfo.startsWith("xbm image")) return "image/x-xbitmap";
+	if (types[0] == 'text/plain') {
+		if (types[1] != 'image/x-xbitmap') {
+			const fileInfo = decoder.decode((await new Deno.Command('file', { args: ['-b', filePath], stdout: 'piped' }).output()).stdout);
+			if (fileInfo.startsWith('xbm image')) return 'image/x-xbitmap';
 		}
 		return types[1];
 	}
-	else if (types[0] == "application/octet-stream" && !types[1].startsWith("text/"))
+	else if (types[0] == 'application/octet-stream' && !types[1].startsWith('text/'))
 		return types[1];
 	else
 		return types[0];
@@ -1429,13 +1429,13 @@ function overwriteArray(array1, array2) { return array1.map((v, i) => array2[i] 
 // Attempt to revert source-specific markup alterations
 function genericizeMarkup(html, entry) {
 	switch (entry.source) {
-		case "sgi": {
+		case 'sgi': {
 			// Fix anomaly with HTML files in the Edu/ directory
-			if (entry.path.startsWith("Edu/"))
+			if (entry.path.startsWith('Edu/'))
 				html = html.replaceAll(/(?<!")\.\.\//g, '/');
 			break;
 		}
-		case "einblicke": {
+		case 'einblicke': {
 			html = html.replace(
 				// Remove footer
 				/\n?<hr>\n?Original: .*? \[\[<a href=".*?">Net<\/a>\]\]\n?$/im,
@@ -1468,8 +1468,8 @@ function genericizeMarkup(html, entry) {
 			);
 			break;
 		}
-		case "riscdisc": {
-			if (entry.path.startsWith("WWW_BBCNC_ORG_UK"))
+		case 'riscdisc': {
+			if (entry.path.startsWith('WWW_BBCNC_ORG_UK'))
 				html = html.replaceAll(
 					// In bbcnc.org.uk only, the brackets are inside the link elements
 					/(?<=<a\s.*?>(?:\s+)?)\[(.*?)\](?=(?:\s+)?<\/a>)/gis,
@@ -1489,7 +1489,7 @@ function genericizeMarkup(html, entry) {
 					/\[+(<a\s.*?>.*?<\/a>)\]+/gis,
 					'$1'
 				);
-			if (entry.path.startsWith("WWW_HOTWIRED_COM"))
+			if (entry.path.startsWith('WWW_HOTWIRED_COM'))
 				html = html.replaceAll(
 					// Replace imagemap placeholder with unarchived link notice
 					/"[./]+no_imagemap\.htm"/gi,
@@ -1497,7 +1497,7 @@ function genericizeMarkup(html, entry) {
 				);
 			break;
 		}
-		case "pcpress": {
+		case 'pcpress': {
 			// Remove downloader software header
 			html = html.replace(/^<META name="download" content=".*?">\n/s, '');
 			// Attempt to fix broken external links
@@ -1511,19 +1511,19 @@ function genericizeMarkup(html, entry) {
 				const badExtensionExp = /(?<=\.(html?|cgi|gif))\//i;
 				link.url = link.rawUrl;
 				if (httpExp.test(link.url))
-					try { link.url = new URL(link.url.replace(httpExp, ""), link.baseUrl).href; } catch {}
+					try { link.url = new URL(link.url.replace(httpExp, ''), link.baseUrl).href; } catch {}
 				if (badDomainExp.test(link.url))
 					try {
 						const subdomain = link.url.match(badDomainExp)[0];
 						link.url = new URL(
-							link.url.replace(/^http:\/\/.*?\//i, "/"),
+							link.url.replace(/^http:\/\/.*?\//i, '/'),
 							link.baseUrl.replace(/(?<=http:\/\/).*?(?=\.)/i, subdomain)
 						).href;
 					} catch {}
 				try {
 					link.url = new URL(link.url).href
-						.replace(/(?<![a-z]+:)\/\//i, "/")
-						.replace(/(?<=\.html?)\/$/i, "");
+						.replace(/(?<![a-z]+:)\/\//i, '/')
+						.replace(/(?<=\.html?)\/$/i, '');
 				} catch {}
 				const hasBadAnchor = badAnchorExp.test(link.url);
 				const hasBadExtension = badExtensionExp.test(link.url);
@@ -1545,22 +1545,22 @@ function genericizeMarkup(html, entry) {
 			}
 			break;
 		}
-		case "chipfun": {
+		case 'chipfun': {
 			// Remove base directory definition
 			html = html.replace(/^<base href=".*?">\n/, '');
 			break;
 		}
-		case "netcontrol96":
-		case "netcontrol98": {
+		case 'netcontrol96':
+		case 'netcontrol98': {
 			// Remove injected script that exists on exactly one page
-			if (entry.path == "archive-b/ba1/index.shtml")
+			if (entry.path == 'archive-b/ba1/index.shtml')
 				html = html
 					.replace(/\n?<script [^>]*src="\/archived.js".*?>/, '')
 					.replace(/ onLoad="shownew\('\/'\)"/, '');
 			// Reverse encryption of email strings
 			const decodeEmail = encodedEmail => {
 				const bytes = encodedEmail.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
-				return bytes.slice(1).map(byte => String.fromCharCode(byte ^ bytes[0])).join("");
+				return bytes.slice(1).map(byte => String.fromCharCode(byte ^ bytes[0])).join('');
 			}
 			html = html.replaceAll(
 				// Remove injected CloudFlare scripts
@@ -1585,7 +1585,7 @@ function genericizeMarkup(html, entry) {
 			).replaceAll(
 				// Restore encrypted mailto links
 				/"\/cdn-cgi\/l\/email-protection#([0-9a-f]+)"/g,
-				(_, encodedEmail) => "mailto:" + decodeEmail(encodedEmail)
+				(_, encodedEmail) => 'mailto:' + decodeEmail(encodedEmail)
 			).replaceAll(
 				// Remove injected ads
 				/<script[^>]+> <!--var dd=document;.*?--><\/script>/gs,
@@ -1631,17 +1631,17 @@ function genericizeMarkup(html, entry) {
 			if (baseExp.test(html))
 				html = html.replaceAll(linkExp, (_, tagStart, url) => {
 					if (/^(?:src|background)/i.test(tagStart))
-						url = `"${trimQuotes(url.substring(url.lastIndexOf("/") + 1))}"`;
+						url = `"${trimQuotes(url.substring(url.lastIndexOf('/') + 1))}"`;
 					return tagStart + url;
 				});
 			break;
 		}
-		case "amigaplus": {
+		case 'amigaplus': {
 			// Convert CD-ROM local links into path links
-			html = html.replaceAll("file:///d:/Amiga_HTML/", "/");
+			html = html.replaceAll('file:///d:/Amiga_HTML/', '/');
 			break;
 		}
-		case "netonacd": {
+		case 'netonacd': {
 			// Move real URLs back to original attribute
 			html = html.replaceAll(/"([^"]+)"?\s+tppabs="(.*?)"/g, '"$2"');
 			break;
@@ -1652,12 +1652,12 @@ function genericizeMarkup(html, entry) {
 
 // Attempt to fix invalid/deprecated/non-standard markup
 function improvePresentation(html, compatMode = false) {
-	if (!compatMode && !args["build"]) {
+	if (!compatMode && !args['build']) {
 		const style = '<link rel="stylesheet" href="/presentation.css">';
 		const matchHead = html.match(/<head(er)?(| .*?)>/i);
 		html = matchHead !== null
-			? (html.substring(0, matchHead.index + matchHead[0].length) + "\n" + style + html.substring(matchHead.index + matchHead[0].length))
-			: style + "\n" + html;
+			? (html.substring(0, matchHead.index + matchHead[0].length) + '\n' + style + html.substring(matchHead.index + matchHead[0].length))
+			: style + '\n' + html;
 	}
 
 	html = html.replaceAll(
@@ -1699,7 +1699,7 @@ function improvePresentation(html, compatMode = false) {
 	).replaceAll(
 		// Add missing "s" to <noframe> elements
 		/(<\/?)(no) ?(frame)(>)/gi,
-		(_, start, no, frame, end) => start + no + frame + (frame == frame.toUpperCase() ? "S" : "s") + end
+		(_, start, no, frame, end) => start + no + frame + (frame == frame.toUpperCase() ? 'S' : 's') + end
 	);
 
 	// Try to fix any remaining comments with missing closing sequences
@@ -1712,15 +1712,15 @@ function improvePresentation(html, compatMode = false) {
 		for (let match; (match = plaintextExp.exec(html)) !== null;) {
 			const openIndex = match.index;
 			const startIndex = plaintextExp.lastIndex;
-			const endIndex = html.toLowerCase().indexOf("</plaintext>", startIndex);
+			const endIndex = html.toLowerCase().indexOf('</plaintext>', startIndex);
 			const closeIndex = endIndex != -1 ? endIndex + 12 : -1;
 
 			const upperCase = match[0] == match[0].toUpperCase();
-			const content = (upperCase ? "<PRE>" : "<pre>")
-				+ html.substring(startIndex, endIndex != -1 ? endIndex : undefined).replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-				+ (upperCase ? "</PRE>" : "</pre>");
+			const content = (upperCase ? '<PRE>' : '<pre>')
+				+ html.substring(startIndex, endIndex != -1 ? endIndex : undefined).replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+				+ (upperCase ? '</PRE>' : '</pre>');
 
-			html = html.substring(0, openIndex) + content + (closeIndex != -1 ? html.substring(closeIndex) : "");
+			html = html.substring(0, openIndex) + content + (closeIndex != -1 ? html.substring(closeIndex) : '');
 		}
 
 		// Restore <isindex> on modern browsers
@@ -1730,18 +1730,18 @@ function improvePresentation(html, compatMode = false) {
 			const matchPrompt = [...isindex.matchAll(/prompt *= *(".*?"|[^ >]+)/gis)];
 			const matchAction = [...isindex.matchAll(/action *= *(".*?"|[^ >]+)/gis)];
 
-			let formStart = "";
-			let formEnd = "";
-			let prompt = "This is a searchable index. Enter search keywords: ";
+			let formStart = '';
+			let formEnd = '';
+			let prompt = 'This is a searchable index. Enter search keywords: ';
 			if (matchPrompt.length > 0 && matchPrompt[0].length > 0)
 				prompt = trimQuotes(matchPrompt[0][1]);
 			if (matchAction.length > 0 && matchAction[0].length > 0) {
 				formStart = `<form action=${trimQuotes(matchAction[0][1])}>`;
-				formEnd = "</form>";
+				formEnd = '</form>';
 			}
 
 			html = html.substring(0, isindexExp.lastIndex - isindex.length)
-				+ formStart + "<hr>" + prompt + "<input><hr>" + formEnd
+				+ formStart + '<hr>' + prompt + '<input><hr>' + formEnd
 				+ html.substring(isindexExp.lastIndex);
 		}
 	}
@@ -1759,7 +1759,7 @@ function getLinks(html, baseUrl) {
 		const rawUrl = trimQuotes(match[2]);
 		const hasHttp = /^https?:/i.test(rawUrl);
 		// Anchor, unarchived, and non-HTTP links should be ignored
-		if (rawUrl.startsWith("#") || /^\[unarchived-(link|image)\]$/.test(rawUrl)
+		if (rawUrl.startsWith('#') || /^\[unarchived-(link|image)\]$/.test(rawUrl)
 		|| (!hasHttp && /^[a-z]+:/i.test(rawUrl)))
 			return;
 		links.push({
@@ -1781,32 +1781,32 @@ function getLinks(html, baseUrl) {
 
 // Retrieve text from file and convert to UTF-8 if necessary
 async function getText(filePath, source) {
-	if (!getPathInfo(filePath).isFile || Deno.stat(filePath).size == 0) return "";
+	if (!getPathInfo(filePath).isFile || Deno.stat(filePath).size == 0) return '';
 	let text;
 	try {
 		const decoder = new TextDecoder();
 		switch (source) {
-			case "wwwdir": {
+			case 'wwwdir': {
 				// World Wide Web Directory has some double-encoding weirdness that needs to be untangled
 				text = decoder.decode((
-					await new Deno.Command("bash", { args: ["-c",
+					await new Deno.Command('bash', { args: ['-c',
 						`HTML="$(iconv '${filePath.replaceAll("'", "\\'")}' -cf UTF-8 -t WINDOWS-1252)"; iconv -cf $(uchardet <(echo -nE "$HTML")) -t UTF-8 <(echo -nE "$HTML")`
-					], stdout: "piped" }).output()
+					], stdout: 'piped' }).output()
 				).stdout);
 				break;
 			}
-			case "einblicke": {
+			case 'einblicke': {
 				// Einblicke ins Internet is already UTF-8 and anything that isn't detected as such causes issues, so don't try to convert it
 				text = Deno.readTextFileSync(filePath);
 				break;
 			}
 			default: {
-				let uchardetStr = decoder.decode((await new Deno.Command("uchardet", { args: [filePath], stdout: "piped" }).output()).stdout).trim();
+				let uchardetStr = decoder.decode((await new Deno.Command('uchardet', { args: [filePath], stdout: 'piped' }).output()).stdout).trim();
 				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
-				if (uchardetStr == "MAC-CENTRALEUROPE" || uchardetStr == "IBM865") uchardetStr = "WINDOWS-1253";
-				if (uchardetStr != "ASCII" && uchardetStr != "UTF-8")
+				if (uchardetStr == 'MAC-CENTRALEUROPE' || uchardetStr == 'IBM865') uchardetStr = 'WINDOWS-1253';
+				if (uchardetStr != 'ASCII' && uchardetStr != 'UTF-8')
 					text = decoder.decode((
-						await new Deno.Command("iconv", { args: [filePath, "-cf", uchardetStr, "-t", "UTF-8"], stdout: "piped" }).output()
+						await new Deno.Command('iconv', { args: [filePath, '-cf', uchardetStr, '-t', 'UTF-8'], stdout: 'piped' }).output()
 					).stdout);
 				else
 					text = Deno.readTextFileSync(filePath);
@@ -1814,32 +1814,32 @@ async function getText(filePath, source) {
 		}
 	}
 	catch { text = Deno.readTextFileSync(filePath); }
-	return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+	return text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 }
 
 // Strip the URL down to its bare components, for comparison purposes
 function sanitizeUrl(url) {
 	return safeDecode(url).toLowerCase()
-		.replace(/^https?:\/\//, "")
-		.replace(/^www\./, "")
-		.replace(/^([^/]+):80(?:80)?($|\/)/, "$1$2")
-		.replace(/(?<=^[^#]+)#[^#]+$/, "")
-		.replace(/index\.html?$/, "")
-		.replace(/\/$/, "");
+		.replace(/^https?:\/\//, '')
+		.replace(/^www\./, '')
+		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
+		.replace(/(?<=^[^#]+)#[^#]+$/, '')
+		.replace(/index\.html?$/, '')
+		.replace(/\/$/, '');
 }
 
 // Decode string without throwing an error if a single encoded character is invalid
 function safeDecode(string) {
-	const chars = string.split("");
+	const chars = string.split('');
 	for (let c = 0; c < chars.length; c++) {
-		if (chars[c] == "%" && c < chars.length - 2) {
+		if (chars[c] == '%' && c < chars.length - 2) {
 			let decodedChar;
-			try { decodedChar = decodeURIComponent(chars.join("").substring(c, c + 3)); }
+			try { decodedChar = decodeURIComponent(chars.join('').substring(c, c + 3)); }
 			catch { continue; }
 			chars.splice(c, 3, decodedChar);
 		}
 	}
-	return chars.join("");
+	return chars.join('');
 }
 
 // Replace slices of a string with different values
@@ -1855,10 +1855,10 @@ function replaceSlices(str, slices) {
 }
 
 // Replace comments with whitespace
-function blankComments(html) { return html.replaceAll(/<! *-+.*?-+ *>/gs, match => " ".repeat(match.length)); }
+function blankComments(html) { return html.replaceAll(/<! *-+.*?-+ *>/gs, match => ' '.repeat(match.length)); }
 
 // Remove any quotes or whitespace surrounding a string
-function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, "$1").replace(/[\r\n]+/g, "").trim(); }
+function trimQuotes(string) { return string.trim().replace(/^"?(.*?)"?$/s, '$1').replace(/[\r\n]+/g, '').trim(); }
 
 // Return contents of template files
 function getTemplate(file) { return Deno.readTextFileSync(`templates/${file}`); }
@@ -1866,7 +1866,7 @@ function getTemplate(file) { return Deno.readTextFileSync(`templates/${file}`); 
 // Log to the appropriate locations
 function logMessage(message) {
 	message = `[${new Date().toLocaleString()}] ${message}`;
-	if (config.logFile) try { Deno.writeTextFile(config.logFile, message + "\n", { append: true }); } catch {}
+	if (config.logFile) try { Deno.writeTextFile(config.logFile, message + '\n', { append: true }); } catch {}
 	if (config.logToConsole) console.log(message);
 }
 
