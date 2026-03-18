@@ -1,0 +1,56 @@
+[
+	{
+		"id": "view",
+		"hasSource": true,
+		"hasFlags": true,
+		"hasUrl": true
+	},
+	{
+		"id": "orphan",
+		"hasSource": true,
+		"hasFlags": true,
+		"hasUrl": true
+	},
+	{
+		"id": "raw",
+		"hasSource": true,
+		"hasFlags": false,
+		"hasUrl": true
+	},
+	{
+		"id": "inlinks",
+		"hasSource": false,
+		"hasFlags": true,
+		"hasUrl": true
+	},
+	{
+		"id": "options",
+		"hasSource": true,
+		"hasFlags": true,
+		"hasUrl": true
+	},
+	{
+		"id": "random",
+		"hasSource": true,
+		"hasFlags": true,
+		"hasUrl": false
+	},
+	{
+		"id": "sources",
+		"hasSource": false,
+		"hasFlags": false,
+		"hasUrl": false
+	},
+	{
+		"id": "screenshots",
+		"hasSource": false,
+		"hasFlags": false,
+		"hasUrl": true
+	},
+	{
+		"id": "thumbnails",
+		"hasSource": false,
+		"hasFlags": false,
+		"hasUrl": true
+	}
+]

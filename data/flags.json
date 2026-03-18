@@ -1,0 +1,44 @@
+[
+	{
+		"id": "n",
+		"description": "Show navigation bar",
+		"invert": true,
+		"hidden": false
+	},
+	{
+		"id": "p",
+		"description": "Improve presentation on newer browsers",
+		"invert": true,
+		"hidden": false
+	},
+	{
+		"id": "f",
+		"description": "Force frameless version of pages",
+		"invert": false,
+		"hidden": false
+	},
+	{
+		"id": "w",
+		"description": "Point unarchived URLs to Wayback Machine",
+		"invert": true,
+		"hidden": false
+	},
+	{
+		"id": "e",
+		"description": "Point all URLs to live internet",
+		"invert": false,
+		"hidden": true
+	},
+	{
+		"id": "m",
+		"description": "Random button includes non-text files",
+		"invert": false,
+		"hidden": false
+	},
+	{
+		"id": "o",
+		"description": "Random button includes orphans",
+		"invert": false,
+		"hidden": false
+	}
+]

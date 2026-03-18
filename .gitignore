@@ -1,4 +1,5 @@
-archive95.json
-archive95.log
-data/
+config.json
+server.log
+data/build/
+data/input/
 .vscode/

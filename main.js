@@ -7,7 +7,7 @@ import { parseArgs } from "jsr:@std/cli/parse-args";
 const args = parseArgs(Deno.args, {
 	boolean: ["build", "wipe-cache"],
 	string: ["config"],
-	default: { "build": false, "wipe-cache": false, "config": "archive95.json" }
+	default: { "build": false, "wipe-cache": false, "config": "config.json" }
 });
 
 // Attempt to load config file, otherwise use defaults
@@ -75,110 +75,11 @@ const templates = {
 	},
 };
 
-const pageModes = [
-	{
-		id: "view",
-		hasSource: true,
-		hasFlags: true,
-		hasUrl: true,
-	},
-	{
-		id: "orphan",
-		hasSource: true,
-		hasFlags: true,
-		hasUrl: true,
-	},
-	{
-		id: "raw",
-		hasSource: true,
-		hasFlags: false,
-		hasUrl: true,
-	},
-	{
-		id: "inlinks",
-		hasSource: false,
-		hasFlags: true,
-		hasUrl: true,
-	},
-	{
-		id: "options",
-		hasSource: true,
-		hasFlags: true,
-		hasUrl: true,
-	},
-	{
-		id: "random",
-		hasSource: true,
-		hasFlags: true,
-		hasUrl: false,
-	},
-	{
-		id: "sources",
-		hasSource: false,
-		hasFlags: false,
-		hasUrl: false,
-	},
-	{
-		id: "screenshots",
-		hasSource: false,
-		hasFlags: false,
-		hasUrl: true,
-	},
-	{
-		id: "thumbnails",
-		hasSource: false,
-		hasFlags: false,
-		hasUrl: true,
-	},
-];
+const pageModes = JSON.parse(Deno.readTextFileSync("data/modes.json"));
+const pageFlags = JSON.parse(Deno.readTextFileSync("data/flags.json"));
 
-const pageFlags = [
-	{
-		id: "n",
-		description: "Show navigation bar",
-		invert: true,
-		hidden: false,
-	},
-	{
-		id: "p",
-		description: "Improve presentation on newer browsers",
-		invert: true,
-		hidden: false,
-	},
-	{
-		id: "f",
-		description: "Force frameless version of pages",
-		invert: false,
-		hidden: false,
-	},
-	{
-		id: "w",
-		description: "Point unarchived URLs to Wayback Machine",
-		invert: true,
-		hidden: false,
-	},
-	{
-		id: "e",
-		description: "Point all URLs to live internet",
-		invert: false,
-		hidden: true,
-	},
-	{
-		id: "m",
-		description: "Random button includes non-text files",
-		invert: false,
-		hidden: false,
-	},
-	{
-		id: "o",
-		description: "Random button includes orphans",
-		invert: false,
-		hidden: false,
-	},
-];
-
-const databasePath = joinPath(config.dataPath, "archive95.sqlite");
-const cachePath = joinPath(config.dataPath, "cache");
+const databasePath = joinPath(config.buildPath, "archive95.sqlite");
+const cachePath = joinPath(config.buildPath, "cache");
 
 const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
 const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
@@ -221,7 +122,7 @@ if (args["build"]) {
 		sort INTEGER PRIMARY KEY
 	)`).run();
 
-	const sourceData = JSON.parse(Deno.readTextFileSync(joinPath(config.dataPath, "sources.json")));
+	const sourceData = JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, "sources.json")));
 
 	logMessage("adding sources to database...");
 	const sourceQuery = db.prepare(`INSERT INTO sources (id, title, author, archiveDate, publishDate, description, integrity, link, year, month, urlMode, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -268,9 +169,9 @@ if (args["build"]) {
 		const entries = [];
 		let currentEntry = 0;
 		for (const source of sourceData) {
-			for (const entryLine of (Deno.readTextFileSync(joinPath(config.dataPath, `sources/${source.id}.txt`))).split(/[\r\n]+/g)) {
+			for (const entryLine of (Deno.readTextFileSync(joinPath(config.inputPath, `sources/${source.id}.txt`))).split(/[\r\n]+/g)) {
 				const [path, url, warn, skip] = overwriteArray(["undefined", "", "false", "false"], entryLine.split("\t"));
-				const filePath = joinPath(config.dataPath, `sources/${source.id}/${path}`);
+				const filePath = joinPath(config.inputPath, `sources/${source.id}/${path}`);
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
 				const entry = {
 					path: path,
@@ -367,7 +268,7 @@ if (args["build"]) {
 		sanitizedUrl TEXT NOT NULL
 	)`).run();
 
-	const screenshotData = (Deno.readTextFileSync(joinPath(config.dataPath, "screenshots.txt"))).split(/[\r\n]+/g).map((screenshot, s, data) => {
+	const screenshotData = (Deno.readTextFileSync(joinPath(config.inputPath, "screenshots.txt"))).split(/[\r\n]+/g).map((screenshot, s, data) => {
 		screenshot = screenshot.split("\t");
 		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
 		return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
@@ -634,13 +535,13 @@ const serverHandler = async (request, info) => {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
 			if (screenshot === undefined) return error();
 			headers.set("Content-Type", "image/gif");
-			return new Response(Deno.readFileSync(joinPath(config.dataPath, "screenshots", screenshot.path)), { headers: headers });
+			return new Response(Deno.readFileSync(joinPath(config.buildPath, "screenshots", screenshot.path)), { headers: headers });
 		}
 		case "thumbnails": {
 			const screenshot = db.prepare("SELECT path FROM screenshots WHERE path = ?").get(query.url);
 			if (screenshot === undefined) return error();
 			const thumbnail = (await new Deno.Command("convert",
-				{ args: [joinPath(config.dataPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
+				{ args: [joinPath(config.buildPath, "screenshots", screenshot.path), "-geometry", "x64", "-"], stdout: "piped" }
 			).output()).stdout;
 			headers.set("Content-Type", "image/gif");
 			return new Response(thumbnail, { headers: headers });
@@ -1365,7 +1266,7 @@ function getArchives(query) {
 }
 
 // Return the filesystem path for an archived file
-function getArchivePath(entry) { return joinPath(config.dataPath, "sources", entry.source, entry.path); }
+function getArchivePath(entry) { return joinPath(config.buildPath, "sources", entry.source, entry.path); }
 
 // Return a random entry
 function getRandom(flags = "", source) {

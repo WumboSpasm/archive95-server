@@ -1,0 +1,18 @@
+{
+	"httpPort": 8987,
+	"httpsPort": 8988,
+	"httpsCert": null,
+	"httpsKey": null,
+	"accessHosts": [],
+	"blockedIPs": [],
+	"blockedUAs": [],
+	"inputPath": "data/input",
+	"buildPath": "data/build",
+	"logFile": "server.log",
+	"logToConsole": true,
+	"logBlockedRequests": true,
+	"doCompatMode": true,
+	"forceCompatMode": false,
+	"resultsPerPage": 50,
+	"doInlinks": true
+}
