@@ -169,18 +169,17 @@ if (args['build']) {
 		const entries = [];
 		let currentEntry = 0;
 		for (const source of sourceData) {
-			for (const entryLine of (Deno.readTextFileSync(joinPath(config.inputPath, `sources/${source.id}.txt`))).split(/[\r\n]+/g)) {
-				const [path, url, warn, skip] = overwriteArray(['undefined', '', 'false', 'false'], entryLine.split('\t'));
-				const filePath = joinPath(config.inputPath, `sources/${source.id}/${path}`);
+			for (const entryInfo of JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, `sources/${source.id}.json`)))) {
+				const filePath = joinPath(config.inputPath, `sources/${source.id}/${entryInfo.path}`);
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
 				const entry = {
-					path: path,
-					url: url,
-					sanitizedUrl: sanitizeUrl(url),
+					path: entryInfo.path,
+					url: entryInfo.url,
+					sanitizedUrl: sanitizeUrl(entryInfo.url),
 					source: source.id,
 					type: null,
-					warn: warn.toLowerCase() == 'true',
-					skip: skip.toLowerCase() == 'true',
+					warn: entryInfo.warn,
+					skip: entryInfo.skip,
 					title: null,
 					content: null,
 					links: [],
@@ -268,10 +267,9 @@ if (args['build']) {
 		sanitizedUrl TEXT NOT NULL
 	)`).run();
 
-	const screenshotData = (Deno.readTextFileSync(joinPath(config.inputPath, 'screenshots.txt'))).split(/[\r\n]+/g).map((screenshot, s, data) => {
-		screenshot = screenshot.split('\t');
-		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot[0]}...`);
-		return { url: screenshot[1], sanitizedUrl: sanitizeUrl(screenshot[1]), path: screenshot[0] };
+	const screenshotData = JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, 'screenshots.json'))).map((screenshot, s, data) => {
+		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot.path}...`);
+		return { url: screenshot.url, sanitizedUrl: sanitizeUrl(screenshot.url), path: screenshot.path };
 	});
 
 	logMessage('adding screenshots to database...');
