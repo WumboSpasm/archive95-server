@@ -1723,16 +1723,18 @@ function improvePresentation(html, compatMode = false) {
 		const isindexExp = /<isindex.*?>/gis;
 		for (let match; (match = isindexExp.exec(html)) !== null;) {
 			const isindex = match[0];
-			const matchPrompt = [...isindex.matchAll(/prompt *= *(".*?"|[^ >]+)/gis)];
-			const matchAction = [...isindex.matchAll(/action *= *(".*?"|[^ >]+)/gis)];
+			const matchPrompt = isindex.match(/prompt *= *(".*?"|[^ >]+)/is);
+			const matchAction = isindex.match(/action *= *(".*?"|[^ >]+)/is);
 
 			let formStart = '';
 			let formEnd = '';
 			let prompt = 'This is a searchable index. Enter search keywords: ';
-			if (matchPrompt.length > 0 && matchPrompt[0].length > 0)
-				prompt = trimQuotes(matchPrompt[0][1]);
-			if (matchAction.length > 0 && matchAction[0].length > 0) {
-				formStart = `<form action=${trimQuotes(matchAction[0][1])}>`;
+			if (matchPrompt !== null) {
+				prompt = trimQuotes(matchPrompt[1]);
+				if (!prompt.endsWith(' ')) prompt += ' ';
+			}
+			if (matchAction !== null) {
+				formStart = `<form action="${trimQuotes(matchAction[1])}">`;
 				formEnd = '</form>';
 			}
 
