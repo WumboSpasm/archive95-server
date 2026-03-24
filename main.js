@@ -1,13 +1,13 @@
 import { contentType } from 'jsr:@std/media-types@1.1.0';
 import { Database } from 'jsr:@db/sqlite@0.12';
-import { join as joinPath } from 'jsr:@std/path';
 import { parseArgs } from 'jsr:@std/cli/parse-args';
+import * as pathUtils from 'jsr:@std/path';
 
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
 	boolean: ['build', 'wipe-cache'],
 	string: ['config'],
-	default: { 'build': false, 'wipe-cache': false, 'config': 'config.json' }
+	default: { 'build': false, 'wipe-cache': false, 'config': 'config.json' },
 });
 
 // Attempt to load config file, otherwise use defaults
@@ -78,8 +78,8 @@ const templates = {
 const pageModes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
 const pageFlags = JSON.parse(Deno.readTextFileSync('data/flags.json'));
 
-const databasePath = joinPath(config.buildPath, 'archive95.sqlite');
-const cachePath = joinPath(config.buildPath, 'cache');
+const databasePath = pathUtils.join(config.buildPath, 'archive95.sqlite');
+const cachePath = pathUtils.join(config.buildPath, 'cache');
 
 const linkExp = /((?:href|src|action|background) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
 const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
@@ -122,7 +122,7 @@ if (args['build']) {
 		sort INTEGER PRIMARY KEY
 	)`).run();
 
-	const sourceData = JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, 'sources.json')));
+	const sourceData = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'sources.json')));
 
 	logMessage('adding sources to database...');
 	const sourceQuery = db.prepare(`INSERT INTO sources (id, title, author, archiveDate, publishDate, description, integrity, link, year, month, urlMode, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -160,7 +160,7 @@ if (args['build']) {
 	const entryData = await (async () => {
 		// Attempt to load type cache
 		Deno.mkdirSync(cachePath, { recursive: true });
-		const typesPath = joinPath(cachePath, 'types');
+		const typesPath = pathUtils.join(cachePath, 'types');
 		const typesList = getPathInfo(typesPath)?.isFile
 			? (Deno.readTextFileSync(typesPath)).split(/[\r\n]+/g).map(typeLine => typeLine.split('\t'))
 			: [];
@@ -169,8 +169,8 @@ if (args['build']) {
 		const entries = [];
 		let currentEntry = 0;
 		for (const source of sourceData) {
-			for (const entryInfo of JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, `sources/${source.id}.json`)))) {
-				const filePath = joinPath(config.inputPath, `sources/${source.id}/${entryInfo.path}`);
+			for (const entryInfo of JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, `sources/${source.id}.json`)))) {
+				const filePath = pathUtils.join(config.inputPath, `sources/${source.id}/${entryInfo.path}`);
 				logMessage(`[${++currentEntry}/??] loading file ${filePath}...`);
 				const entry = {
 					path: entryInfo.path,
@@ -193,9 +193,9 @@ if (args['build']) {
 						entry.type = typesList[t - 1][1];
 					}
 					if (entry.type.startsWith('text/')) {
-						const text = await getText(filePath, entry.source);
+						const text = getText(filePath, entry.source);
 						if (entry.type == 'text/html') {
-							const html = improvePresentation(genericizeMarkup(text, entry));
+							const html = improvePresentation(genericizeMarkup(text, entry.source, entry.url, entry.path));
 							Object.assign(entry, textContent(html));
 							if (config.doInlinks) entry.links = getLinks(html, entry.url);
 						}
@@ -210,7 +210,7 @@ if (args['build']) {
 		}
 
 		// Write type cache
-		Deno.writeTextFile(joinPath(cachePath, 'types'), typesList.map(typeLine => typeLine.join('\t')).join('\n'));
+		Deno.writeTextFile(pathUtils.join(cachePath, 'types'), typesList.map(typeLine => typeLine.join('\t')).join('\n'));
 
 		// Sort entries and give them IDs based on the new order
 		logMessage('sorting files...');
@@ -267,7 +267,7 @@ if (args['build']) {
 		sanitizedUrl TEXT NOT NULL
 	)`).run();
 
-	const screenshotData = JSON.parse(Deno.readTextFileSync(joinPath(config.inputPath, 'screenshots.json'))).map((screenshot, s, data) => {
+	const screenshotData = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'screenshots.json'))).map((screenshot, s, data) => {
 		logMessage(`[${s + 1}/${data.length}] loading screenshot ${screenshot.path}...`);
 		return { url: screenshot.url, sanitizedUrl: sanitizeUrl(screenshot.url), path: screenshot.path };
 	});
@@ -350,7 +350,7 @@ const serverHandler = async (request, info) => {
 
 	// Serve homepage/search results
 	if (requestPath == '')
-		return new Response(await prepareSearch(requestUrl.searchParams, compatMode), { headers: headers });
+		return new Response(prepareSearch(requestUrl.searchParams, compatMode), { headers: headers });
 
 	// Try serving from static file directory
 	const staticFilePath = 'static/' + requestPath;
@@ -384,7 +384,7 @@ const serverHandler = async (request, info) => {
 					)))));
 
 					if (plaintext)
-						embed = buildHtml(embed, { 'TEXT': await getText(filePath, entry.source) });
+						embed = buildHtml(embed, { 'TEXT': getText(filePath, entry.source) });
 					else
 						embed = buildHtml(embed, {
 							'FILE': `/${joinArgs('view', entry.source, query.flags + 'n')}/${entry.url}`,
@@ -400,13 +400,13 @@ const serverHandler = async (request, info) => {
 					return new Response(embedContainer, { headers: headers });
 				}
 				else {
-					const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
+					const [file, contentType] = prepareMedia(filePath, entry, query.flags);
 					headers.set('Content-Type', contentType);
 					return new Response(file, { headers: headers });
 				}
 			}
 
-			return new Response(await prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
+			return new Response(prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
 		}
 		case 'orphan': {
 			const [archives, desiredArchive] = getArchives(query);
@@ -416,12 +416,12 @@ const serverHandler = async (request, info) => {
 			const filePath = getArchivePath(entry);
 
 			if (entry.type != 'text/html') {
-				const [file, contentType] = await prepareMedia(filePath, entry, query.flags);
+				const [file, contentType] = prepareMedia(filePath, entry, query.flags);
 				headers.set('Content-Type', contentType);
 				return new Response(file, { headers: headers });
 			}
 
-			return new Response(await prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
+			return new Response(prepareHtml(filePath, archives, desiredArchive, query), { headers: headers });
 		}
 		case 'raw': {
 			const [archives, desiredArchive] = getArchives(query);
@@ -533,14 +533,14 @@ const serverHandler = async (request, info) => {
 			const screenshot = db.prepare('SELECT path FROM screenshots WHERE path = ?').get(query.url);
 			if (screenshot === undefined) return error();
 			headers.set('Content-Type', 'image/gif');
-			return new Response(Deno.readFileSync(joinPath(config.buildPath, 'screenshots', screenshot.path)), { headers: headers });
+			return new Response(Deno.readFileSync(pathUtils.join(config.buildPath, 'screenshots', screenshot.path)), { headers: headers });
 		}
 		case 'thumbnails': {
 			const screenshot = db.prepare('SELECT path FROM screenshots WHERE path = ?').get(query.url);
 			if (screenshot === undefined) return error();
-			const thumbnail = (await new Deno.Command('convert',
-				{ args: [joinPath(config.buildPath, 'screenshots', screenshot.path), '-geometry', 'x64', '-'], stdout: 'piped' }
-			).output()).stdout;
+			const thumbnail = new Deno.Command('convert',
+				{ args: [pathUtils.join(config.buildPath, 'screenshots', screenshot.path), '-geometry', 'x64', '-'], stdout: 'piped' }
+			).outputSync().stdout;
 			headers.set('Content-Type', 'image/gif');
 			return new Response(thumbnail, { headers: headers });
 		}
@@ -830,12 +830,12 @@ function prepareSearch(params, compatMode) {
 }
 
 // Load, parse, and modify HTML data according to the query
-async function prepareHtml(filePath, archives, desiredArchive, query) {
+function prepareHtml(filePath, archives, desiredArchive, query) {
 	const entry = archives[desiredArchive];
 
-	let html = await getText(filePath, entry.source);
-	html = genericizeMarkup(html, entry);
-	html = redirectLinks(html, entry, query.flags, getLinks(html, entry.url));
+	let html = getText(filePath, entry.source);
+	html = genericizeMarkup(html, entry.source, entry.url, entry.path);
+	html = redirectLinks(html, entry, query.flags);
 
 	const framesetExp = /<frameset.*?>.*<\/frameset> *\n?/is;
 	const noframesExp = /<\/?no ?frames?> *\n?/gi;
@@ -853,28 +853,29 @@ async function prepareHtml(filePath, archives, desiredArchive, query) {
 }
 
 // Load non-HTML data and make changes if necessary
-async function prepareMedia(filePath, entry, flags) {
+function prepareMedia(filePath, entry, flags) {
 	let [data, contentType] = [null, entry.type];
 
 	// Convert XBM to GIF
 	if (!flags.includes('p') && entry.type == 'image/x-xbitmap') {
-		data = (await new Deno.Command('convert', { args: [filePath, 'GIF:-'], stdout: 'piped' }).output()).stdout;
+		data = new Deno.Command('convert', { args: [filePath, 'GIF:-'], stdout: 'piped' }).outputSync().stdout;
 		contentType = 'image/gif';
 	}
 	// Fix problematic GIFs present in The Risc Disc Volume 2
 	if (entry.source == 'riscdisc' && entry.type == 'image/gif')
-		data = (await new Deno.Command('convert', { args: [filePath, '+repage', '-'], stdout: 'piped' }).output()).stdout;
+		data = new Deno.Command('convert', { args: [filePath, '+repage', '-'], stdout: 'piped' }).outputSync().stdout;
 
 	if (data === null) data = Deno.readFileSync(filePath);
 	return [data, contentType];
 }
 
 // Point links to archives, or the original URLs if "e" flag is enabled
-function redirectLinks(html, entry, flags, rawLinks) {
+function redirectLinks(html, entry, flags) {
 	const rootSource = sourceInfo.find(source => source.id == entry.source);
 	const flagsNav = flags.replace('n', '');
 	const flagsNoNav = flagsNav + 'n';
 
+	const rawLinks = getLinks(html, entry.url);
 	const unmatchedLinks = rawLinks.map(link => {
 		const matchStart = link.lastIndex - link.fullMatch.length;
 		const matchEnd = link.lastIndex;
@@ -1264,7 +1265,7 @@ function getArchives(query) {
 }
 
 // Return the filesystem path for an archived file
-function getArchivePath(entry) { return joinPath(config.buildPath, 'sources', entry.source, entry.path); }
+function getArchivePath(entry) { return pathUtils.join(config.buildPath, 'sources', entry.source, entry.path); }
 
 // Return a random entry
 function getRandom(flags = '', source) {
@@ -1406,7 +1407,7 @@ async function mimeType(filePath) {
 	])).map(type => decoder.decode(type.stdout).trim());
 	if (types[0] == 'text/plain') {
 		if (types[1] != 'image/x-xbitmap') {
-			const fileInfo = decoder.decode((await new Deno.Command('file', { args: ['-b', filePath], stdout: 'piped' }).output()).stdout);
+			const fileInfo = decoder.decode(new Deno.Command('file', { args: ['-b', filePath], stdout: 'piped' }).outputSync().stdout);
 			if (fileInfo.startsWith('xbm image')) return 'image/x-xbitmap';
 		}
 		return types[1];
@@ -1417,19 +1418,16 @@ async function mimeType(filePath) {
 		return types[0];
 }
 
-// Merge array1 with array2 by overwriting array1's values with those of array2
-function overwriteArray(array1, array2) { return array1.map((v, i) => array2[i] || v) }
-
 /*----------------------------------+
  | General-Purpose Helper Functions |
  +----------------------------------*/
 
 // Attempt to revert source-specific markup alterations
-function genericizeMarkup(html, entry) {
-	switch (entry.source) {
+function genericizeMarkup(html, source, url, path) {
+	switch (source) {
 		case 'sgi': {
 			// Fix anomaly with HTML files in the Edu/ directory
-			if (entry.path.startsWith('Edu/'))
+			if (path.startsWith('Edu/'))
 				html = html.replaceAll(/(?<!")\.\.\//g, '/');
 			break;
 		}
@@ -1467,7 +1465,7 @@ function genericizeMarkup(html, entry) {
 			break;
 		}
 		case 'riscdisc': {
-			if (entry.path.startsWith('WWW_BBCNC_ORG_UK'))
+			if (path.startsWith('WWW_BBCNC_ORG_UK'))
 				html = html.replaceAll(
 					// In bbcnc.org.uk only, the brackets are inside the link elements
 					/(?<=<a\s.*?>(?:\s+)?)\[(.*?)\](?=(?:\s+)?<\/a>)/gis,
@@ -1487,7 +1485,7 @@ function genericizeMarkup(html, entry) {
 					/\[+(<a\s.*?>.*?<\/a>)\]+/gis,
 					'$1'
 				);
-			if (entry.path.startsWith('WWW_HOTWIRED_COM'))
+			if (path.startsWith('WWW_HOTWIRED_COM'))
 				html = html.replaceAll(
 					// Replace imagemap placeholder with unarchived link notice
 					/"[./]+no_imagemap\.htm"/gi,
@@ -1499,7 +1497,7 @@ function genericizeMarkup(html, entry) {
 			// Remove downloader software header
 			html = html.replace(/^<META name="download" content=".*?">\n/s, '');
 			// Attempt to fix broken external links
-			const links = getLinks(html, entry.url)
+			const links = getLinks(html, url)
 				.filter(link => link.hasHttp && URL.canParse(link.rawUrl))
 				.toSorted((a, b) => a.lastIndex - b.lastIndex);
 			for (const link of links) {
@@ -1551,7 +1549,7 @@ function genericizeMarkup(html, entry) {
 		case 'netcontrol96':
 		case 'netcontrol98': {
 			// Remove injected script that exists on exactly one page
-			if (entry.path == 'archive-b/ba1/index.shtml')
+			if (path == 'archive-b/ba1/index.shtml')
 				html = html
 					.replace(/\n?<script [^>]*src="\/archived.js".*?>/, '')
 					.replace(/ onLoad="shownew\('\/'\)"/, '');
@@ -1778,8 +1776,11 @@ function getLinks(html, baseUrl) {
 }
 
 // Retrieve text from file and convert to UTF-8 if necessary
-async function getText(filePath, source) {
-	if (!getPathInfo(filePath).isFile || Deno.stat(filePath).size == 0) return '';
+function getText(filePath, source) {
+	const fileInfo = getPathInfo(filePath);
+	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
+		return '';
+
 	let text;
 	try {
 		const decoder = new TextDecoder();
@@ -1787,9 +1788,9 @@ async function getText(filePath, source) {
 			case 'wwwdir': {
 				// World Wide Web Directory has some double-encoding weirdness that needs to be untangled
 				text = decoder.decode((
-					await new Deno.Command('bash', { args: ['-c',
+					new Deno.Command('bash', { args: ['-c',
 						`HTML="$(iconv '${filePath.replaceAll("'", "\\'")}' -cf UTF-8 -t WINDOWS-1252)"; iconv -cf $(uchardet <(echo -nE "$HTML")) -t UTF-8 <(echo -nE "$HTML")`
-					], stdout: 'piped' }).output()
+					], stdout: 'piped' }).outputSync()
 				).stdout);
 				break;
 			}
@@ -1799,12 +1800,12 @@ async function getText(filePath, source) {
 				break;
 			}
 			default: {
-				let uchardetStr = decoder.decode((await new Deno.Command('uchardet', { args: [filePath], stdout: 'piped' }).output()).stdout).trim();
+				let uchardetStr = decoder.decode(new Deno.Command('uchardet', { args: [filePath], stdout: 'piped' }).outputSync().stdout).trim();
 				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
 				if (uchardetStr == 'MAC-CENTRALEUROPE' || uchardetStr == 'IBM865') uchardetStr = 'WINDOWS-1253';
 				if (uchardetStr != 'ASCII' && uchardetStr != 'UTF-8')
 					text = decoder.decode((
-						await new Deno.Command('iconv', { args: [filePath, '-cf', uchardetStr, '-t', 'UTF-8'], stdout: 'piped' }).output()
+						new Deno.Command('iconv', { args: [filePath, '-cf', uchardetStr, '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
 					).stdout);
 				else
 					text = Deno.readTextFileSync(filePath);
@@ -1812,6 +1813,7 @@ async function getText(filePath, source) {
 		}
 	}
 	catch { text = Deno.readTextFileSync(filePath); }
+
 	return text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 }
 
