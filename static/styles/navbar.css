@@ -1,12 +1,5 @@
- .navbar {
+.navbar {
 	width: 100%;
-	color: black;
-	background-color: white;
-	border-top: 1px solid black;
-	font-family: serif;
-	font-size: initial;
-	font-weight: normal;
-	font-style: normal;
 	text-align: left;
 	box-sizing: border-box;
 	position: fixed;
@@ -15,6 +8,16 @@
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
+
+	font-family: 'Times New Roman', Times, serif;
+	background-color: white;
+	border-top: 1px solid black;
+
+	/* Manually define default style in case navbar ends up inside an unclosed text style element */
+	color: black;
+	font-size: initial;
+	font-weight: normal;
+	font-style: normal;
 }
 .navbar a:link {
 	color: blue;
@@ -25,40 +28,47 @@
 .navbar a:visited {
 	color: purple;
 }
+
 .navbar-top, .navbar-bottom,
 .navbar-options, .navbar-archives,
 .navbar-extras, .navbar-extras a {
 	display: flex;
 	flex-direction: row;
 }
-.navbar-top, .navbar-bottom {
-	gap: 12px;
-}
+
 .navbar-top {
 	padding: 4px 8px 0;
+	gap: 8px;
 }
 .navbar-url {
-	font-weight: bold;
-	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	white-space: nowrap;
+
+	font-weight: bold;
+}
+.navbar-orphan {
+	color: #555555;
+	flex-shrink: 0;
 }
 .navbar-warning {
 	color: red;
 	flex-shrink: 0;
 }
 .navbar-options {
-	gap: 8px;
 	flex-grow: 1;
 	justify-content: end;
+	gap: 8px;
 }
+
 .navbar-bottom {
 	padding: 2px 8px 4px;
 	overflow-x: auto;
+	gap: 12px;
 }
 .navbar-archives {
-	gap: 6px;
 	flex-grow: 1;
+	gap: 6px;
 }
 .navbar-archives > div {
 	width: 80px;
@@ -80,4 +90,13 @@
 }
 .navbar-extras a {
 	align-items: center;
+}
+
+/* Insert spacer underneath document so navbar doesn't obscure text */
+:root::after {
+	height: 120px;
+	clear: both;
+	display: block;
+
+	content: '';
 }

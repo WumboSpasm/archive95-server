@@ -1,0 +1,44 @@
+{
+	"compat": {
+		"search": [
+			"about",
+			"source",
+			"result"
+		],
+		"sources": [
+			"source"
+		],
+		"navbar": [
+			"screenshot"
+		],
+		"embed": [
+			"text",
+			"image",
+			"audio",
+			"video",
+			"unsupported"
+		],
+		"inlinks": [
+			"list",
+			"link"
+		],
+		"options": [
+			"option"
+		],
+		"error": [
+			"links"
+		]
+	},
+	"modern": {
+		"search": [
+			"about",
+			"source",
+			"result",
+			"navigate"
+		],
+		"navbar": [
+			"archive",
+			"screenshot"
+		]
+	}
+}

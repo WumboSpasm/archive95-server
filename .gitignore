@@ -1,5 +1,6 @@
 config.json
 server.log
+static/robots.txt
 data/build/
 data/input/
 .vscode/

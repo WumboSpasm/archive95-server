@@ -1,24 +1,8 @@
-<div class="navbar">
-	<div class="navbar-top">
-		<div class="navbar-url">{URL}</div>
-		<div class="navbar-warning"{SHOWWARNING}>(possibly inaccurate URL)</div>
-		<div class="navbar-options">
-			<a href="/">home</a>
-			<a href="{SOURCE}">source</a>
-			<a href="{WAYBACK}" target="_blank">wayback</a>
-			<a href="{URL}" target="_blank">live</a>
-			<a href="{RAW}" target="_blank">raw</a>
-			<a href="{INLINKS}"{SHOWINLINKS}>inlinks</a>
-			<a href="{OPTIONS}">options</a>
-		</div>
-	</div>
-	<div class="navbar-bottom">
-		<div class="navbar-archives">
-			{ARCHIVES}
-		</div>
-		<div class="navbar-extras">
-			{SCREENSHOTS}
-			<a href="{RANDOM}"><img src="/dice.gif" title="Take me to a random file"></a>
-		</div>
-	</div>
-</div>
+<hr>
+<a href="{OPTIONS}"><img src="/images/options.gif" alt="options" title="Change options" align="right" border="0"></a>
+<a href="{RANDOM}"><img src="/images/random.gif" alt="random" title="Go to a random page" align="right" border="0"></a>
+<a href="/"><img src="/images/home.gif" alt="home" title="Go home" align="right" border="0"></a>
+{SCREENSHOTS}
+<b>{URL}</b> ({SOURCE}, {DATE})<br>
+{ARCHIVES}
+<hr>

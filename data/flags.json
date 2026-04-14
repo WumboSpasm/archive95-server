@@ -7,7 +7,7 @@
 	},
 	{
 		"id": "p",
-		"description": "Improve presentation on newer browsers",
+		"description": "Improve presentation across browsers",
 		"invert": true,
 		"hidden": false
 	},
@@ -31,14 +31,14 @@
 	},
 	{
 		"id": "m",
-		"description": "Random button includes non-text files",
+		"description": "Random button includes non-HTML files",
 		"invert": false,
 		"hidden": false
 	},
 	{
 		"id": "o",
-		"description": "Random button includes orphans",
-		"invert": false,
+		"description": "Random button includes orphan files",
+		"invert": true,
 		"hidden": false
 	}
 ]

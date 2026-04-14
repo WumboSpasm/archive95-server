@@ -19,7 +19,7 @@
 	},
 	{
 		"id": "inlinks",
-		"hasSource": false,
+		"hasSource": true,
 		"hasFlags": true,
 		"hasUrl": true
 	},
@@ -27,6 +27,18 @@
 		"id": "options",
 		"hasSource": true,
 		"hasFlags": true,
+		"hasUrl": true
+	},
+	{
+		"id": "screenshot",
+		"hasSource": true,
+		"hasFlags": false,
+		"hasUrl": true
+	},
+	{
+		"id": "thumbnail",
+		"hasSource": true,
+		"hasFlags": false,
 		"hasUrl": true
 	},
 	{
@@ -40,17 +52,5 @@
 		"hasSource": false,
 		"hasFlags": false,
 		"hasUrl": false
-	},
-	{
-		"id": "screenshots",
-		"hasSource": false,
-		"hasFlags": false,
-		"hasUrl": true
-	},
-	{
-		"id": "thumbnails",
-		"hasSource": false,
-		"hasFlags": false,
-		"hasUrl": true
 	}
 ]

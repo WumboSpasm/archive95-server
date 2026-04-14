@@ -1,58 +1,31 @@
-<!DOCTYPE html>
 <html>
 	<head>
 		<title>{TITLE}</title>
-		<link rel="stylesheet" href="search.css">
 		<meta name="description" content="An independent archive of the early web that looks past crawlers.">
 		<meta name="keywords" content="internet, world wide web, archive, web archive, wayback, wayback machine, internet cd, 1995">
 		<meta name="author" content="WumboSpasm">
 	</head>
 	<body>
-		<a href="/" title="Go home"><img src="logo.gif"></a>
 		<form action="/" method="get">
-			<input type="text" name="query" value="{QUERY}" placeholder="Search ye olde web...">
-			<button type="submit">Search</button>
-			<div class="lower">
-				<div class="options">
-					<fieldset>
-						<legend>Search in</legend>
-						<input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}>
-						<label for="inTitle">Title</label>
-						<br>
-						<input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}>
-						<label for="inContent">Content</label>
-						<br>
-						<input type="checkbox" id="inUrl" name="in" value="url"{INURL}>
-						<label for="inUrl">URL</label>
-					</fieldset>
-					<fieldset>
-						<legend>Search formats</legend>
-						<input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}>
-						<label for="formatsAll">All formats</label>
-						<br>
-						<input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}>
-						<label for="formatsText">Text only</label>
-						<br>
-						<input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}>
-						<label for="formatsMedia">Media only</label>
-					</fieldset>
-					<div>
-						<a href="/random/"><img src="dice.gif" title="Take me to a random page"></a>
-					</div>
-					<div>
-						<a href="https://flashpointarchive.org/" target="_blank"><img src="banners/flashpoint.gif"></a>
-						<a href="https://discmaster.textfiles.com/" target="_blank"><img src="banners/discmaster.gif"></a>
-						<a href="https://theoldnet.com/" target="_blank"><img src="banners/theoldnet.gif"></a>
-						<img src="banners/anybrowser.gif">
-					</div>
-				</div>
-				<div class="content">
-					<fieldset>
-						<legend>{HEADER}</legend>
-						{CONTENT}
-					</fieldset>
-				</div>
-			</div>
+			<a href="/"><img src="/images/logo.gif" alt="Archive95" title="Go home" border="0"></a><br>
+			<input type="text" name="query" value="{QUERY}" size="40"> <input type="submit" value="Search">
+			<br>
+			<b>Search in:</b>
+			<input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}> <label for="inTitle">Title</label>
+			<input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}> <label for="inContent">Content</label>
+			<input type="checkbox" id="inUrl" name="in" value="url"{INURL}> <label for="inUrl">URL</label>
+			<br>
+			<b>Search formats:</b>
+			<input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}> <label for="formatsAll">All formats</label>
+			<input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}> <label for="formatsText">Text only</label>
+			<input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}> <label for="formatsMedia">Media only</label>
+			<br>
+			<b>Search source:</b>
+			<select name="source">
+				<option value="">All sources</option>
+				{SOURCES}
+			</select>
 		</form>
+		{CONTENT}
 	</body>
 </html>

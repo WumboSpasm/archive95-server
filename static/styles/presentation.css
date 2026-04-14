@@ -1,8 +1,8 @@
 :not(div.navbar div) > a[href] img[border] {
-	border-color: #00f;
+	border-color: blue;
 }
 :not(div.navbar div) > a[href] img:not([border]) {
-	border: 2px solid #00f;
+	border: 2px solid blue;
 }
 dl > dl {
 	margin: 0 0 0 40px;
@@ -10,6 +10,7 @@ dl > dl {
 blink {
 	animation: blink 1s step-start infinite;
 }
+
 @keyframes blink {
 	25% {
 		opacity: 0;

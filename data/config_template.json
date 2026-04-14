@@ -11,8 +11,7 @@
 	"logFile": "server.log",
 	"logToConsole": true,
 	"logBlockedRequests": true,
-	"doCompatMode": true,
-	"forceCompatMode": false,
+	"doModernMode": true,
 	"resultsPerPage": 50,
-	"doInlinks": true
+	"maxPage": 20
 }
