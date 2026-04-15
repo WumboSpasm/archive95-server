@@ -1,0 +1,17 @@
+{
+	"httpPort": 8987,
+	"httpsPort": 8988,
+	"httpsCert": null,
+	"httpsKey": null,
+	"accessHosts": [],
+	"blockedIPs": [],
+	"blockedUAs": [],
+	"inputPath": "data/input",
+	"buildPath": "data/build",
+	"logFile": "server.log",
+	"logToConsole": true,
+	"logBlockedRequests": true,
+	"doModernMode": true,
+	"resultsPerPage": 50,
+	"maxPage": 20
+}

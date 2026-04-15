@@ -1,0 +1,98 @@
+body {
+	width: 640px;
+	margin: 0 auto;
+	text-align: center;
+
+	font-family: 'Times New Roman', Times, serif;
+	background-color: white;
+}
+input[name='query'] {
+	width: 320px;
+}
+select[name='source'] {
+	max-width: 100%;
+}
+ul {
+	margin: 8px 0;
+	padding-left: 20px;
+
+	font-size: 90%;
+}
+
+.lower {
+	margin: 12px 0;
+	text-align: left;
+	display: flex;
+	flex-direction: row;
+
+	gap: 12px;
+}
+
+.options {
+	width: 144px;
+
+	flex-shrink: 0;
+}
+.options > fieldset {
+	margin-bottom: 4px;
+}
+.options > div {
+	padding-top: 4px;
+	text-align: center;
+}
+
+.content {
+	flex-grow: 1;
+}
+.about-break {
+	height: 8px;
+}
+.about-divider {
+	margin-bottom: 8px;
+	padding-bottom: 8px;
+
+	border-bottom: 1px solid lightgray;
+}
+
+.navigate {
+	display: flex;
+	flex-direction: row;
+	gap: 6px;
+}
+.navigate:first-of-type {
+	margin-bottom: 8px;
+	padding-bottom: 6px;
+
+	border-bottom: 1px solid lightgray;
+}
+.navigate-total {
+	flex-grow: 1;
+}
+.navigate-button {
+	flex-shrink: 0;
+}
+
+.result {
+	display: flex;
+	flex-direction: column;
+	word-wrap: anywhere;
+}
+.result:not(:last-of-type) {
+	margin-bottom: 8px;
+	padding-bottom: 6px;
+
+	border-bottom: 1px solid lightgray;
+}
+.result-url {
+	margin-bottom: 4px;
+
+	font-size: 80%;
+}
+.result-source {
+	margin-left: 6px;
+
+	color: #555555;
+}
+.result-text {
+	font-size: 90%;
+}
