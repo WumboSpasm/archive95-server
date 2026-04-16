@@ -797,6 +797,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 					screenshots.push(buildHtml(templates.modern.navbar.screenshot, {
 						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, null)}/${screenshotUrl}`,
 						'THUMB': `/${buildRoute('thumbnail', screenshotInfo.source, null)}/${screenshotUrl}`,
+						'SOURCE': screenshotSource.title,
 						'DATE': (screenshotSource.circa ? '~' : '') + screenshotSource.archiveDate,
 					}));
 				}
@@ -839,6 +840,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 					const screenshotSource = sources[screenshotInfo.source];
 					screenshots.push(buildHtml(templates.compat.navbar.screenshot, {
 						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, null)}/${screenshotUrl}`,
+						'SOURCE': screenshotSource.title,
 						'DATE': (screenshotSource.circa ? '~' : '') + screenshotSource.archiveDate,
 					}));
 				}
