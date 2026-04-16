@@ -11,20 +11,20 @@ Archive95 is an independent web archive using old CD-ROMs and other material as 
 
 ## Instructions
 1. Clone repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
-2. Inside `data`, create a directory named `input`
+2. Inside `data`, create a folder named `input`
 3. Download [these files](https://archive.org/download/archive95-web-data/input/) into the `input` folder you just created
-4. Extract all gzipped files into their respective directories
+4. Extract all gzipped files into their respective folders
 5. Build filesystem and search database with `deno run -A build.js` (this will take a long time)
 6. Run server with `deno run -A main.js`
 
 ## Endpoints
-- `view`: View archived file in repaired form by supplying URL
-- `raw`: View archived file in raw form by supplying URL
+- `view`: View archived file in repaired form
+- `raw`: View archived file in raw form
 - `inlinks`: View all archived pages that link to the supplied URL
-- `options`: Configure behavior of viewer for the supplied URL
-- `screenshot`: View screenshot of supplied URL
-- `thumbnail`: View thumbnail of screenshot for supplied URL
-- `random`: Redirect to a random archived page
+- `options`: Configure behavior of viewer
+- `screenshot`: View archived screenshot
+- `thumbnail`: View archived screenshot at a small resolution
+- `random`: Redirect to a random archived file
 - `sources`: View imformation about sources
 
 ## Flags
