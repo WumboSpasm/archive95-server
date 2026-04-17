@@ -1,8 +1,15 @@
-:not(div.navbar div) > a[href] img[border] {
+:not(div.navbar *) > a[href]:link img {
 	border-color: blue;
 }
-:not(div.navbar div) > a[href] img:not([border]) {
-	border: 2px solid blue;
+:not(div.navbar *) > a[href]:visited img {
+	border-color: purple;
+}
+:not(div.navbar *) > a[href]:active img {
+	border-color: red;
+}
+:not(div.navbar *) > a[href] img:not([border]) {
+	border-width: 2px;
+	border-style: solid;
 }
 dl > dl {
 	margin: 0 0 0 40px;
