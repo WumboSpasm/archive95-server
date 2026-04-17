@@ -529,6 +529,11 @@ function prepareSearch(params, modernMode) {
 			else if (match.startsWith('"') && match.endsWith('"'))
 				// If the segment is already surrounded by quotation marks, we don't need to do anything
 				return match;
+			else if (/^https?:\/\/[^ ]+$/i.test(match))
+				// If the segment appears to be a URL, sanitize it and surround in quotation marks to maximize potential results
+				// Because people might be using the search bar expecting it to work like the Wayback Machine
+				// (It still won't, but it at least won't always return zero results)
+				return '"' + utils.sanitizeUrl(match) + '"';
 			else
 				// Loose words need most non-alphanumeric characters to be escaped
 				return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
