@@ -767,7 +767,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'URL': archiveInfo.url,
 			'ORPHAN': isOrphan ? '<div class="navbar-orphan">(orphan file)</div>' : '',
 			'WARNING': archiveInfo.warn ? '<div class="navbar-warning">(possibly inaccurate URL)</div>' : '',
-			'SOURCE': `/sources#${archiveInfo.source}`,
+			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo.source)}" target="_blank">wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, null)}/${archiveUrl}`,
@@ -784,7 +784,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 				'ACTIVE': i == archiveInfoIndex ? ' class="navbar-active"' : '',
 				'URL': `/${buildRoute('view', archiveInfoSet[i].source, flagIds)}/${url}`,
 				'ICON': `/images/sources/${archiveInfoSet[i].source}.gif`,
-				'TITLE': source.title,
+				'SOURCE': source.title,
 				'DATE': (source.circa ? '~' : '') + source.archiveDate,
 			}));
 		}
@@ -818,21 +818,21 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'URL': archiveInfo.url,
 			'SOURCE': source.title,
 			'DATE': (source.circa ? '~' : '') + source.archiveDate,
-			'OPTIONS': `/${buildRoute('options', archiveInfo.source, flagIds)}/${archiveUrl}`,
 			'RANDOM': `/${buildRoute('random', null, flagIds)}/`,
+			'OPTIONS': `/${buildRoute('options', archiveInfo.source, flagIds)}/${archiveUrl}`,
+			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, flagIds)}/${archiveUrl}`,
+			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 		};
 
-		if (archiveInfoSet.length > 1) {
-			const archiveButtons = [];
-			for (let i = 0; i < archiveInfoSet.length; i++) {
-				const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
-				if (i != archiveInfoIndex)
-					archiveButtons.push(`<a href="/${buildRoute('view', archiveInfoSet[i].source, flagIds)}/${url}">${archiveInfoSet[i].source}</a>`);
-			}
-			navbarDefs['ARCHIVES'] = 'Other archives: ' + archiveButtons.join(', ');
+		const archiveButtons = [];
+		for (let i = 0; i < archiveInfoSet.length; i++) {
+			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
+			let archiveButton = `<a href="/${buildRoute('view', archiveInfoSet[i].source, flagIds)}/${url}">${archiveInfoSet[i].source}</a>`;
+			if (i == archiveInfoIndex)
+				archiveButton = '<b>' + archiveButton + '</b>';
+			archiveButtons.push(archiveButton);
 		}
-		else
-			navbarDefs['ARCHIVES'] = '';
+		navbarDefs['ARCHIVES'] = archiveButtons.join(', ');
 
 		const screenshots = [];
 		if (!isOrphan) {
