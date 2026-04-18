@@ -815,13 +815,16 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	else {
 		const source = sources[archiveInfo.source];
 		const navbarDefs = {
-			'URL': archiveInfo.url,
-			'SOURCE': source.title,
-			'DATE': (source.circa ? '~' : '') + source.archiveDate,
 			'RANDOM': `/${buildRoute('random', null, flagIds)}/`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, flagIds)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, flagIds)}/${archiveUrl}`,
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
+			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo.source) }) : '',
+			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
+			'RAW': `/${buildRoute('raw', archiveInfo.source, null)}/${archiveUrl}`,
+			'URL': archiveInfo.url,
+			'SOURCE': source.title,
+			'DATE': (source.circa ? '~' : '') + source.archiveDate,
 		};
 
 		const archiveButtons = [];

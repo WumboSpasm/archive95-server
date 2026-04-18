@@ -9,6 +9,8 @@
 			"source"
 		],
 		"navbar": [
+			"wayback",
+			"live",
 			"screenshot"
 		],
 		"embed": [
