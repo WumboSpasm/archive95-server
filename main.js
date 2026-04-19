@@ -74,15 +74,18 @@ function serverHandler(request, info) {
 	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname) && request.headers.has('Host'))
 		throw new BadHostError();
 
-	// Render search page and navbar in HTML5 if user agent is considered modern
-	const modernMode = config.doModernMode && isModern(userAgent);
+	// Render search page and navbar in HTML5 if the browser seems to be modern
+	const modernMode = config.doModernMode && isModernBrowser(userAgent);
+
+	// Render pages in UTF-8 if the browser does not seem to be ancient
+	const doUnicode = modernMode || !isAncientBrowser(userAgent);
 
 	// Get body of request URL
 	const requestPath = requestUrl.pathname.replace(/^\/+/, '');
 
 	// Initialize response headers
 	const headers = new Headers();
-	headers.set('Content-Type', 'text/html; charset=UTF-8');
+	headers.set('Content-Type', 'text/html' + (doUnicode ? '; charset=UTF-8' : ''));
 	headers.set('Cache-Control', 'max-age=14400');
 
 	// Serve homepage/search results
@@ -257,7 +260,7 @@ function serverHandler(request, info) {
 			}
 			else {
 				// Plainly serve the file if the navbar is disabled and it's not an HTML file
-				headers.set('Content-Type', fileType + (fileType.startsWith('text/') ? '; charset=UTF-8' : ''));
+				headers.set('Content-Type', fileType + (doUnicode && fileType.startsWith('text/') ? '; charset=UTF-8' : ''));
 				return new Response(Deno.openSync(archivePathInfo.filePath).readable, { headers: headers });
 			}
 		}
@@ -473,7 +476,7 @@ function serverError(error) {
 	if (error.name != 'ArchiveError')
 		utils.logMessage(error.stack);
 
-	return new Response(errorPage, { status: status, headers: { 'Content-Type': 'text/html; charset=UTF-8' } });
+	return new Response(errorPage, { status: status, headers: { 'Content-Type': 'text/html' } });
 }
 
 // Build home/search pages based on query strings
@@ -920,21 +923,32 @@ function replaceSlices(str, slices) {
 	return newStr + str;
 }
 
-// Make an educated guess of the requesting browser's recency
-function isModern(userAgent) {
-	const fieldMatch = userAgent.match(/(?:Chrome|Firefox|Safari)\/[0-9.]+/);
+// Check if the user agent suggests a somewhat recent (ie. >2019) browser
+function isModernBrowser(userAgent) {
+	const fieldMatch = userAgent.match(/(Chrome|Firefox|Safari)\/([\d.]+)/);
 	if (fieldMatch !== null) {
-		const splitField = fieldMatch[0].split('/');
-		const browser = {
-			name: splitField[0],
-			version: parseInt(splitField[1], 10),
-		};
-		return (browser.name == 'Chrome'  && browser.version >= 80)
-			|| (browser.name == 'Firefox' && browser.version >= 72)
-			|| (browser.name == 'Safari'  && browser.version >= 604);
+		const browser = fieldMatch[1];
+		const version = parseInt(fieldMatch[2], 10);
+		return (browser == 'Chrome'  && version >= 80)
+			|| (browser == 'Firefox' && version >= 72)
+			|| (browser == 'Safari'  && version >= 604);
 	}
 
 	return false;
+}
+
+// Check if the user agent suggests an extremely old (ie. <1995) browser
+function isAncientBrowser(userAgent) {
+	const mozillaMatch = userAgent.match(/Mozilla\/([\d.]+)/);
+	if (mozillaMatch !== null) {
+		// Netscape 1.1 is the oldest version not to complain if the Content-Type header defines a charset
+		// So if the version is older than that, then the browser is considered to be ancient
+		const version = parseFloat(mozillaMatch[1]);
+		return isNaN(version) || version < 1.1;
+	}
+
+	// Any browser not pretending to be Mozilla is definitely prehistoric
+	return true;
 }
 
 // Join route segments back into a string, ie. mode[-source][_flags]
