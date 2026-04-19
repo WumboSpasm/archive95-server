@@ -16,7 +16,7 @@ export function getArchiveRootDir(sanitizedUrl, namespace) {
 	return pathUtils.join(config.buildPath, namespace, sanitizedUrl
 		.replace(/[^a-z0-9 \/_.-]/gi, c => c.charCodeAt(0).toString(16).toUpperCase().match(/.{1,2}/g).map(h => '%' + h.padStart(2, '0')).join(''))
 		.replace(/%3F.*$/, match => match.replaceAll('/', '%2F'))
-		.replace(/(?<=\/)\.+(?=\/|$)/g, match => '%2E'.repeat(match.length))
+		.replace(/(?<=^|\/)\.+(?=\/|$)/g, match => '%2E'.repeat(match.length))
 		.replace(/\/{1,}/g, '/'));
 }
 

@@ -1063,7 +1063,7 @@ class NotFoundError extends ArchiveError {
 
 class UnarchivedError extends ArchiveError {
 	constructor(url) {
-		const safeUrl = sanitizeInject(utils.safeDecode(url));
+		const safeUrl = sanitizeInject(url);
 		super(
 			404,
 			'Unarchived URL',
