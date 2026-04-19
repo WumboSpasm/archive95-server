@@ -11,6 +11,9 @@
 	border-width: 2px;
 	border-style: solid;
 }
+br[clear]:not([no]) {
+	clear: both;
+}
 dl > dl {
 	margin: 0 0 0 40px;
 }
