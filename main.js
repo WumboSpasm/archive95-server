@@ -396,13 +396,22 @@ function serverHandler(request, info) {
 				whereParameters.push(sourceId);
 			}
 
-			// Query for a random archive and redirect to it
+			// Query for a random archive
 			const archiveInfo = searchDatabase.prepare(`
 				SELECT source, url FROM search
 				${whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : ''}
 				ORDER BY random() LIMIT 1
 			`).get(...whereParameters);
-			return Response.redirect(`${requestUrl.origin}/${buildRoute('view', archiveInfo.source, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`);
+
+			const randomUrl = `/${buildRoute('view', archiveInfo.source, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
+			if (modernMode)
+				// Perform an HTTP redirect if modern mode is active
+				return Response.redirect(`${requestUrl.origin}/${randomUrl}`);
+			else {
+				// Otherwise, return a page that instantly redirects using <meta http-equiv="refresh">
+				headers.set('Cache-Control', 'no-store');
+				return new Response(buildHtml(templates.compat.random.main, { 'URL': randomUrl }), { headers: headers });
+			}
 		}
 		case 'sources': {
 			const grandTotal = stats.total.urls + stats.total.orphans;
@@ -773,7 +782,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'RAW': `/${buildRoute('raw', archiveInfo.source, null)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, flagIds)}/${archiveUrl}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, flagIds)}/${archiveUrl}`,
-			'RANDOM': `/${buildRoute('random', null, flagIds)}/`,
+			'RANDOM': `/${buildRoute('random', null, flagIds)}`,
 		};
 
 		const archiveButtons = [];
@@ -815,7 +824,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	else {
 		const source = sources[archiveInfo.source];
 		const navbarDefs = {
-			'RANDOM': `/${buildRoute('random', null, flagIds)}/`,
+			'RANDOM': `/${buildRoute('random', null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, flagIds)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, flagIds)}/${archiveUrl}`,
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
