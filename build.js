@@ -394,7 +394,7 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 	let offset = 0;
 	const source = sources[archive.source];
 	const newHtml = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '').replace(linkExp, (match, tagStart, url, index) => {
-		let rawUrl = trimQuotes(url);
+		let rawUrl = utils.safeDecode(trimQuotes(url));
 		// We don't care about missing URLs or anchors for the current page
 		if (rawUrl.startsWith('#') || rawUrl == '[missing-url]')
 			return match;

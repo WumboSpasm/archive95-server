@@ -81,7 +81,7 @@ function serverHandler(request, info) {
 	const doUnicode = modernMode || !isAncientBrowser(userAgent);
 
 	// Get body of request URL
-	const requestPath = requestUrl.pathname.replace(/^\/+/, '');
+	const requestPath = utils.safeDecode(requestUrl.pathname.replace(/^\/+/, ''));
 
 	// Initialize response headers
 	const headers = new Headers();

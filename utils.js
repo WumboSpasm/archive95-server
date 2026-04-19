@@ -43,17 +43,19 @@ export function sanitizePath(path, keepAnchor = false) {
 
 // Decode string without throwing an error if a single encoded character is invalid
 export function safeDecode(str) {
-	const chars = str.split('');
-	for (let c = 0; c < chars.length; c++) {
-		if (chars[c] == '%' && c < chars.length - 2) {
+	let decodedStr;
+	try { decodedStr = decodeURIComponent(str); }
+	catch {
+		decodedStr = str.replace(/%[\dA-F]{2}/g, match => {
 			let decodedChar;
-			try { decodedChar = decodeURIComponent(chars.join('').substring(c, c + 3)); }
-			catch { continue; }
-			chars.splice(c, 3, decodedChar);
-		}
+			try { decodedChar = decodeURIComponent(match); }
+			catch { decodedChar = match; }
+
+			return decodedChar;
+		});
 	}
 
-	return chars.join('');
+	return decodedStr;
 }
 
 // Log to the appropriate places based on the configuration
