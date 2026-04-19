@@ -409,7 +409,7 @@ function serverHandler(request, info) {
 			const randomUrl = `/${buildRoute('view', archiveInfo.source, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
 			if (modernMode)
 				// Perform an HTTP redirect if modern mode is active
-				return Response.redirect(`${requestUrl.origin}/${randomUrl}`);
+				return Response.redirect(requestUrl.origin + randomUrl);
 			else {
 				// Otherwise, return a page that instantly redirects using <meta http-equiv="refresh">
 				headers.set('Cache-Control', 'no-store');
