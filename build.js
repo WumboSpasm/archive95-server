@@ -671,6 +671,35 @@ function genericizeMarkup(html, source, url, path) {
 				html = html.replace(/(?<!")\.\.\//g, '/');
 			break;
 		}
+		case 'riscdisc': {
+			if (path.startsWith('WWW_BBCNC_ORG_UK'))
+				html = html.replace(
+					// In bbcnc.org.uk only, the brackets are inside the link elements
+					/(?<=<a\s.*?>\s*)\[(.*?)\](?=\s*<\/a>)/gis,
+					'$1',
+				);
+			else
+				html = html.replace(
+					// Uncomment opening link tags
+					/<(?:(?:-- ?)|!(?:-- ?)?)(a\s.*?)(?: ?--)?>/gis,
+					'<$1>',
+				).replace(
+					// Uncomment closing link tags
+					/<!?-- ?\/(a)(?: ?--)?>/gi,
+					'</$1>',
+				).replace(
+					// Remove brackets surrounding link elements
+					/\[+(<a\s.*?>.*?<\/a>)\]+/gis,
+					'$1',
+				);
+			if (path.startsWith('WWW_HOTWIRED_COM'))
+				html = html.replace(
+					// Replace imagemap placeholder with unarchived link notice
+					/"[./]+no_imagemap\.htm"/gi,
+					'"[missing-url]"',
+				);
+			break;
+		}
 		case 'einblicke': {
 			html = html.replace(
 				// Remove footer
@@ -703,33 +732,9 @@ function genericizeMarkup(html, source, url, path) {
 			);
 			break;
 		}
-		case 'riscdisc': {
-			if (path.startsWith('WWW_BBCNC_ORG_UK'))
-				html = html.replace(
-					// In bbcnc.org.uk only, the brackets are inside the link elements
-					/(?<=<a\s.*?>\s*)\[(.*?)\](?=\s*<\/a>)/gis,
-					'$1',
-				);
-			else
-				html = html.replace(
-					// Uncomment opening link tags
-					/<(?:(?:-- ?)|!(?:-- ?)?)(a\s.*?)(?: ?--)?>/gis,
-					'<$1>',
-				).replace(
-					// Uncomment closing link tags
-					/<!?-- ?\/(a)(?: ?--)?>/gi,
-					'</$1>',
-				).replace(
-					// Remove brackets surrounding link elements
-					/\[+(<a\s.*?>.*?<\/a>)\]+/gis,
-					'$1',
-				);
-			if (path.startsWith('WWW_HOTWIRED_COM'))
-				html = html.replace(
-					// Replace imagemap placeholder with unarchived link notice
-					/"[./]+no_imagemap\.htm"/gi,
-					'"[missing-url]"',
-				);
+		case 'chipfun': {
+			// Remove base directory definition
+			html = html.replace(/^<base href=".*?">\n/, '');
 			break;
 		}
 		case 'pcpress': {
@@ -774,11 +779,6 @@ function genericizeMarkup(html, source, url, path) {
 				html = html.substring(0, start + offset) + inject + html.substring(end + offset);
 				offset += inject.length - link.fullMatch.length;
 			}
-			break;
-		}
-		case 'chipfun': {
-			// Remove base directory definition
-			html = html.replace(/^<base href=".*?">\n/, '');
 			break;
 		}
 		case 'netcontrol96':
