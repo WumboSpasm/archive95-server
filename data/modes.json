@@ -52,5 +52,11 @@
 		"hasSource": false,
 		"hasFlags": false,
 		"hasUrl": false
+	},
+	{
+		"id": "deadend",
+		"hasSource": false,
+		"hasFlags": false,
+		"hasUrl": false
 	}
 ]

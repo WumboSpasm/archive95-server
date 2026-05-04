@@ -20,8 +20,8 @@ const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath
 const databasePath = pathUtils.join(config.buildPath, 'search.sqlite');
 
 // Often reused regular expressions
-const linkExp = /((?:href|src|action|background|rectangle|http-equiv *= *"?refresh"?[^>]+content) *= *)("(?:(?!>).)*?"|[^ >]+)/gis;
-const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
+const linkExp = /((?:href|src|action|background|rectangle|http-equiv *= *"?refresh"?[^>]+content) *= *)("[^">]+"|[^ >]+)/gis;
+const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 
 // Do the build
 (async function performBuild() {
@@ -52,9 +52,9 @@ const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 		[urlIndex, pathIndex, screenshotIndex] = await buildIndexes();
 
 	// Initialize total entry statistics
-	const stats = { total: { urls: 0, orphans: 0, screenshots: 0 } };
+	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
 	for (const sourceId in sources)
-		stats[sourceId] = { urls: 0, orphans: 0, screenshots: 0 };
+		stats[sourceId] = { urls: 0, orphans: 0, screenshots: 0, errors: 0 };
 
 	// Delete old database files
 	if (utils.getPathInfo(databasePath)?.isFile) {
@@ -88,6 +88,7 @@ const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 					path: urlEntry.path,
 					types: [urlEntry.type],
 					warn: urlEntry.warn,
+					error: urlEntry.error,
 				});
 		}
 
@@ -112,8 +113,14 @@ const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 			buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement);
 
 			// Increment URL totals
-			stats[archive.source].urls++;
-			stats.total.urls++;
+			if (!archive.error) {
+				stats[archive.source].urls++;
+				stats.total.urls++;
+			}
+			else {
+				stats[archive.source].errors++;
+				stats.total.errors++;
+			}
 		}
 
 		// Save archive info to a file
@@ -125,8 +132,8 @@ const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 	for (const sourceId in pathIndex) {
 		for (const sanitizedPath in pathIndex[sourceId]) {
 			const orphanEntry = pathIndex[sourceId][sanitizedPath];
-			// Orphans do not have an associated URL
-			if (orphanEntry.sanitizedUrl !== null)
+			// Orphans do not have an associated URL, and we should only build archives of valid orphans
+			if (orphanEntry.sanitizedUrl !== null || orphanEntry.skip)
 				continue;
 
 			// Gather orphan info
@@ -136,6 +143,7 @@ const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 				path: orphanEntry.path,
 				types: [orphanEntry.type],
 				warn: false,
+				error: orphanEntry.error,
 			};
 
 			// Create a containing directory for the current orphan
@@ -147,8 +155,14 @@ const baseExp = /<base\s+h?ref *= *("(?:(?!>).)*?"|[^ >]+)/is;
 			buildArchive(orphan, urlIndex, pathIndex, targetDir, insertStatement);
 
 			// Increment orphan totals
-			stats[orphan.source].orphans++;
-			stats.total.orphans++;
+			if (!orphan.error) {
+				stats[orphan.source].orphans++;
+				stats.total.orphans++;
+			}
+			else {
+				stats[orphan.source].errors++;
+				stats.total.errors++;
+			}
 
 			// Save orphan info to a file
 			const orphanPath = pathUtils.join(targetDir, 'orphan.json');
@@ -235,17 +249,21 @@ async function buildIndexes() {
 					path: entry.path,
 					type: type,
 					warn: entry.warn,
+					error: entry.error,
 					skip: entry.skip,
 				});
 			}
 
 			// Get sanitized path and add entry to path index
 			// If it needs to be skipped but doesn't have a valid URL, then it's useless to us
-			if (!entry.skip || sanitizedUrl !== null)
+			// (Unless the URL mode is 1, otherwise we need to know its path so we can mark it as invalid)
+			if (!entry.skip || sanitizedUrl !== null || sources[sourceId].urlMode == 1)
 				pathIndex[sourceId][utils.sanitizePath(entry.path, entry.skip)] = {
 					sanitizedUrl: sanitizedUrl,
 					path: entry.path,
 					type: type,
+					error: entry.error,
+					skip: entry.skip,
 				};
 
 			utils.logMessage(`[${i + 1}/${entries.length}] added ${sourceId} archive entry: ${entry.url ?? entry.path}`);
@@ -323,6 +341,41 @@ function buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement) 
 		// Build title/description text
 		search = buildSearch(html, archive.types[0]);
 	}
+	else if (archive.source == 'roteiro') {
+		// Novo Roteiro Pratico da Internet has header and footer HTML inserted in even non-text files
+		const headerExp = /^<a name = \d+>\n/i;
+		const footerExp = /(?:<hr>)?\n<h6>Internet URL-\n <a href=.*?>.*?<\/a> <\/h6>\n*$/;
+		if (archive.types[0].startsWith('text/')) {
+			// Remove header/footer HTML from text files, but convert them to UTF-8 first
+			const text = getText(sourcePath, archive.source)
+				.replace(headerExp, '')
+				.replace(footerExp, '');
+			Deno.writeTextFileSync(targetPath, text);
+		}
+		else {
+			// Surgically remove header/footer HTML from the byte array of non-text files
+			let file = Deno.readFileSync(sourcePath);
+			let start = 0, end = 0;
+			const text = new TextDecoder().decode(file);
+
+			// Find indexes of where actual file contents start and end, excluding header/footer HTML
+			const headerMatch = text.match(headerExp);
+			if (headerMatch !== null) {
+				const encodedText = new TextEncoder().encode(headerMatch[0]);
+				start = encodedText.length;
+			}
+			const footerMatch = text.match(footerExp);
+			if (footerMatch !== null) {
+				const encodedText = new TextEncoder().encode(footerMatch[0]);
+				end = file.length - encodedText.length;
+			}
+
+			// Shrink the array accordingly and write to file
+			if (start > 0 || end > 0)
+				file = file.subarray(start, end);
+			Deno.writeFileSync(targetPath, file);
+		}
+	}
 	else if (archive.types[0].startsWith('text/')) {
 		// Convert text to UTF-8 and save
 		const text = getText(sourcePath, archive.source);
@@ -354,14 +407,15 @@ function buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement) 
 		Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'raw'));
 
 	// Add archive to database
-	insertStatement.run(
-		archive.source,
-		archive.url ?? archive.path,
-		search?.title || null,
-		search?.content || null,
-		archive.types[0],
-		archive.url === null,
-	);
+	if (!archive.error)
+		insertStatement.run(
+			archive.source,
+			archive.url ?? archive.path,
+			search?.title || null,
+			search?.content || null,
+			archive.types[0],
+			archive.url === null,
+		);
 
 	// We don't need to store the path anymore
 	if (archive.url === null)
@@ -394,10 +448,13 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 	let offset = 0;
 	const source = sources[archive.source];
 	const newHtml = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '').replace(linkExp, (match, tagStart, url, index) => {
-		let rawUrl = utils.safeDecode(trimQuotes(url));
-		// We don't care about missing URLs or anchors for the current page
-		if (rawUrl.startsWith('#') || rawUrl == '[missing-url]')
-			return match;
+		let rawUrl = encodeURI(utils.safeDecode(trimQuotes(url)));
+		// Anchors and missing URLs should be left unchanged, but make sure they're at least surrounded by quotes
+		if (rawUrl.startsWith('#') || rawUrl == '/deadend') {
+			const newStr = tagStart + '"' + rawUrl + '"';
+			offset += match.length - newStr.length;
+			return newStr;
+		}
 
 		// Check for excess data in the URL string and remove it
 		let urlPrefix = '';
@@ -410,25 +467,27 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 		const isAbsolute = /^[a-z]+:/i.test(rawUrl);
 		let resolvedSource = null;
 		let resolvedUrl = null;
+		let absoluteUrl = rawUrl;
 		let anchor = '';
 		let isOrphan = false;
+		let forceMissing = false;
 		// Non-zero URL modes assume the link has been modified to point within the source's filesystem
 		if (source.urlMode > 0 && !isAbsolute) {
 			// Get absolute path and separate anchor if it exists
 			const parsedPath = URL.parse(rawUrl, 'http://ignoreme/' + archive.path);
 			if (parsedPath !== null) {
-				rawUrl = parsedPath.pathname.substring(1);
+				absoluteUrl = parsedPath.pathname.substring(1);
 				anchor = parsedPath.hash;
 			}
 
 			const pathEntries = pathIndex[archive.source];
 			if (pathEntries !== undefined) {
 				// Check if sanitized path exists in path index
-				let sanitizedPath = utils.sanitizePath(rawUrl);
+				let sanitizedPath = utils.sanitizePath(absoluteUrl);
 				let pathEntry = pathEntries[sanitizedPath];
 				// If it doesn't, try again with the anchor included
 				if (pathEntry === undefined && anchor != '') {
-					sanitizedPath = utils.sanitizePath(rawUrl + anchor, true);
+					sanitizedPath = utils.sanitizePath(absoluteUrl + anchor, true);
 					pathEntry = pathEntries[sanitizedPath];
 				}
 
@@ -446,6 +505,7 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 						resolvedSource = archive.source;
 						resolvedUrl = pathEntry.path;
 						isOrphan = true;
+						forceMissing = source.urlMode == 1 && pathEntry.skip;
 					}
 				}
 			}
@@ -457,11 +517,11 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 			if (parsedUrl !== null) {
 				anchor = parsedUrl.hash;
 				parsedUrl.hash = '';
-				rawUrl = parsedUrl.href;
+				absoluteUrl = parsedUrl.href;
 			}
 
 			// Check if URL exists in the archive, and fetch info from nearest source if so
-			const sanitizedUrl = utils.sanitizeUrl(rawUrl);
+			const sanitizedUrl = utils.sanitizeUrl(absoluteUrl);
 			const urlEntries = urlIndex[sanitizedUrl];
 			if (urlEntries !== undefined)
 				[resolvedSource, resolvedUrl] = nearestArchiveInfo(urlEntries, archive.source);
@@ -469,26 +529,30 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 
 		// Build replacement string that cuts out the URL to be re-inserted by the server
 		let newStr = tagStart;
-		if (resolvedUrl === null && source.urlMode == 2 && !isAbsolute)
+		if (forceMissing || (source.urlMode == 2 && resolvedUrl === null && !isAbsolute))
 			// If the source's URL mode is 2, unresolved relative links are assumed to be invalid
-			newStr += '"' + urlPrefix + '[missing-url]"';
+			newStr += '"' + urlPrefix + '/deadend"';
 		else {
 			newStr += '"' + urlPrefix + '"';
+
+			if (resolvedUrl !== null)
+				resolvedUrl = encodeURI(resolvedUrl);
 
 			// Push resolved link info to injection list
 			const linkInject = {
 				index: index - offset + tagStart.length + 1 + urlPrefix.length,
 				source: resolvedSource,
-				url: (resolvedUrl ?? rawUrl).replaceAll('#', '%23') + anchor,
+				url: (resolvedUrl ?? absoluteUrl).replaceAll('#', '%23') + anchor,
 				embed: !/^href/i.test(tagStart),
 			};
 			inject.links.push(linkInject);
 
 			// Check if link is valid before adding to inlinks list
-			if (resolvedSource !== null || (/^https?:/i.test(linkInject.url) && URL.canParse(linkInject.url))) {
+			const inlinkUrl = (resolvedUrl ?? absoluteUrl).replace(/(?<=^[^#]+)#[^#]+$/, '');
+			if (resolvedSource !== null || (/^https?:/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 				const sanitizedUrl = !isOrphan
-					? utils.sanitizeUrl(linkInject.url)
-					: pathUtils.join(linkInject.source, utils.sanitizePath(linkInject.url));
+					? utils.sanitizeUrl(inlinkUrl)
+					: pathUtils.join(linkInject.source, utils.sanitizePath(inlinkUrl));
 
 				// Don't bother with insanely long links because the OS may not be able to handle them
 				const inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'));
@@ -603,33 +667,41 @@ function buildSearch(text, type) {
 
 // Find an archive in a set of archives for a specific URL that is closest to a given source
 function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
-	let urlOverride = null;
+	let backupUrl = null;
 	if (sanitizedPath !== null) {
 		// If a sanitized path is defined, try using it to fast-track identification of nearest archive
 		// If a match is found but is invalid, take note of its URL and carry on
 		const keepAnchor = /(?<=^[^#]+)#[^#]+$/.test(sanitizedPath);
 		const exactMatch = compareEntries.find(compareEntry => sourceId == compareEntry.source && sanitizedPath == utils.sanitizePath(compareEntry.path, keepAnchor));
 		if (exactMatch !== undefined) {
-			if (!exactMatch.skip)
+			if (!exactMatch.error && !exactMatch.skip)
 				return [exactMatch.source, exactMatch.url];
 			else
-				urlOverride = exactMatch.url;
+				backupUrl = exactMatch.url;
 		}
 	}
 
 	// Filter archive set to only include valid archives
 	// If we end up with only a single archive, then we don't need to continue
-	const pureCompareEntries = compareEntries.filter(compareEntry => !compareEntry.skip);
-	if (pureCompareEntries.length == 1)
-		return [pureCompareEntries[0].source, urlOverride ?? pureCompareEntries[0].url];
+	const compareEntriesNoSkip = compareEntries.filter(compareEntry => !compareEntry.skip);
+	if (compareEntriesNoSkip.length == 1)
+		return [compareEntriesNoSkip[0].source, compareEntriesNoSkip[0].url];
+
+	// Same as above, but filtered further to not include error pages
+	const compareEntriesNoError = compareEntriesNoSkip.filter(compareEntry => !compareEntry.error);
+	if (compareEntriesNoError.length == 1)
+		return [compareEntriesNoError[0].source, compareEntriesNoError[0].url];
+
+	// Now create a "definitive" filtered archive set that doesn't include error pages unless there are only error pages
+	const compareEntriesPure = compareEntriesNoError.length == 0 ? compareEntriesNoSkip : compareEntriesNoError;
 
 	// Loop through each archive and find the one whose source's archive date is the closest to the supplied source
 	let lowestTimeDistIndex = -1;
-	if (pureCompareEntries.length > 0) {
+	if (compareEntriesPure.length > 0) {
 		const sourceTime = getSourceTime(sourceId);
 		let lowestTimeDistValue = -1;
-		for (let i = 0; i < pureCompareEntries.length; i++) {
-			const timeDist = Math.abs(sourceTime - getSourceTime(pureCompareEntries[i].source));
+		for (let i = 0; i < compareEntriesPure.length; i++) {
+			const timeDist = Math.abs(sourceTime - getSourceTime(compareEntriesPure[i].source));
 			if (lowestTimeDistValue == -1 || timeDist < lowestTimeDistValue) {
 				lowestTimeDistIndex = i;
 				lowestTimeDistValue = timeDist;
@@ -640,12 +712,12 @@ function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
 	if (lowestTimeDistIndex > -1) {
 		// An archive was found, so return its source and URL
 		const nearestMatch = compareEntries[lowestTimeDistIndex];
-		return [nearestMatch.source, urlOverride ?? nearestMatch.url];
+		return [nearestMatch.source, nearestMatch.url];
 	}
 	else
 		// An archive was not found, so return null values
 		// Or if an invalid archive match was found, return its URL so we at least have something to point to the Wayback Machine
-		return [null, urlOverride];
+		return [null, backupUrl];
 }
 
 // Convert a given source's date into milliseconds for comparison purposes
@@ -663,8 +735,8 @@ function getSourceTime(sourceId) {
 }
 
 // Attempt to revert source-specific markup alterations
-function genericizeMarkup(html, source, url, path) {
-	switch (source) {
+function genericizeMarkup(html, sourceId, url, path) {
+	switch (sourceId) {
 		case 'sgi': {
 			// Fix anomaly with HTML files in the Edu/ directory
 			if (path.startsWith('Edu/'))
@@ -696,7 +768,7 @@ function genericizeMarkup(html, source, url, path) {
 				html = html.replace(
 					// Replace imagemap placeholder with unarchived link notice
 					/"[./]+no_imagemap\.htm"/gi,
-					'"[missing-url]"',
+					'"/deadend"',
 				);
 			break;
 		}
@@ -708,11 +780,11 @@ function genericizeMarkup(html, source, url, path) {
 			).replace(
 				// Replace image link placeholders
 				/(?!<img .*?src=)"[./]*(?:teufel|grey)\.gif"(?: alt="\[defekt\]")?/gis,
-				'"[missing-url]"',
+				'"/deadend"',
 			).replace(
 				// Replace non-link image placeholders and remove added link
 				/<a href=".*?">(<img .*?src=)"[./]*link\.gif" alt="\[image\]"((?:.|\n)*?>)<\/a>/gi,
-				'$1"[missing-url]"$2',
+				'$1"/deadend"$2',
 			).replace(
 				// Remove broken page warning
 				/^<html><body>\n?<img src=".*?noise\.gif">\n?<strong>Vorsicht: Diese Seite k&ouml;nnte defekt sein!<\/strong>\n?\n?<hr>\n?/gi,
@@ -728,7 +800,7 @@ function genericizeMarkup(html, source, url, path) {
 			).replace(
 				// Handle extreme edge cases where an error link doesn't have an accompanying external link
 				/(?<=<a .*?href=")[./]*fehler.htm(?=".*?>.*?<\/a>)/gis,
-				'[missing-url]',
+				'/deadend',
 			);
 			break;
 		}
@@ -779,6 +851,22 @@ function genericizeMarkup(html, source, url, path) {
 				html = html.substring(0, start + offset) + inject + html.substring(end + offset);
 				offset += inject.length - link.fullMatch.length;
 			}
+			break;
+		}
+		case 'roteiro': {
+			html = html
+				// Remove header
+				.replace(/^<a name = \d+>\n/i, '')
+				// Remove HTTP header that was inserted into some documents where it shouldn't
+				.replace(/^HTTP(?:\/\*)? \d{3} .*\n(?:[^ :]+: .*\n)+\n/, '')
+				// Remove footer
+				.replace(/(?:<hr>)?\n<h6>Internet URL-\n <a href=.*?>.*?<\/a> <\/h6>\n*$/, '')
+				// Fix file URLs
+				.replaceAll('file:/http/', '../../')
+				// Replace error links
+				.replace(/"?\.\.\/\.\.\/dium.htm"?/g, '"/deadend"')
+				// Fix broken port injects (what even is this?)
+				.replace(/<(:[78]0)/g, '$1/<');
 			break;
 		}
 		case 'netcontrol96':
@@ -891,6 +979,10 @@ function genericizeMarkup(html, source, url, path) {
 // Attempt to fix invalid/deprecated/non-standard markup
 function improvePresentation(html, compat = false) {
 	html = html.replace(
+		// Remove cut-off tag at end of document
+		/<\/?\s*$/,
+		'',
+	).replace(
 		// Fix closing title tags with missing slash
 		/<(title)>((?:(?!<\/title>).)*?)<(title)>/gis,
 		'<$1>$2</$3>',
@@ -919,8 +1011,8 @@ function improvePresentation(html, compat = false) {
 		/(<(a)\s(?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=$|<a\s)/gis,
 		'$1</$2>',
 	).replace(
-		// Add missing closing tags to table elements
-		/(<(table).*?>(?:(?!<\/table>).)*?)(?=(?:<\/body>\s*)?(?:<\/html>\s*)?$)/gis,
+		// Add missing closing tags to table and font elements
+		/(<(table|font)[^>]*>(?:(?!<\/\2>).)*?)(?=(?:<\/body>\s*)?(?:<\/html>\s*)?$)/gis,
 		'$1</$2>',
 	).replace(
 		// Add missing closing tags to list elements
@@ -1005,7 +1097,7 @@ function getLinks(html, baseUrl) {
 
 		// Anchor, missing, and non-HTTP links should be ignored
 		const hasHttp = /^https?:/i.test(rawUrl);
-		if (rawUrl.startsWith('#') || /^\[missing-url\]$/.test(rawUrl) || (!hasHttp && /^[a-z]+:/i.test(rawUrl)))
+		if (rawUrl.startsWith('#') || /^\/deadend$/.test(rawUrl) || (!hasHttp && /^[a-z]+:/i.test(rawUrl)))
 			continue;
 
 		links.push({
@@ -1023,7 +1115,7 @@ function getLinks(html, baseUrl) {
 }
 
 // Retrieve text from file and convert to UTF-8 if necessary
-function getText(filePath, source) {
+function getText(filePath, sourceId) {
 	const fileInfo = utils.getPathInfo(filePath);
 	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
 		return '';
@@ -1031,7 +1123,7 @@ function getText(filePath, source) {
 	let text;
 	try {
 		const decoder = new TextDecoder();
-		switch (source) {
+		switch (sourceId) {
 			case 'wwwdir': {
 				// World Wide Web Directory has some double-encoding weirdness that needs to be untangled
 				text = decoder.decode((
@@ -1051,6 +1143,10 @@ function getText(filePath, source) {
 				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
 				if (uchardetStr == 'MAC-CENTRALEUROPE' || uchardetStr == 'IBM865')
 					uchardetStr = 'WINDOWS-1253';
+				// Same with IBM852 and WINDOWS-1252
+				if (uchardetStr == 'IBM852')
+					uchardetStr = 'WINDOWS-1252';
+
 				if (uchardetStr != 'ASCII' && uchardetStr != 'UTF-8')
 					text = decoder.decode((
 						new Deno.Command('iconv', { args: [filePath, '-cf', uchardetStr, '-t', 'UTF-8'], stdout: 'piped' }).outputSync()

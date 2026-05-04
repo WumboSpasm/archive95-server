@@ -229,7 +229,7 @@ function serverHandler(request, info) {
 				// Embed non-HTML files using the most appropriate template if the navbar is enabled
 				let embed;
 				if (fileType.startsWith('text/') || fileType.startsWith('message/') || fileType == 'application/mbox')
-					embed = buildHtml(templates.compat.embed.text, { 'TEXT': Deno.readTextFileSync(archivePathInfo.filePath) })
+					embed = buildHtml(templates.compat.embed.text, { 'TEXT': Deno.readTextFileSync(archivePathInfo.filePath) });
 				else {
 					if (fileType.startsWith('image/'))
 						embed = templates.compat.embed.image;
@@ -449,6 +449,14 @@ function serverHandler(request, info) {
 				'SOURCES': sourceRows.join('\n'),
 			});
 			return new Response(sourcesPage, { headers: headers });
+		}
+		case 'deadend': {
+			const deadendPage = buildHtml(templates.compat.error.main, {
+				'STATUSTEXT': 'Dead End',
+				'MESSAGE': 'If you reached this page, it means the original destination of the link you followed has been lost.',
+				'LINKS': buildHtml(templates.compat.error.links, { 'OPTIONS': '' }),
+			});
+			return new Response(deadendPage, { status: 404, headers: { 'Content-Type': 'text/html' } });
 		}
 	}
 }
@@ -701,18 +709,20 @@ function getArchiveInfo(sourceId, url) {
 		archiveInfoIndex = -1;
 		if (archiveInfoSet.length > 1 && sourceId !== undefined) {
 			for (let i = 0; i < archiveInfoSet.length; i++) {
-				// If the source matches, designate as the desired archive but keep searching for an exact URL match
+				// First make sure if the source matches
 				if (sourceId == archiveInfoSet[i].source) {
-					if (archiveInfoIndex == -1)
-						archiveInfoIndex = i;
-					if (archiveInfoSet[i].url == url) {
-						// An exact URL match was found, let's get out of here
+					// If an exact URL match was found, use this archive and stop searching
+					if (url == archiveInfoSet[i].url) {
 						archiveInfoIndex = i;
 						break;
 					}
+					// Otherwise, if the archive isn't an error page, use it but keep searching for an exact URL match
+					if (!archiveInfoSet[i].error)
+						archiveInfoIndex = i;
 				}
 			}
 		}
+		// No match was found, so just use the earliest archive
 		if (archiveInfoIndex == -1)
 			archiveInfoIndex = 0;
 
@@ -790,6 +800,9 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const archiveButtons = [];
 		for (let i = 0; i < archiveInfoSet.length; i++) {
+			if (i != archiveInfoIndex && archiveInfoSet[i].error && !flagIds.includes('r'))
+				continue;
+
 			const source = sources[archiveInfoSet[i].source];
 			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
 			archiveButtons.push(buildHtml(templates.modern.navbar.archive, {
@@ -841,6 +854,9 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const archiveButtons = [];
 		for (let i = 0; i < archiveInfoSet.length; i++) {
+			if (i != archiveInfoIndex && archiveInfoSet[i].error && !flagIds.includes('r'))
+				continue;
+
 			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
 			let archiveButton = `<a href="/${buildRoute('view', archiveInfoSet[i].source, flagIds)}/${url}">${archiveInfoSet[i].source}</a>`;
 			if (i == archiveInfoIndex)

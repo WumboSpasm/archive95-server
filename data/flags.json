@@ -30,6 +30,12 @@
 		"hidden": true
 	},
 	{
+		"id": "r",
+		"description": "Exclude error pages from navigation bar",
+		"invert": true,
+		"hidden": false
+	},
+	{
 		"id": "m",
 		"description": "Random button includes non-HTML files",
 		"invert": false,
