@@ -25,9 +25,10 @@ const searchDatabase = new Database(pathUtils.join(config.buildPath, 'search.sql
 searchDatabase.exec('PRAGMA shrink_memory');
 
 // Start the server
+let httpServer, httpsServer;
 (function startServer() {
 	// ...over HTTP
-	Deno.serve({
+	httpServer = Deno.serve({
 		port: config.httpPort,
 		hostname: config.hostName,
 		onListen: serverListen,
@@ -36,7 +37,7 @@ searchDatabase.exec('PRAGMA shrink_memory');
 
 	// ...over HTTPS
 	if (config.httpsPort && config.httpsCert && config.httpsKey)
-		Deno.serve({
+		httpsServer = Deno.serve({
 			port: config.httpsPort,
 			cert: Deno.readTextFileSync(config.httpsCert),
 			key: Deno.readTextFileSync(config.httpsKey),
@@ -488,6 +489,24 @@ function serverError(error) {
 
 	return new Response(errorPage, { status: status, headers: { 'Content-Type': 'text/html' } });
 }
+
+// Close the server and database gracefully when a SIGINT signal is received
+async function serverShutdown() {
+	if (httpServer) {
+		utils.logMessage('shutting down server on HTTP...');
+		await httpServer.shutdown();
+	}
+	if (httpsServer) {
+		utils.logMessage('shutting down server on HTTPS...');
+		await httpsServer.shutdown();
+	}
+
+	utils.logMessage('closing database...');
+	searchDatabase.close();
+
+	Deno.exit();
+}
+Deno.addSignalListener('SIGINT', serverShutdown);
 
 // Build home/search pages based on query strings
 function prepareSearch(params, modernMode) {
