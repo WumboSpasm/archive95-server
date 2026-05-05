@@ -34,9 +34,6 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 		Deno.removeSync(tempBuildPath, { recursive: true });
 	}
 
-	// Create the build and temporary directories if needed
-	Deno.mkdirSync(tempBuildPath, { recursive: true });
-
 	// Load index files, or build them if they don't exist
 	const urlIndexPath = pathUtils.join(config.buildPath, 'url_index.json');
 	const pathIndexPath = pathUtils.join(config.buildPath, 'path_index.json');
@@ -44,17 +41,26 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	let urlIndex, pathIndex, screenshotIndex;
 	if (!args['clean'] && [urlIndexPath, pathIndexPath, screenshotIndexPath].every(indexPath => utils.getPathInfo(indexPath)?.isFile)) {
 		utils.logMessage('loading indexes...');
-		urlIndex = JSON.parse(Deno.readTextFileSync(pathUtils.join(tempBuildPath, 'url_index.json')));
-		pathIndex = JSON.parse(Deno.readTextFileSync(pathUtils.join(tempBuildPath, 'path_index.json')));
-		screenshotIndex = JSON.parse(Deno.readTextFileSync(pathUtils.join(tempBuildPath, 'screenshot_index.json')));
+		urlIndex = JSON.parse(Deno.readTextFileSync(urlIndexPath));
+		pathIndex = JSON.parse(Deno.readTextFileSync(pathIndexPath));
+		screenshotIndex = JSON.parse(Deno.readTextFileSync(screenshotIndexPath));
 	}
 	else
 		[urlIndex, pathIndex, screenshotIndex] = await buildIndexes();
 
-	// Initialize total entry statistics
-	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
-	for (const sourceId in sources)
-		stats[sourceId] = { urls: 0, orphans: 0, screenshots: 0, errors: 0 };
+	// Create the build and temporary directories if needed
+	Deno.mkdirSync(tempBuildPath, { recursive: true });
+
+	// Save indexes to files
+	utils.logMessage('saving indexes...');
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'url_index.json'), JSON.stringify(urlIndex, null, '\t'));
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'path_index.json'), JSON.stringify(pathIndex, null, '\t'));
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'screenshot_index.json'), JSON.stringify(screenshotIndex, null, '\t'));
+
+	// Save source information to file
+	utils.logMessage('saving source information...')
+	const sourcesPath = pathUtils.join(tempBuildPath, 'sources.json');
+	Deno.writeTextFileSync(sourcesPath, JSON.stringify(sources, null, '\t'));
 
 	// Initialize the new database
 	utils.logMessage('creating new database...');
@@ -64,6 +70,11 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	searchDatabase.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url, title, content, type UNINDEXED, orphan UNINDEXED)');
 	searchDatabase.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 1, 1000, 1000, 0, 0)')");
 	const insertStatement = searchDatabase.prepare('INSERT INTO search (source, url, title, content, type, orphan) VALUES (?, ?, ?, ?, ?, ?)');
+
+	// Initialize total entry statistics
+	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
+	for (const sourceId in sources)
+		stats[sourceId] = { urls: 0, orphans: 0, screenshots: 0, errors: 0 };
 
 	// Build the URL file tree
 	for (const sanitizedUrl in urlIndex) {
@@ -196,21 +207,10 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 		Deno.writeTextFileSync(screenshotsPath, JSON.stringify(screenshots, null, '\t'));
 	}
 
-	// Save indexes to files
-	utils.logMessage('saving indexes...');
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'url_index.json'), JSON.stringify(urlIndex, null, '\t'));
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'path_index.json'), JSON.stringify(pathIndex, null, '\t'));
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'screenshot_index.json'), JSON.stringify(screenshotIndex, null, '\t'));
-
 	// Save total entry statistics to file
 	utils.logMessage('saving entry statistics...');
 	const statsPath = pathUtils.join(tempBuildPath, 'stats.json');
 	Deno.writeTextFileSync(statsPath, JSON.stringify(stats, null, '\t'));
-
-	// Save source information to file
-	utils.logMessage('saving source information...')
-	const sourcesPath = pathUtils.join(tempBuildPath, 'sources.json');
-	Deno.writeTextFileSync(sourcesPath, JSON.stringify(sources, null, '\t'));
 
 	// Create a directory to store old build files for deletion
 	const deleteBuildPath = pathUtils.join(config.buildPath, '.delete');
