@@ -227,9 +227,11 @@ function serverHandler(request, info) {
 			}
 			else if (!flagIds.includes('n')) {
 				// Embed non-HTML files using the most appropriate template if the navbar is enabled
-				let embed;
-				if (fileType.startsWith('text/') || fileType.startsWith('message/') || fileType == 'application/mbox')
+				let embed, indent = 'all';
+				if (fileType.startsWith('text/') || fileType.startsWith('message/') || fileType == 'application/mbox') {
 					embed = buildHtml(templates.compat.embed.text, { 'TEXT': Deno.readTextFileSync(archivePathInfo.filePath) });
+					indent = 'first';
+				}
 				else {
 					if (fileType.startsWith('image/'))
 						embed = templates.compat.embed.image;
@@ -252,7 +254,7 @@ function serverHandler(request, info) {
 					'URL': archiveInfo.url,
 					'STYLE': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
 					'COMPATNAVBAR': !modernMode ? navbar : '',
-					'EMBED': embed,
+					'EMBED': { value: embed, indent: indent },
 					'MODERNNAVBAR': modernMode ? navbar : '',
 				});
 
@@ -904,17 +906,41 @@ function buildWaybackLink(url, sourceId) {
 
 // Safely fill HTML template with text definitions
 function buildHtml(template, defs) {
+	// Parse and check validity of each definition (this is the one time I wish I was using TypeScript)
+	const parsedDefs = {};
+	for (const field in defs) {
+		const def = {};
+		if (defs[field] !== null && typeof(defs[field]) == 'object') {
+			def.value = defs[field].value;
+			def.indent = defs[field].indent;
+		}
+		else {
+			def.value = defs[field];
+			def.indent = 'all';
+		}
+		def.value = (def.value ?? '').toString();
+		def.indent = def.indent && ['all', 'first', 'none'].some(option => def.indent == option) ? def.indent : 'all';
+		parsedDefs[field] = def;
+	}
+
 	const varSlices = [];
-	const varExp = /(?:(^|\n)(\t*))?\{(.*?)\}/gs;
+	const varExp = /(\n)?(\t+)?\{(.*?)\}/gs;
 	for (let match; (match = varExp.exec(template)) !== null;) {
-		const value = defs[match[3]].toString();
 		const newLine = match[1] ?? '';
 		const tabs = match[2] ?? '';
-		const formattedValue = value ? newLine + value.replace(/^/gm, tabs) : '';
+		const def = parsedDefs[match[3]] ?? '';
+
+		// If required, indent either the first or all lines of the value based on the whitespace preceding the variable
+		let value;
+		if (def.value != '' && def.indent != 'none')
+			value = newLine + (def.indent == 'all' ? def.value.replace(/^/gm, tabs) : (tabs + def.value));
+		else
+			value = def.value;
+
 		varSlices.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			value: formattedValue,
+			value: value,
 		});
 	}
 
