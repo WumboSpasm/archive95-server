@@ -7,7 +7,8 @@ import * as utils from './utils.js';
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
 	string: ['config'],
-	default: { 'config': 'config.json' },
+	boolean: ['clean'],
+	default: { clean: true, config: 'config.json' },
 });
 
 // Load configuration
@@ -42,7 +43,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	const pathIndexPath = pathUtils.join(config.buildPath, 'path_index.json');
 	const screenshotIndexPath = pathUtils.join(config.buildPath, 'screenshot_index.json');
 	let urlIndex, pathIndex, screenshotIndex;
-	if ([urlIndexPath, pathIndexPath, screenshotIndexPath].every(indexPath => utils.getPathInfo(indexPath)?.isFile)) {
+	if (!args['clean'] && [urlIndexPath, pathIndexPath, screenshotIndexPath].every(indexPath => utils.getPathInfo(indexPath)?.isFile)) {
 		utils.logMessage('loading indexes...');
 		urlIndex = JSON.parse(Deno.readTextFileSync(urlIndexPath));
 		pathIndex = JSON.parse(Deno.readTextFileSync(pathIndexPath));
