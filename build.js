@@ -6,9 +6,12 @@ import * as utils from './utils.js';
 
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
-	string: ['config'],
 	boolean: ['clean'],
-	default: { clean: false, config: 'config.json' },
+	string: ['config'],
+	default: {
+		clean: false,
+		config: 'config.json',
+	},
 });
 
 // Load configuration
@@ -289,8 +292,15 @@ async function buildIndexes() {
 
 		const entries = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'archives', sourceId + '.json')));
 		for (const entry of entries) {
-			// We don't need to know the MIME type of skipped entries, because all they're good for is their associated URL
-			const type = !entry.skip ? await mimeType(pathUtils.join(config.inputPath, 'archives', sourceId, entry.path)) : null;
+			// Invalid entries are never rendered and thus don't need their type determined
+			// Meanwhile, error entries are always HTML pages
+			let type = null;
+			if (!entry.skip) {
+				if (!entry.error)
+					type = await mimeType(pathUtils.join(config.inputPath, 'archives', sourceId, entry.path));
+				else
+					type = 'text/html';
+			}
 
 			// Get sanitized URL and add entry to URL index
 			let sanitizedUrl = null;
