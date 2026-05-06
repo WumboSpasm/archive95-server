@@ -76,7 +76,15 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	for (const sourceId in sources)
 		stats[sourceId] = { urls: 0, orphans: 0, screenshots: 0, errors: 0 };
 
+	// Gather totals
+	const urlTotal = Object.values(urlIndex).map(entries => entries.filter(entry => !entry.skip).length).reduce((sum, n) => sum + n, 0);
+	const orphanTotal = Object.values(pathIndex).map(entries =>
+		Object.values(entries).filter(entry => entry.sanitizedUrl === null && !entry.skip).length
+	).reduce((sum, n) => sum + n, 0);
+	const screenshotTotal = Object.values(screenshotIndex).map(entries => entries.length).reduce((sum, n) => sum + n, 0);
+
 	// Build the URL file tree
+	let urlCurrent = 0;
 	for (const sanitizedUrl in urlIndex) {
 		// Condense archive info
 		const archives = [];
@@ -110,7 +118,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`building ${archive.source} archive for ${sanitizedUrl}...`);
+			utils.logMessage(`[${++urlCurrent}/${urlTotal}] building ${archive.source} archive for ${sanitizedUrl}...`);
 			buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement);
 
 			// Increment URL totals
@@ -130,6 +138,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	}
 
 	// Build the orphan file tree
+	let orphanCurrent = 0;
 	for (const sourceId in pathIndex) {
 		for (const sanitizedPath in pathIndex[sourceId]) {
 			const orphanEntry = pathIndex[sourceId][sanitizedPath];
@@ -152,7 +161,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`building ${orphan.source} archive for ${sanitizedPath}...`);
+			utils.logMessage(`[${++orphanCurrent}/${orphanTotal}] building ${orphan.source} archive for ${sanitizedPath}...`);
 			buildArchive(orphan, urlIndex, pathIndex, targetDir, insertStatement);
 
 			// Increment orphan totals
@@ -175,6 +184,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	searchDatabase.close();
 
 	// Build the screenshot file tree
+	let screenshotCurrent = 0;
 	for (const sanitizedUrl in screenshotIndex) {
 		const screenshots = screenshotIndex[sanitizedUrl];
 
@@ -191,7 +201,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`building ${screenshot.source} screenshot for ${sanitizedUrl}...`);
+			utils.logMessage(`[${++screenshotCurrent}/${screenshotTotal}] building ${screenshot.source} screenshot for ${sanitizedUrl}...`);
 			const sourcePath = pathUtils.join(config.inputPath, 'screenshots', screenshot.source, screenshot.path);
 			const thumbnail = new Deno.Command('convert', { args: [sourcePath, '-geometry', 'x64', '-'], stdout: 'piped' }).outputSync().stdout;
 			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
@@ -259,15 +269,26 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 async function buildIndexes() {
 	utils.logMessage('building indexes...');
 
+	// Gather totals
+	let pathTotal = 0;
+	let screenshotTotal = 0;
+	for (const sourceId in sources) {
+		const pathEntriesPath = pathUtils.join(config.inputPath, 'archives', sourceId + '.json');
+		pathTotal += JSON.parse(Deno.readTextFileSync(pathEntriesPath)).length;
+		const screenshotEntriesPath = pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json');
+		if (utils.getPathInfo(screenshotEntriesPath)?.isFile)
+			screenshotTotal += JSON.parse(Deno.readTextFileSync(screenshotEntriesPath)).length;
+	}
+
 	const urlIndex = {};
 	const pathIndex = {};
+	let pathCurrent = 0;
 	for (const sourceId in sources) {
 		if (pathIndex[sourceId] === undefined)
 			pathIndex[sourceId] = {};
 
 		const entries = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'archives', sourceId + '.json')));
-		for (let i = 0; i < entries.length; i++) {
-			const entry = entries[i];
+		for (const entry of entries) {
 			// We don't need to know the MIME type of skipped entries, because all they're good for is their associated URL
 			const type = !entry.skip ? await mimeType(pathUtils.join(config.inputPath, 'archives', sourceId, entry.path)) : null;
 
@@ -301,22 +322,21 @@ async function buildIndexes() {
 					skip: entry.skip,
 				};
 
-			utils.logMessage(`[${i + 1}/${entries.length}] added ${sourceId} archive entry: ${entry.url ?? entry.path}`);
+			utils.logMessage(`[${++pathCurrent}/${pathTotal}] added ${sourceId} archive entry: ${entry.url ?? entry.path}`);
 		}
 	}
 
 	// Populate screenshot index
 	const screenshotIndex = {};
+	let screenshotCurrent = 0;
 	for (const sourceId in sources) {
 		// Not every source has screenshots
 		const entriesPath = pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json');
 		if (!utils.getPathInfo(entriesPath)?.isFile)
 			continue;
 
-		const entries = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json')));
-		for (let i = 0; i < entries.length; i++) {
-			const entry = entries[i];
-
+		const entries = JSON.parse(Deno.readTextFileSync(entriesPath));
+		for (const entry of entries) {
 			const sanitizedUrl = utils.sanitizeUrl(entry.url);
 			if (screenshotIndex[sanitizedUrl] === undefined)
 				screenshotIndex[sanitizedUrl] = [];
@@ -328,7 +348,7 @@ async function buildIndexes() {
 				type: entry.type,
 			});
 
-			utils.logMessage(`[${i + 1}/${entries.length}] added ${sourceId} screenshot entry: ${entry.url}`);
+			utils.logMessage(`[${++screenshotCurrent}/${screenshotTotal}] added ${sourceId} screenshot entry: ${entry.url}`);
 		}
 	}
 
