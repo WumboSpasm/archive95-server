@@ -251,7 +251,8 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			Deno.renameSync(buildEntryPath, deleteBuildEntryPath);
 		}
 		const tempBuildEntryPath = pathUtils.join(tempBuildPath, buildEntry);
-		Deno.renameSync(tempBuildEntryPath, buildEntryPath);
+		if (utils.getPathInfo(tempBuildEntryPath))
+			Deno.renameSync(tempBuildEntryPath, buildEntryPath);
 	}
 	Deno.removeSync(tempBuildPath);
 
