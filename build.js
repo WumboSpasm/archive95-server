@@ -1053,7 +1053,7 @@ function improvePresentation(html, compat = false) {
 		'$1>',
 	).replace(
 		// Fix single-line comments with missing closing sequence
-		/<!( *-+)([^<]+)(?<!-+ *)>/g,
+		/<!( *-+)([^<\n]+)(?<!-+ *)>(?!(?:(?!<! *-+).)*?-->)/gs,
 		'<!$1$2-->',
 	).replace(
 		// Fix multi-line comments with missing closing sequence
