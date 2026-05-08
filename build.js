@@ -376,7 +376,7 @@ function buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement) 
 		// Load HTML file and try to revert source-specific modifications, then extract and resolve links and save
 		// This process can be repeated up to two more times for different variations of the HTML content
 		// (Namely, variations that attempt to fix non-standard/archaic markup with modern/legacy browsers in mind, respectively)
-		const html = genericizeMarkup(getText(sourcePath, archive.source), archive.source, archive.url, archive.path);
+		const html = genericizeMarkup(getText(sourcePath, archive.source, archive.url), archive.source, archive.url, archive.path);
 		const [newHtml, inject] = buildInjectAndInlinks(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
@@ -435,7 +435,7 @@ function buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement) 
 	}
 	else if (archive.types[0].startsWith('text/')) {
 		// Convert text to UTF-8 and save
-		const text = getText(sourcePath, archive.source);
+		const text = getText(sourcePath, archive.source, archive.url);
 		Deno.writeTextFileSync(targetPath, text);
 
 		// Build description text
@@ -1172,7 +1172,7 @@ function getLinks(html, baseUrl) {
 }
 
 // Retrieve text from file and convert to UTF-8 if necessary
-function getText(filePath, sourceId) {
+function getText(filePath, sourceId, url = null) {
 	const fileInfo = utils.getPathInfo(filePath);
 	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
 		return '';
@@ -1195,6 +1195,17 @@ function getText(filePath, sourceId) {
 				text = Deno.readTextFileSync(filePath);
 				break;
 			}
+			case 'pcpress': {
+				// Convert from YUSCII if the port is 81, as described by the YU-Font specification
+				// Otherwise, convert using the default behavior
+				if ((url !== null && /^https?:\/\/[^\/]+:81(?:\/|$)/i.test(url))) {
+					text = decoder.decode((
+						new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
+					).stdout);
+					break;
+				}
+			}
+			/* Falls through (this is here to make VSCode happy) */
 			default: {
 				let uchardetStr = decoder.decode(new Deno.Command('uchardet', { args: [filePath], stdout: 'piped' }).outputSync().stdout).trim();
 				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
@@ -1204,12 +1215,47 @@ function getText(filePath, sourceId) {
 				if (uchardetStr == 'IBM852')
 					uchardetStr = 'WINDOWS-1252';
 
+				// Convert to UTF-8 from the identified character encoding if needed
+				// Otherwise, just read it normally
 				if (uchardetStr != 'ASCII' && uchardetStr != 'UTF-8')
 					text = decoder.decode((
 						new Deno.Command('iconv', { args: [filePath, '-cf', uchardetStr, '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
 					).stdout);
 				else
 					text = Deno.readTextFileSync(filePath);
+
+				if (sourceId == 'pcpress') {
+					// Convert text surrounded by the extremely non-standard <yu> element as YUSCII
+					// TODO: Figure out how content marked as CP852 or CP1250 is supposed to be converted
+					const yuExp = /(<yu(?: +[a-z0-9]+)?>)(.*?)(<\/yu>|$)/gis;
+					const yuMatches = [...text.matchAll(yuExp)];
+					if (yuMatches.length > 0) {
+						// We convert again from YUSCII and insert text segments over the stock conversion
+						// This kind of sucks, but Deno's command API hurts my brain and this works well enough
+						const yuText = decoder.decode((
+							new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
+						).stdout);
+						const yuMatches2 = [...yuText.matchAll(yuExp)];
+
+						let newText = '';
+						let offset = 0;
+						for (let i = 0; i < yuMatches.length; i++) {
+							const yuMatch = yuMatches[i];
+							const yuMatch2 = yuMatches2[i];
+
+							const start = yuMatch.index + yuMatch[1].length;
+							const end = yuMatch.index + yuMatch[0].length - yuMatch[3].length;
+							if (offset > start)
+								continue;
+
+							newText += text.substring(0, start - offset) + yuMatch2[2];
+							text = text.substring(end - offset);
+							offset = end;
+						}
+
+						text = newText + text;
+					}
+				}
 			}
 		}
 	}
