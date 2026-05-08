@@ -24,7 +24,7 @@ export function getArchiveRootDir(sanitizedUrl, namespace, buildPath = config.bu
 export function sanitizeUrl(url) {
 	return safeDecode(url).toLowerCase()
 		.replace(/^https?:\/\//, '')
-		.replace(/^www\./, '')
+		.replace(/^www\d{0,2}\./, '')
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
 		.replace(/(?<=^[^#]+)#[^#]+$/, '')
 		.replace(/index\.html?$/, '')
