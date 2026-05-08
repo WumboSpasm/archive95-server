@@ -376,7 +376,7 @@ function buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement) 
 		// Load HTML file and try to revert source-specific modifications, then extract and resolve links and save
 		// This process can be repeated up to two more times for different variations of the HTML content
 		// (Namely, variations that attempt to fix non-standard/archaic markup with modern/legacy browsers in mind, respectively)
-		const html = genericizeMarkup(getText(sourcePath, archive.source, archive.url), archive.source, archive.url, archive.path);
+		const html = genericizeMarkup(getText(sourcePath, archive.source, archive.url), archive.source, archive.path, archive.url);
 		const [newHtml, inject] = buildInjectAndInlinks(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
@@ -792,7 +792,7 @@ function getSourceTime(sourceId) {
 }
 
 // Attempt to revert source-specific markup alterations
-function genericizeMarkup(html, sourceId, url, path) {
+function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 	switch (sourceId) {
 		case 'sgi': {
 			// Fix anomaly with HTML files in the Edu/ directory
@@ -870,7 +870,7 @@ function genericizeMarkup(html, sourceId, url, path) {
 			// Remove downloader software header
 			html = html.replace(/^<META name="download" content=".*?">\n/s, '');
 			// Attempt to fix broken external links
-			const links = getLinks(html, url)
+			const links = getLinks(html, baseUrl)
 				.filter(link => link.hasHttp && URL.canParse(link.rawUrl))
 				.toSorted((a, b) => a.index - b.index);
 			for (const link of links) {
@@ -1135,7 +1135,8 @@ function improvePresentation(html, compat = false) {
 }
 
 // Find and return links in the given markup, without performing any operations
-function getLinks(html, baseUrl) {
+// TODO: Get rid of this eventually
+function getLinks(html, baseUrl = undefined) {
 	const baseMatch = html.match(baseExp);
 	if (baseMatch !== null)
 		baseUrl = trimQuotes(baseMatch[1]);
