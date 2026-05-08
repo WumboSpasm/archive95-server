@@ -881,7 +881,7 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 				link.url = link.rawUrl;
 				if (httpExp.test(link.url))
 					link.url = URL.parse(link.url.replace(httpExp, ''), link.baseUrl)?.href ?? link.url;
-				if (badDomainExp.test(link.url))
+				if (link.baseUrl !== undefined && badDomainExp.test(link.url))
 					link.url = URL.parse(
 						link.url.replace(/^http:\/\/.*?\//i, '/'),
 						link.baseUrl.replace(/(?<=http:\/\/).*?(?=\.)/i, link.url.match(badDomainExp)[0])
