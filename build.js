@@ -1198,19 +1198,18 @@ async function getFile(archive, typeIndex = {}) {
 				file = (await inputAndExecute(file, 'iconv', ['-cf', charset, '-t', 'UTF-8'])).stdout;
 		}
 
+		// Check if the file belongs to PC Press Internet CD and resides on the .yu TLD
 		let text = decoder.decode(file);
 		if (archive.source == 'pcpress' && archive.url !== null && /https?:\/\/[^\/]+\.yu[\/:]/i.test(archive.url)) {
-			// If the source is PC Press Internet CD and the URL has a .yu TLD, convert again from YUSCII
-			const yuText = decoder.decode((
-				new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
-			).stdout);
-
-			// Selectively insert segments into the stock conversion if the text contains <yu> elements
-			// Otherwise, play it safe and just use the full YUSCII conversion
+			// If the text contains <yu> elements, convert again from YUSCII and selectively insert segments into the original conversion
 			// TODO: Figure out if content marked as CP852 or CP1250 needs to be converted differently and how
+			// TODO: Figure out how to identify <yu>-less YUSCII content without breaking a bunch of other pages in the process
 			const yuExp = /(<yu(?: +[a-z0-9]+)?>)(.*?)(<\/yu>|$)/gis;
 			const yuMatches = [...text.matchAll(yuExp)];
 			if (yuMatches.length > 0) {
+				const yuText = decoder.decode((
+					new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
+				).stdout);
 				const yuMatches2 = [...yuText.matchAll(yuExp)];
 
 				let newText = '';
@@ -1231,8 +1230,6 @@ async function getFile(archive, typeIndex = {}) {
 
 				text = newText + text;
 			}
-			else
-				text = yuText;
 		}
 
 		// Standardize newlines and re-encode text
