@@ -4,7 +4,7 @@ Archive95 is an independent web archive using old CD-ROMs and other material as 
 ![screenshot](https://github.com/user-attachments/assets/ecb38c89-ce39-40ec-a08b-1a527d7b41ec)
 
 ## Dependencies
-- A Linux environment with the `file`, `mimetype` and `iconv` utilities
+- A Linux environment with the `mimetype` and `iconv` utilities and the `IO::Scalar` Perl library
 - [Deno](https://deno.com/)
 - [ImageMagick](https://imagemagick.org/) (specifically `convert`)
 - [uchardet](https://www.freedesktop.org/wiki/Software/uchardet/)

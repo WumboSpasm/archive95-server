@@ -20,6 +20,9 @@ utils.loadConfig(args['config']);
 // Load information about sources
 const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'sources.json')));
 
+// Load overrides for MIME types/character encodings
+const overrides = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'overrides.json')));
+
 // Get path of temporary build directory
 const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
 
@@ -37,28 +40,18 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 		Deno.removeSync(tempBuildPath, { recursive: true });
 	}
 
-	// Load index files, or build them if they don't exist
-	const urlIndexPath = pathUtils.join(config.buildPath, 'url_index.json');
-	const pathIndexPath = pathUtils.join(config.buildPath, 'path_index.json');
-	const screenshotIndexPath = pathUtils.join(config.buildPath, 'screenshot_index.json');
-	let urlIndex, pathIndex, screenshotIndex;
-	if (!args['clean'] && [urlIndexPath, pathIndexPath, screenshotIndexPath].every(indexPath => utils.getPathInfo(indexPath)?.isFile)) {
-		utils.logMessage('loading indexes...');
-		urlIndex = JSON.parse(Deno.readTextFileSync(urlIndexPath));
-		pathIndex = JSON.parse(Deno.readTextFileSync(pathIndexPath));
-		screenshotIndex = JSON.parse(Deno.readTextFileSync(screenshotIndexPath));
-	}
-	else
-		[urlIndex, pathIndex, screenshotIndex] = await buildIndexes();
+	// Build URL/path/screenshot indexes
+	utils.logMessage('building indexes...');
+	const [urlIndex, pathIndex, screenshotIndex] = buildIndexes();
 
-	// Create the build and temporary directories if needed
+	// Load type index if it exists, or initialize it to be populated during the build process
+	const typeIndexPath = pathUtils.join(config.buildPath, 'types.json');
+	const typeIndex = !args['clean'] && utils.getPathInfo(typeIndexPath)?.isFile
+		? JSON.parse(Deno.readTextFileSync(typeIndexPath))
+		: {};
+
+	// Create the build and temporary directories
 	Deno.mkdirSync(tempBuildPath, { recursive: true });
-
-	// Save indexes to files
-	utils.logMessage('saving indexes...');
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'url_index.json'), JSON.stringify(urlIndex, null, '\t'));
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'path_index.json'), JSON.stringify(pathIndex, null, '\t'));
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'screenshot_index.json'), JSON.stringify(screenshotIndex, null, '\t'));
 
 	// Save source information to file
 	utils.logMessage('saving source information...')
@@ -98,7 +91,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 					source: urlEntry.source,
 					url: urlEntry.url,
 					path: urlEntry.path,
-					types: [urlEntry.type],
+					types: [],
 					warn: urlEntry.warn,
 					error: urlEntry.error,
 				});
@@ -122,7 +115,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++urlCurrent}/${urlTotal}] building ${archive.source} archive for ${sanitizedUrl}...`);
-			buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement);
+			await buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, insertStatement);
 
 			// Increment URL totals
 			if (!archive.error) {
@@ -154,7 +147,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 				source: sourceId,
 				url: null,
 				path: orphanEntry.path,
-				types: [orphanEntry.type],
+				types: [],
 				warn: false,
 				error: orphanEntry.error,
 			};
@@ -165,7 +158,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++orphanCurrent}/${orphanTotal}] building ${orphan.source} archive for ${sanitizedPath}...`);
-			buildArchive(orphan, urlIndex, pathIndex, targetDir, insertStatement);
+			await buildArchive(orphan, urlIndex, pathIndex, typeIndex, targetDir, insertStatement);
 
 			// Increment orphan totals
 			if (!orphan.error) {
@@ -185,6 +178,10 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 
 	// Close the database since we don't need to add to it anymore
 	searchDatabase.close();
+
+	// Save type index to file
+	utils.logMessage('saving type index...');
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'types.json'), JSON.stringify(typeIndex, null, '\t'));
 
 	// Build the screenshot file tree
 	let screenshotCurrent = 0;
@@ -215,7 +212,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			stats.total.screenshots++;
 		}
 
-		// Save screenshot info to a file
+		// Save screenshot info to file
 		const screenshotsPath = pathUtils.join(urlDir, 'screenshots.json');
 		Deno.writeTextFileSync(screenshotsPath, JSON.stringify(screenshots, null, '\t'));
 	}
@@ -235,9 +232,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 		'search.sqlite',
 		'sources.json',
 		'stats.json',
-		'url_index.json',
-		'path_index.json',
-		'screenshot_index.json',
+		'types.json',
 		'urls',
 		'screenshots',
 		'orphans',
@@ -270,39 +265,15 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 })();
 
 // Build URL/path/screenshot indexes to speed up the build process
-async function buildIndexes() {
-	utils.logMessage('building indexes...');
-
-	// Gather totals
-	let pathTotal = 0;
-	let screenshotTotal = 0;
-	for (const sourceId in sources) {
-		const pathEntriesPath = pathUtils.join(config.inputPath, 'archives', sourceId + '.json');
-		pathTotal += JSON.parse(Deno.readTextFileSync(pathEntriesPath)).length;
-		const screenshotEntriesPath = pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json');
-		if (utils.getPathInfo(screenshotEntriesPath)?.isFile)
-			screenshotTotal += JSON.parse(Deno.readTextFileSync(screenshotEntriesPath)).length;
-	}
-
+function buildIndexes() {
 	const urlIndex = {};
 	const pathIndex = {};
-	let pathCurrent = 0;
 	for (const sourceId in sources) {
 		if (pathIndex[sourceId] === undefined)
 			pathIndex[sourceId] = {};
 
 		const entries = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'archives', sourceId + '.json')));
 		for (const entry of entries) {
-			// Invalid entries are never rendered and thus don't need their type determined
-			// Meanwhile, error entries are always HTML pages
-			let type = null;
-			if (!entry.skip) {
-				if (!entry.error)
-					type = await mimeType(pathUtils.join(config.inputPath, 'archives', sourceId, entry.path));
-				else
-					type = 'text/html';
-			}
-
 			// Get sanitized URL and add entry to URL index
 			let sanitizedUrl = null;
 			if (entry.url !== null) {
@@ -314,7 +285,6 @@ async function buildIndexes() {
 					source: sourceId,
 					url: entry.url,
 					path: entry.path,
-					type: type,
 					warn: entry.warn,
 					error: entry.error,
 					skip: entry.skip,
@@ -328,18 +298,14 @@ async function buildIndexes() {
 				pathIndex[sourceId][utils.sanitizePath(entry.path, entry.skip)] = {
 					sanitizedUrl: sanitizedUrl,
 					path: entry.path,
-					type: type,
 					error: entry.error,
 					skip: entry.skip,
 				};
-
-			utils.logMessage(`[${++pathCurrent}/${pathTotal}] added ${sourceId} archive entry: ${entry.url ?? entry.path}`);
 		}
 	}
 
 	// Populate screenshot index
 	const screenshotIndex = {};
-	let screenshotCurrent = 0;
 	for (const sourceId in sources) {
 		// Not every source has screenshots
 		const entriesPath = pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json');
@@ -358,8 +324,6 @@ async function buildIndexes() {
 				path: entry.path,
 				type: entry.type,
 			});
-
-			utils.logMessage(`[${++screenshotCurrent}/${screenshotTotal}] added ${sourceId} screenshot entry: ${entry.url}`);
 		}
 	}
 
@@ -367,16 +331,24 @@ async function buildIndexes() {
 }
 
 // Parse an entry's file data, then add to database and file tree
-function buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement) {
-	let search, doRaw = true;
+async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, insertStatement) {
+	const [file, type, changed] = await getFile(archive, typeIndex);
+	archive.types.push(type);
 
-	const sourcePath = pathUtils.join(config.inputPath, 'archives', archive.source, archive.path);
+	// If the loaded file data was changed, copy over the raw file
+	if (changed) {
+		const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, archive.path);
+		Deno.copyFileSync(filePath, pathUtils.join(targetDir, 'raw'));
+	}
+
 	const targetPath = pathUtils.join(targetDir, 'file');
+	const decoder = new TextDecoder();
+	let search;
 	if (archive.types[0] == 'text/html') {
-		// Load HTML file and try to revert source-specific modifications, then extract and resolve links and save
+		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
 		// This process can be repeated up to two more times for different variations of the HTML content
 		// (Namely, variations that attempt to fix non-standard/archaic markup with modern/legacy browsers in mind, respectively)
-		const html = genericizeMarkup(getText(sourcePath, archive.source, archive.url), archive.source, archive.path, archive.url);
+		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
 		const [newHtml, inject] = buildInjectAndInlinks(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
@@ -398,70 +370,19 @@ function buildArchive(archive, urlIndex, pathIndex, targetDir, insertStatement) 
 		// Build title/description text
 		search = buildSearch(html, archive.types[0]);
 	}
-	else if (archive.source == 'roteiro') {
-		// Novo Roteiro Pratico da Internet has header and footer HTML inserted in even non-text files
-		const headerExp = /^<a name = \d+>\n/i;
-		const footerExp = /(?:<hr>)?\n<h6>Internet URL-\n <a href=.*?>.*?<\/a> <\/h6>\n*$/;
-		if (archive.types[0].startsWith('text/')) {
-			// Remove header/footer HTML from text files, but convert them to UTF-8 first
-			const text = getText(sourcePath, archive.source)
-				.replace(headerExp, '')
-				.replace(footerExp, '');
-			Deno.writeTextFileSync(targetPath, text);
-		}
-		else {
-			// Surgically remove header/footer HTML from the byte array of non-text files
-			let file = Deno.readFileSync(sourcePath);
-			let start = 0, end = 0;
-			const text = new TextDecoder().decode(file);
-
-			// Find indexes of where actual file contents start and end, excluding header/footer HTML
-			const headerMatch = text.match(headerExp);
-			if (headerMatch !== null) {
-				const encodedText = new TextEncoder().encode(headerMatch[0]);
-				start = encodedText.length;
-			}
-			const footerMatch = text.match(footerExp);
-			if (footerMatch !== null) {
-				const encodedText = new TextEncoder().encode(footerMatch[0]);
-				end = file.length - encodedText.length;
-			}
-
-			// Shrink the array accordingly and write to file
-			if (start > 0 || end > 0)
-				file = file.subarray(start, end);
-			Deno.writeFileSync(targetPath, file);
-		}
-	}
-	else if (archive.types[0].startsWith('text/')) {
-		// Convert text to UTF-8 and save
-		const text = getText(sourcePath, archive.source, archive.url);
-		Deno.writeTextFileSync(targetPath, text);
-
-		// Build description text
-		search = buildSearch(text, archive.types[0]);
-	}
-	else if (archive.types[0] == 'image/gif' && archive.source == 'riscdisc') {
-		// Fix weirdly-formatted GIFs present in The Risc Disc Volume 2
-		const data = new Deno.Command('convert', { args: [sourcePath, '+repage', '-'], stdout: 'piped' }).outputSync().stdout;
-		Deno.writeFileSync(targetPath, data);
-	}
 	else {
-		// We can just use the raw file data
-		Deno.copyFileSync(sourcePath, targetPath);
-		doRaw = false;
-
-		if (archive.types[0] == 'image/x-xbitmap') {
+		if (archive.types[0].startsWith('text/'))
+			// Build description text
+			search = buildSearch(decoder.decode(file), archive.types[0]);
+		else if (archive.types[0] == 'image/x-xbitmap') {
 			// Convert XBM to GIF for when presentation improvements are active
-			const data_p = new Deno.Command('convert', { args: [sourcePath, 'GIF:-'], stdout: 'piped' }).outputSync().stdout;
-			Deno.writeFileSync(targetPath + '_p', data_p);
+			const file_p = (await inputAndExecute(file, 'convert', ['XBM:-', 'GIF:-'])).stdout;
+			Deno.writeFileSync(targetPath + '_p', file_p);
 			archive.types.push('image/gif');
 		}
-	}
 
-	// Also copy over the raw file data if we're not already using it
-	if (doRaw)
-		Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'raw'));
+		Deno.writeFileSync(targetPath, file);
+	}
 
 	// Add archive to database
 	if (!archive.error)
@@ -912,12 +833,6 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 		}
 		case 'roteiro': {
 			html = html
-				// Remove header
-				.replace(/^<a name = \d+>\n/i, '')
-				// Remove HTTP header that was inserted into some documents where it shouldn't
-				.replace(/^HTTP(?:\/\*)? \d{3} .*\n(?:[^ :]+: .*\n)+\n/, '')
-				// Remove footer
-				.replace(/(?:<hr>)?\n<h6>Internet URL-\n <a href=.*?>.*?<\/a> <\/h6>\n*$/, '')
 				// Fix file URLs
 				.replaceAll('file:/http/', '../../')
 				// Replace error links
@@ -1172,112 +1087,192 @@ function getLinks(html, baseUrl = undefined) {
 	return links;
 }
 
-// Retrieve text from file and convert to UTF-8 if necessary
-function getText(filePath, sourceId, url = null) {
+// Retrieve a file's data and parse it
+async function getFile(archive, typeIndex = {}) {
+	// Make sure the file exists, otherwise return an empty byte array
+	const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, archive.path);
 	const fileInfo = utils.getPathInfo(filePath);
 	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
-		return '';
+		return new Uint8Array();
 
-	let text;
-	try {
-		const decoder = new TextDecoder();
-		switch (sourceId) {
-			case 'wwwdir': {
-				// World Wide Web Directory has some double-encoding weirdness that needs to be untangled
-				text = decoder.decode((
-					new Deno.Command('bash', { args: ['-c',
-						`HTML="$(iconv '${filePath.replaceAll("'", "\\'")}' -cf UTF-8 -t WINDOWS-1252)"; iconv -cf $(uchardet <(echo -nE "$HTML")) -t UTF-8 <(echo -nE "$HTML")`
-					], stdout: 'piped' }).outputSync()
-				).stdout);
-				break;
-			}
-			case 'einblicke': {
-				// Einblicke ins Internet is already UTF-8 and anything that isn't detected as such causes issues, so don't try to convert it
-				text = Deno.readTextFileSync(filePath);
-				break;
-			}
-			case 'pcpress': {
-				// Convert from YUSCII if the port is 81, as described by the YU-Font specification
-				// Otherwise, convert using the default behavior
-				if ((url !== null && /^https?:\/\/[^\/]+:81(?:\/|$)/i.test(url))) {
-					text = decoder.decode((
-						new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
-					).stdout);
-					break;
-				}
-			}
-			/* Falls through (this is here to make VSCode happy) */
-			default: {
-				let uchardetStr = decoder.decode(new Deno.Command('uchardet', { args: [filePath], stdout: 'piped' }).outputSync().stdout).trim();
-				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
-				if (uchardetStr == 'MAC-CENTRALEUROPE' || uchardetStr == 'IBM865')
-					uchardetStr = 'WINDOWS-1253';
-				// Same with IBM852 and WINDOWS-1252
-				if (uchardetStr == 'IBM852')
-					uchardetStr = 'WINDOWS-1252';
+	// Load the file and shrink it if necessary
+	let file = Deno.readFileSync(filePath);
+	let changed = false;
+	const override = overrides[archive.source + '/' + archive.path];
+	if (override !== undefined && (override.start !== null || override.end !== null)) {
+		file = file.subarray(override.start || 0, override.end || undefined);
+		changed = true;
+	}
 
-				// Convert to UTF-8 from the identified character encoding if needed
-				// Otherwise, just read it normally
-				if (uchardetStr != 'ASCII' && uchardetStr != 'UTF-8')
-					text = decoder.decode((
-						new Deno.Command('iconv', { args: [filePath, '-cf', uchardetStr, '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
-					).stdout);
-				else
-					text = Deno.readTextFileSync(filePath);
+	const decoder = new TextDecoder();
+	const encoder = new TextEncoder();
 
-				if (sourceId == 'pcpress') {
-					// Convert text surrounded by the extremely non-standard <yu> element as YUSCII
-					// TODO: Figure out how content marked as CP852 or CP1250 is supposed to be converted
-					const yuExp = /(<yu(?: +[a-z0-9]+)?>)(.*?)(<\/yu>|$)/gis;
-					const yuMatches = [...text.matchAll(yuExp)];
-					if (yuMatches.length > 0) {
-						// We convert again from YUSCII and insert text segments over the stock conversion
-						// This kind of sucks, but Deno's command API hurts my brain and this works well enough
-						const yuText = decoder.decode((
-							new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
-						).stdout);
-						const yuMatches2 = [...yuText.matchAll(yuExp)];
+	// A Internet em CD-ROM has header and footer HTML inserted in even non-text files
+	if (archive.source == 'roteiro') {
+		const text = decoder.decode(file);
+		let start, end;
 
-						let newText = '';
-						let offset = 0;
-						for (let i = 0; i < yuMatches.length; i++) {
-							const yuMatch = yuMatches[i];
-							const yuMatch2 = yuMatches2[i];
-
-							const start = yuMatch.index + yuMatch[1].length;
-							const end = yuMatch.index + yuMatch[0].length - yuMatch[3].length;
-							if (offset > start)
-								continue;
-
-							newText += text.substring(0, start - offset) + yuMatch2[2];
-							text = text.substring(end - offset);
-							offset = end;
-						}
-
-						text = newText + text;
-					}
-				}
+		// Find indexes of where actual file contents start and end, excluding header/footer HTML
+		const headerMatch = text.match(/^<a name = \d+>\r?\n/i);
+		if (headerMatch !== null) {
+			const encodedText = encoder.encode(headerMatch[0].replace(/\uFFFD/g, ' '));
+			start = encodedText.length;
+		}
+		else {
+			const headerMatch2 = text.match(/^HTTP(?:\/\*)? \d{3} .*\r?\n(?:[^ :]+: .*\r?\n)+\r?\n/);
+			if (headerMatch2 !== null) {
+				const encodedText = encoder.encode(headerMatch2[0].replace(/\uFFFD/g, ' '));
+				start = encodedText.length;
 			}
 		}
-	}
-	catch { text = Deno.readTextFileSync(filePath); }
+		const footerMatch = text.match(/(?:<hr>)?\r?\n<h6>Internet URL-\r?\n <a href=.*?>.*?<\/a> <\/h6>\r?\n*$/);
+		if (footerMatch !== null) {
+			const encodedText = encoder.encode(footerMatch[0].replace(/\uFFFD/g, ' '));
+			end = file.length - encodedText.length;
+		}
 
-	return text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+		// Shrink the byte array accordingly
+		if (start !== undefined || end !== undefined) {
+			file = file.subarray(start || 0, end);
+			changed = true;
+		}
+	}
+
+	// It is now safe to gather the file's MIME type
+	const typeField = archive.source + '/' + archive.path;
+	let type = typeIndex[typeField];
+	if (type === undefined) {
+		if (override !== undefined && override.type !== null)
+			// A type override exists
+			type = override.type;
+		else if (archive.error)
+			// Error pages are always HTML
+			type = 'text/html';
+		else
+			// Automatically determine the type
+			type = await mimeType(file, filePath);
+
+		// Insert the newly-determined type into the type index
+		typeIndex[typeField] = type;
+	}
+
+	// Fix weirdly-formatted GIFs present in The Risc Disc Volume 2
+	if (archive.source == 'riscdisc' && type == 'image/gif') {
+		file = (await inputAndExecute(file, 'convert', ['GIF:-', '+repage', 'GIF:-'])).stdout;
+		changed = true;
+	}
+
+	if (type.startsWith('text/')) {
+		// World Wide Web Directory files are double-encoded
+		if (archive.source == 'wwwdir')
+			file = (await inputAndExecute(file, 'iconv', ['-cf', 'UTF-8', '-t', 'WINDOWS-1252'])).stdout;
+
+		// Einblicke ins Internet is already UTF-8 and anything that isn't detected as such causes issues
+		if (archive.source != 'einblicke') {
+			let charset;
+			if (override !== undefined && override.charset !== null)
+				// There is a character encoding override, so just use that
+				charset = override.charset;
+			else {
+				// Try to identify the character encoding using uchardet
+				charset = decoder.decode((await inputAndExecute(file, 'uchardet')).stdout).trim();
+
+				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
+				if (charset == 'MAC-CENTRALEUROPE' || charset == 'IBM865')
+					charset = 'WINDOWS-1253';
+				// Same with IBM852 and WINDOWS-1252
+				else if (charset == 'IBM852')
+					charset = 'WINDOWS-1252';
+				else if (charset == 'unknown') {
+					// If the source is The Risc Disc Volume 2, then the file probably uses the RISC OS character set which is based on ISO-8859-1
+					// Otherwise, screw it. It's UTF-8
+					if (archive.source == 'riscdisc')
+						charset = 'ISO-8859-1';
+					else
+						charset = 'UTF-8';
+				}
+			}
+
+			// Convert to UTF-8 from the identified character encoding if not already UTF-8
+			if (charset != 'ASCII' && charset != 'UTF-8')
+				file = (await inputAndExecute(file, 'iconv', ['-cf', charset, '-t', 'UTF-8'])).stdout;
+		}
+
+		let text = decoder.decode(file);
+		if (archive.source == 'pcpress' && archive.url !== null && /https?:\/\/[^\/]+\.yu[\/:]/i.test(archive.url)) {
+			// If the source is PC Press Internet CD and the URL has a .yu TLD, convert again from YUSCII
+			const yuText = decoder.decode((
+				new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
+			).stdout);
+
+			// Selectively insert segments into the stock conversion if the text contains <yu> elements
+			// Otherwise, play it safe and just use the full YUSCII conversion
+			// TODO: Figure out if content marked as CP852 or CP1250 needs to be converted differently and how
+			const yuExp = /(<yu(?: +[a-z0-9]+)?>)(.*?)(<\/yu>|$)/gis;
+			const yuMatches = [...text.matchAll(yuExp)];
+			if (yuMatches.length > 0) {
+				const yuMatches2 = [...yuText.matchAll(yuExp)];
+
+				let newText = '';
+				let offset = 0;
+				for (let i = 0; i < yuMatches.length; i++) {
+					const yuMatch = yuMatches[i];
+					const yuMatch2 = yuMatches2[i];
+
+					const start = yuMatch.index + yuMatch[1].length;
+					const end = yuMatch.index + yuMatch[0].length - yuMatch[3].length;
+					if (offset > start)
+						continue;
+
+					newText += text.substring(0, start - offset) + yuMatch2[2];
+					text = text.substring(end - offset);
+					offset = end;
+				}
+
+				text = newText + text;
+			}
+			else
+				text = yuText;
+		}
+
+		// Standardize newlines and re-encode text
+		text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+		file = encoder.encode(text);
+		changed = true;
+	}
+
+	return [file, type, changed];
 }
 
-// Identify the file's MIME type by its contents, or by file extension if the returned type is too basic
-async function mimeType(filePath) {
+// Identify the file's MIME type
+async function mimeType(file, filePath) {
 	const decoder = new TextDecoder();
+	const rawText = decoder.decode(file);
+
+	// First, check if the file is multipart and set the type accordingly
+	// TODO: Figure out why this doesn't seem to work
+	const mixedMatch = rawText.match(/^--(.+)\r?\nContent-type:/i);
+	if (mixedMatch !== null) {
+		const boundary = mixedMatch[1].includes(' ') ? '"' + mixedMatch[1] + '"' : mixedMatch[1];
+		return 'multipart/x-mixed-replace; boundary=' + boundary;
+	}
+
+	// Guess the file's type based on its intrinsic properties and file extension
 	const [magicType, extType] = (await Promise.all([
-		new Deno.Command('mimetype', { args: ['-bM', filePath], stdout: 'piped' }).output(),
+		inputAndExecute(file, 'mimetype', ['-b', '--stdin']),
 		new Deno.Command('mimetype', { args: ['-b',  filePath], stdout: 'piped' }).output(),
 	])).map(type => decoder.decode(type.stdout).trim());
+
 	if (magicType == 'text/plain') {
-		// XBM is a particularly annoying MIME type to identify
-		if (extType != 'image/x-xbitmap') {
-			const fileInfo = decoder.decode(new Deno.Command('file', { args: ['-b', filePath], stdout: 'piped' }).outputSync().stdout);
-			if (fileInfo.startsWith('xbm image'))
+		// XBM and XPM are always recognized as text/plain if the file extension is inaccurate
+		// So we need to manually identify them ourselves
+		if (extType != 'image/x-xbitmap' && extType != 'image/x-xpixmap') {
+			const xbmMatch = rawText.match(/static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/i);
+			if (xbmMatch !== null)
 				return 'image/x-xbitmap';
+			const xpmMatch = rawText.match(/^\s*!\s*XPM2/i);
+			if (xpmMatch !== null)
+				return 'image/x-xpixmap';
 		}
 		return extType;
 	}
@@ -1285,6 +1280,21 @@ async function mimeType(filePath) {
 		return extType;
 	else
 		return magicType;
+}
+
+// Execute a command with input data and return its output
+function inputAndExecute(input, app, args = undefined) {
+	const process = new Deno.Command(app, { args: args, stdin: 'piped', stdout: 'piped', stderr: 'piped' }).spawn();
+	const writer = process.stdin.getWriter();
+	const writePromise = writer.ready
+			.then(() => writer.write(input))
+			.then(() => writer.close())
+			.catch(() => {}); // This is here because mimetype likes to throw errors on random files for some reason (it still works though)
+	const readPromise = process.output();
+	return Promise.all([writePromise, readPromise]).then(([_, output]) => {
+		process.unref();
+		return output;
+	});
 }
 
 // Remove any quotes or whitespace surrounding a string
