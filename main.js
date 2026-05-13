@@ -230,7 +230,9 @@ function serverHandler(request, info) {
 				// Embed non-HTML files using the most appropriate template if the navbar is enabled
 				let embed, indent = 'all';
 				if (fileType.startsWith('text/') || fileType.startsWith('message/') || fileType == 'application/mbox') {
-					embed = buildHtml(templates.compat.embed.text, { 'TEXT': Deno.readTextFileSync(archivePathInfo.filePath) });
+					embed = buildHtml(templates.compat.embed.text, {
+						'TEXT': Deno.readTextFileSync(archivePathInfo.filePath).replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+					});
 					indent = 'first';
 				}
 				else {
