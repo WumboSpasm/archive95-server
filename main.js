@@ -86,7 +86,7 @@ function serverHandler(request, info) {
 
 	// Initialize response headers
 	const headers = new Headers();
-	headers.set('Content-Type', 'text/html' + (doUnicode ? '; charset=UTF-8' : ''));
+	headers.set('Content-Type', 'text/html' + (doUnicode ? ';charset=UTF-8' : ''));
 	headers.set('Cache-Control', 'max-age=14400');
 
 	// Serve homepage/search results
@@ -265,7 +265,7 @@ function serverHandler(request, info) {
 			}
 			else {
 				// Plainly serve the file if the navbar is disabled and it's not an HTML file
-				headers.set('Content-Type', fileType + (doUnicode && fileType.startsWith('text/') ? '; charset=UTF-8' : ''));
+				headers.set('Content-Type', fileType + (doUnicode && fileType.startsWith('text/') ? ';charset=UTF-8' : ''));
 				return new Response(Deno.openSync(archivePathInfo.filePath).readable, { headers: headers });
 			}
 		}

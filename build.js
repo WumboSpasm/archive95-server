@@ -1259,7 +1259,7 @@ async function mimeType(file, filePath, url = null) {
 	const mixedMatch = rawText.match(/^--(.+)\r?\nContent-type:/i);
 	if (mixedMatch !== null) {
 		const boundary = mixedMatch[1].includes(' ') ? '"' + mixedMatch[1] + '"' : mixedMatch[1];
-		return 'multipart/x-mixed-replace; boundary=' + boundary;
+		return 'multipart/x-mixed-replace;boundary=' + boundary;
 	}
 
 	// Guess the file's type based on its intrinsic properties and file extension
