@@ -788,8 +788,6 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 			break;
 		}
 		case 'pcpress': {
-			// Remove downloader software header
-			html = html.replace(/^<META name="download" content=".*?">\n/s, '');
 			// Attempt to fix broken external links
 			const links = getLinks(html, baseUrl)
 				.filter(link => link.hasHttp && URL.canParse(link.rawUrl))
@@ -1107,28 +1105,38 @@ async function getFile(archive, typeIndex = {}) {
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
 
-	// A Internet em CD-ROM has header and footer HTML inserted in even non-text files
-	if (archive.source == 'roteiro') {
+	if (archive.source == 'pcpress') {
+		// PC Press Internet CD has a <meta> element inserted at the top of nearly all text files, HTML or otherwise
+		const text = decoder.decode(file);
+		const metaMatch = text.match(/^<META name="download" content=".*?">\n/s);
+		if (metaMatch !== null) {
+			const encodedMatch = encoder.encode(metaMatch[0].replace(/\uFFFD/g, ' '));
+			file = file.subarray(encodedMatch.length);
+			changed = true;
+		}
+	}
+	else if (archive.source == 'roteiro') {
+		// A Internet em CD-ROM has header and footer HTML inserted in even non-text files
 		const text = decoder.decode(file);
 		let start, end;
 
 		// Find indexes of where actual file contents start and end, excluding header/footer HTML
-		const headerMatch = text.match(/^<a name = \d+>\r?\n/i);
+		const headerMatch = text.match(/^(?:<a name = \d+>\r?\n)?HTTP(?:\/(?:\*|[\d.]+))? \d{3} .*\r?\n(?:[^ :]+: .*\r?\n)+\r?\n/i);
 		if (headerMatch !== null) {
-			const encodedText = encoder.encode(headerMatch[0].replace(/\uFFFD/g, ' '));
-			start = encodedText.length;
+			const encodedMatch = encoder.encode(headerMatch[0].replace(/\uFFFD/g, ' '));
+			start = encodedMatch.length;
 		}
 		else {
-			const headerMatch2 = text.match(/^HTTP(?:\/\*)? \d{3} .*\r?\n(?:[^ :]+: .*\r?\n)+\r?\n/);
+			const headerMatch2 = text.match(/^<a name = \d+>\r?\n/i);
 			if (headerMatch2 !== null) {
-				const encodedText = encoder.encode(headerMatch2[0].replace(/\uFFFD/g, ' '));
-				start = encodedText.length;
+				const encodedMatch = encoder.encode(headerMatch2[0].replace(/\uFFFD/g, ' '));
+				start = encodedMatch.length;
 			}
 		}
 		const footerMatch = text.match(/(?:<hr>)?\r?\n<h6>Internet URL-\r?\n <a href=.*?>.*?<\/a> <\/h6>\r?\n*$/);
 		if (footerMatch !== null) {
-			const encodedText = encoder.encode(footerMatch[0].replace(/\uFFFD/g, ' '));
-			end = file.length - encodedText.length;
+			const encodedMatch = encoder.encode(footerMatch[0].replace(/\uFFFD/g, ' '));
+			end = file.length - encodedMatch.length;
 		}
 
 		// Shrink the byte array accordingly
@@ -1150,7 +1158,7 @@ async function getFile(archive, typeIndex = {}) {
 			type = 'text/html';
 		else
 			// Automatically determine the type
-			type = await mimeType(file, filePath);
+			type = await mimeType(file, filePath, archive.url);
 
 		// Insert the newly-determined type into the type index
 		typeIndex[typeField] = type;
@@ -1242,7 +1250,7 @@ async function getFile(archive, typeIndex = {}) {
 }
 
 // Identify the file's MIME type
-async function mimeType(file, filePath) {
+async function mimeType(file, filePath, url = null) {
 	const decoder = new TextDecoder();
 	const rawText = decoder.decode(file);
 
@@ -1261,22 +1269,63 @@ async function mimeType(file, filePath) {
 	])).map(type => decoder.decode(type.stdout).trim());
 
 	if (magicType == 'text/plain') {
-		// XBM and XPM are always recognized as text/plain if the file extension is inaccurate
+		// XBM and XPM are always recognized as text/plain and we can't always trust the file extension
 		// So we need to manually identify them ourselves
-		if (extType != 'image/x-xbitmap' && extType != 'image/x-xpixmap') {
-			const xbmMatch = rawText.match(/static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/i);
-			if (xbmMatch !== null)
-				return 'image/x-xbitmap';
-			const xpmMatch = rawText.match(/^\s*!\s*XPM2/i);
-			if (xpmMatch !== null)
-				return 'image/x-xpixmap';
-		}
+		const xbmMatch = rawText.match(/static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/i);
+		if (xbmMatch !== null)
+			return 'image/x-xbitmap';
+		const xpmMatch = rawText.match(/^\s*!\s*XPM2/i);
+		if (xpmMatch !== null)
+			return 'image/x-xpixmap';
+
+		// Likewise, HTML file extensions are not always accurate, so we'll need to check its type manually
+		if (extType == 'text/html')
+			return isPlaintext(rawText, url) ? magicType : extType;
+
+		// In all other cases, just use the file extension since it will probably be the most specific
 		return extType;
 	}
 	else if (magicType == 'application/octet-stream' && !extType.startsWith('text/'))
 		return extType;
 	else
 		return magicType;
+}
+
+// Guess if a piece of text is HTML or plaintext
+function isPlaintext(text, url = null) {
+	// If it has an HTML comment opening sequence, then it's probably HTML
+	if (text.includes('<!--'))
+		return false;
+
+	const parsedUrl = URL.parse(url);
+	const hasHtmlExt = parsedUrl !== null && /\.html?$/i.test(parsedUrl.pathname);
+	const tagMatches = [...text.matchAll(/<\/?([a-z\d]+)(?: [^>\n]*?)?>/gi)];
+	if (tagMatches.length > 0 && hasHtmlExt)
+		// If there appear to be HTML tags and the URL has an HTML file extension, then it's probably HTML
+		return false;
+	else if (tagMatches.length == 0)
+		// If there is nothing resembling HTML tags, and it has newlines or a non-HTML file extension, then it's probably plaintext
+		return !hasHtmlExt || text.trim().includes('\n');
+
+	// Compare each apparent HTML tag to a list of common tags
+	// If one matches, then it's probably HTML
+	const validTags = [
+		'html', 'head', 'title', 'meta', 'body',
+		'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+		'p', 'b', 'i', 'u', 'a', 'img', 'pre', 'hr',
+		'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+		'table', 'tr', 'th', 'td', 'input', 'button',
+		'isindex', 'plaintext', 'frame', 'frameset',
+		'applet', 'param',
+	];
+	for (const tagMatch of tagMatches) {
+		const tag = tagMatch[1].toLowerCase();
+		if (validTags.some(validTag => tag == validTag))
+			return false;
+	}
+
+	// If none of the apparent HTML tags match, then they're probably not HTML tags and it's probably plaintext
+	return true;
 }
 
 // Execute a command with input data and return its output
