@@ -414,7 +414,7 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 	let offset = 0;
 	const source = sources[archive.source];
 	const newHtml = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '').replace(linkExp, (match, tagStart, url, index) => {
-		let rawUrl = encodeURI(utils.safeDecode(trimQuotes(url)));
+		let rawUrl = trimQuotes(url);
 		// Anchors and missing URLs should be left unchanged, but make sure they're at least surrounded by quotes
 		if (rawUrl.startsWith('#') || rawUrl == '/deadend') {
 			const newStr = tagStart + '"' + rawUrl + '"';
@@ -422,13 +422,15 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 			return newStr;
 		}
 
-		// Check for excess data in the URL string and remove it
+		// Check for excess data in the URL string
 		let urlPrefix = '';
 		if (/^http-equiv/i.test(tagStart))
 			urlPrefix = rawUrl.match(/^\d*;? *(?:URL=)?/i)[0];
 		else if (/^rectangle/i.test(tagStart))
 			urlPrefix = rawUrl.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
-		rawUrl = rawUrl.substring(urlPrefix.length);
+
+		// Remove excess data from the URL string and re-encode it
+		rawUrl = encodeURI(utils.safeDecode(rawUrl.substring(urlPrefix.length)));
 
 		const isAbsolute = /^[a-z]+:/i.test(rawUrl);
 		let resolvedSource = null;
