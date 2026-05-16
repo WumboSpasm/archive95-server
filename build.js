@@ -358,13 +358,6 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 			const [newHtml_p, inject_p] = buildInjectAndInlinks(html_p, archive, urlIndex, pathIndex);
 			Deno.writeTextFileSync(targetPath + '_p', newHtml_p);
 			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(inject_p, null, '\t'));
-
-			const html_pc = improvePresentation(html, true);
-			if (html_p != html_pc) {
-				const [newHtml_pc, inject_pc] = buildInjectAndInlinks(html_pc, archive, urlIndex, pathIndex);
-				Deno.writeTextFileSync(targetPath + '_pc', newHtml_pc);
-				Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_pc.json'), JSON.stringify(inject_pc, null, '\t'));
-			}
 		}
 
 		// Build title/description text
@@ -408,12 +401,7 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 			index: -1,
 		},
 		navbar: {
-			compat: {
-				index: -1,
-			},
-			modern: {
-				index: -1,
-			}
+			index: -1,
 		},
 		frames: [],
 		links: [],
@@ -563,19 +551,14 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 	const newHtmlNoComments = newHtml.replace(/<! *-+.*?-+ *>/gs, match => ' '.repeat(match.length));
 
 	// Find index at which stylesheets can be inserted
-	const headExp = /<head(?:er)?(?:| .*?)>/i;
+	const headExp = /<head(?:er)?(?:\s.*?)?>/i;
 	const headMatch = newHtmlNoComments.match(headExp);
 	inject.styles.index = headMatch !== null ? headMatch.index + headMatch[0].length : 0;
 
-	// Find index at which compatibility mode navbar can be inserted
-	const bodyOpenExp = /^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:er)?.*?>.*?<\/head|body)>\s*)+)?/is;
-	const bodyOpenMatch = newHtmlNoComments.match(bodyOpenExp);
-	inject.navbar.compat.index = bodyOpenMatch !== null ? bodyOpenMatch[0].length : 0;
-
-	// Find index at which modern mode navbar can be inserted
-	const bodyCloseExp = /(?:(?:<\/(?:body|noframes|html)>\s*)+)?$/i;
-	const bodyCloseMatch = newHtmlNoComments.match(bodyCloseExp);
-	inject.navbar.modern.index = bodyCloseMatch?.index ?? newHtml.length;
+	// Find index at which the navbar can be inserted
+	const bodyExp = /^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:\s.*?)?>.*?<\/head|title(?:\s.*?)?>.*?<\/title|body(?:\s.*?)?)>\s*)+)?/is;
+	const bodyMatch = newHtmlNoComments.match(bodyExp);
+	inject.navbar.index = bodyMatch !== null ? bodyMatch[0].length : 0;
 
 	// Try to find start and end indexes of frameset, so it can be removed if needed
 	const framesetExp = /<frameset.*?>.*<\/frameset> *\n?/is;
@@ -947,12 +930,8 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 }
 
 // Attempt to fix invalid/deprecated/non-standard markup
-function improvePresentation(html, compat = false) {
+function improvePresentation(html) {
 	html = html.replace(
-		// Remove cut-off tag at end of document
-		/<\/?\s*$/,
-		'',
-	).replace(
 		// Fix closing title tags with missing slash
 		/<(title)>((?:(?!<\/title>).)*?)<(title)>/gis,
 		'<$1>$2</$3>',
@@ -978,11 +957,7 @@ function improvePresentation(html, compat = false) {
 		'<$1>$2</$1>',
 	).replace(
 		// Add missing closing tags to link elements
-		/(<(a)\s(?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=$|<a\s)/gis,
-		'$1</$2>',
-	).replace(
-		// Add missing closing tags to table and font elements
-		/(<(table|font)[^>]*>(?:(?!<\/\2>).)*?)(?=(?:<\/body>\s*)?(?:<\/html>\s*)?$)/gis,
+		/(<(a)\s(?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=<a\s)/gis,
 		'$1</$2>',
 	).replace(
 		// Add missing closing tags to list elements
@@ -998,50 +973,30 @@ function improvePresentation(html, compat = false) {
 	if (/<! *-/.test(html) && !/- *>/.test(html))
 		html = html.replace(/<!( *-.*$)/gm, '<!$1-->');
 
-	// Improvements for modern browsers only
-	if (!compat) {
-		// Convert <plaintext> into <pre>
-		// This needs to be done to prevent the navbar from being rendered in plaintext
-		const plaintextExp = /<plaintext>/gi;
-		for (let match; (match = plaintextExp.exec(html)) !== null;) {
-			const openIndex = match.index;
-			const startIndex = plaintextExp.lastIndex;
-			const endIndex = html.toLowerCase().indexOf('</plaintext>', startIndex);
-			const closeIndex = endIndex != -1 ? endIndex + 12 : -1;
+	// Replace <isindex> with plain HTML resembling its appearance in old versions of Netscape/Firefox
+	// This is because modern browsers don't render <isindex> at all
+	const isindexExp = /<isindex.*?>/gis;
+	for (let match; (match = isindexExp.exec(html)) !== null;) {
+		const isindex = match[0];
+		const matchPrompt = isindex.match(/prompt *= *(".*?"|[^ >]+)/is);
+		const matchAction = isindex.match(/action *= *(".*?"|[^ >]+)/is);
 
-			const upperCase = match[0] == match[0].toUpperCase();
-			const content = (upperCase ? '<PRE>' : '<pre>')
-				+ html.substring(startIndex, endIndex != -1 ? endIndex : undefined).replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-				+ (upperCase ? '</PRE>' : '</pre>');
-
-			html = html.substring(0, openIndex) + content + (closeIndex != -1 ? html.substring(closeIndex) : '');
+		let formStart = '';
+		let formEnd = '';
+		let prompt = 'This is a searchable index. Enter search keywords: ';
+		if (matchPrompt !== null) {
+			prompt = trimQuotes(matchPrompt[1]);
+			if (!prompt.endsWith(' '))
+				prompt += ' ';
+		}
+		if (matchAction !== null) {
+			formStart = `<form action="${trimQuotes(matchAction[1])}">`;
+			formEnd = '</form>';
 		}
 
-		// Replace <isindex> with plain HTML resembling its appearance in old versions of Netscape/Firefox
-		// This is because modern browsers don't render <isindex> at all
-		const isindexExp = /<isindex.*?>/gis;
-		for (let match; (match = isindexExp.exec(html)) !== null;) {
-			const isindex = match[0];
-			const matchPrompt = isindex.match(/prompt *= *(".*?"|[^ >]+)/is);
-			const matchAction = isindex.match(/action *= *(".*?"|[^ >]+)/is);
-
-			let formStart = '';
-			let formEnd = '';
-			let prompt = 'This is a searchable index. Enter search keywords: ';
-			if (matchPrompt !== null) {
-				prompt = trimQuotes(matchPrompt[1]);
-				if (!prompt.endsWith(' '))
-					prompt += ' ';
-			}
-			if (matchAction !== null) {
-				formStart = `<form action="${trimQuotes(matchAction[1])}">`;
-				formEnd = '</form>';
-			}
-
-			html = html.substring(0, isindexExp.lastIndex - isindex.length)
-				+ formStart + '<hr>' + prompt + '<input><hr>' + formEnd
-				+ html.substring(isindexExp.lastIndex);
-		}
+		html = html.substring(0, isindexExp.lastIndex - isindex.length)
+			+ formStart + '<hr>' + prompt + '<input><hr>' + formEnd
+			+ html.substring(isindexExp.lastIndex);
 	}
 
 	return html;

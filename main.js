@@ -142,7 +142,7 @@ function serverHandler(request, info) {
 
 			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
-			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds, modernMode);
+			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
 			if (fileType == 'text/html') {
 				// For HTML files, we build a list of slices from the injection list to pass to replaceSlices
@@ -166,10 +166,10 @@ function serverHandler(request, info) {
 						value: styles.join('\n'),
 					});
 
-				// Build navbar slice, inserting it at the top or bottom of the page depending on if modern mode is enabled
+				// Build navbar slice
 				if (doNavbar)
 					slices.push({
-						start: inject.navbar[modernMode ? 'modern' : 'compat'].index,
+						start: inject.navbar.index,
 						end: null,
 						value: buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
 					});
@@ -772,7 +772,7 @@ function getArchiveInfo(sourceId, url) {
 }
 
 // Identify the correct archive file and injection list and return their paths
-function getArchivePathInfo(archiveDir, flagIds, modernMode) {
+function getArchivePathInfo(archiveDir, flagIds) {
 	const archivePathInfo = {
 		filePath: pathUtils.join(archiveDir, 'file'),
 		injectPath: pathUtils.join(archiveDir, 'inject.json'),
@@ -786,15 +786,6 @@ function getArchivePathInfo(archiveDir, flagIds, modernMode) {
 			archivePathInfo.filePath = filePath_p;
 			archivePathInfo.injectPath = injectPath_p;
 			archivePathInfo.typeIndex = 1;
-			if (!modernMode) {
-				const filePath_pc = filePath_p + 'c';
-				const injectPath_pc = pathUtils.join(archiveDir, 'inject_pc.json');
-				if (utils.getPathInfo(filePath_pc)?.isFile) {
-					archivePathInfo.filePath = filePath_pc;
-					archivePathInfo.injectPath = injectPath_pc;
-					archivePathInfo.typeIndex = 2;
-				}
-			}
 		}
 	}
 
