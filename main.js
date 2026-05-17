@@ -136,11 +136,11 @@ function serverHandler(request, info) {
 
 	switch (mode.id) {
 		case 'view': {
-			const archiveInfoSpread = getArchiveInfo(sourceId, urlStr);
+			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId);
 			if (archiveInfoSpread === null)
 				throw new UnarchivedError(urlStr);
 
-			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = archiveInfoSpread;
+			const [archiveInfoSet, archiveInfoIndex, _, archiveDir, isOrphan] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
@@ -254,7 +254,7 @@ function serverHandler(request, info) {
 				// We don't need to do any fancy injection here
 				const navbar = buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode);
 				const html = buildHtml(templates.compat.embed.main, {
-					'URL': archiveInfo.url,
+					'URL': decodeURI(archiveInfo.url),
 					'STYLE': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
 					'COMPATNAVBAR': !modernMode ? navbar : '',
 					'EMBED': { value: embed, indent: indent },
@@ -270,11 +270,11 @@ function serverHandler(request, info) {
 			}
 		}
 		case 'raw': {
-			const archiveInfoSpread = getArchiveInfo(sourceId, urlStr);
+			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId);
 			if (archiveInfoSpread === null)
 				throw new NotFoundError();
 
-			const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
+			const [archiveInfoSet, archiveInfoIndex, _, archiveDir] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
 			let archiveRawPath = pathUtils.join(archiveDir, 'raw');
@@ -329,7 +329,7 @@ function serverHandler(request, info) {
 			return new Response(inlinksPage, { headers: headers });
 		}
 		case 'options': {
-			const archiveInfoSpread = getArchiveInfo(sourceId, urlStr);
+			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId);
 			if (archiveInfoSpread === null)
 				throw new NotFoundError();
 
@@ -560,33 +560,6 @@ function prepareSearch(params, modernMode) {
 		searchDefs['CONTENT'] = buildHtml(modernMode ? templates.modern.search.about : templates.compat.search.about, aboutDefs);
 	}
 	else {
-		const query = utils.safeDecode(params.get('query')).replaceAll('%', '%25');
-		const sanitizedQuery = sanitizeInject(query);
-		const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
-			// FTS5 is used for database searches, and it's very easy to make invalid queries
-			// An easy fix would be to surround every word in quotation marks, but that would prevent most advanced features from being used
-			// So instead we will selectively and meticulously escape the most problematic characters
-			if (match == '"')
-				// Escape loose quotation marks that aren't surrounding a segment
-				return '""';
-			else if (match.startsWith('"') && match.endsWith('"'))
-				// If the segment is already surrounded by quotation marks, we don't need to do anything
-				return match;
-			else if (/^https?:\/\/[^ ]+$/i.test(match))
-				// If the segment appears to be a URL, sanitize it and surround in quotation marks to maximize potential results
-				// Because people might be using the search bar expecting it to work like the Wayback Machine
-				// (It still won't, but it at least won't always return zero results)
-				return '"' + utils.sanitizeUrl(match) + '"';
-			else
-				// Loose words need most non-alphanumeric characters to be escaped
-				return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
-					const realOffset = offset + subOffset;
-					const leftPlus = realOffset > 0 && /[\w"]/.test(str[realOffset - 1]) ? '+' : '';
-					const rightPlus = realOffset + subMatch.length < str.length && /[\w"]/.test(str[realOffset + subMatch.length]) ? '+' : '';
-					return leftPlus + '"' + subMatch.split('').join('"+"') + '"' + rightPlus;
-				});
-		});
-
 		// Parse the requested page, clamp it, and delete it from the query string so it doesn't screw up navigation button links
 		const page = Math.min(config.maxPage, Math.max(1, parseInt(params.get('page'), 10) || 1));
 		params.delete('page');
@@ -625,18 +598,98 @@ function prepareSearch(params, modernMode) {
 		if (sourceCondition !== undefined)
 			whereString += ' AND ' + sourceCondition;
 
-		let searchResults = [];
+		// Parse the search query
+		const query = params.get('query');
+		const sanitizedQuery = sanitizeInject(query);
+		const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
+			// FTS5 is used for database searches, and it's very easy to make invalid queries
+			// An easy fix would be to surround every word in quotation marks, but that would prevent most advanced features from being used
+			// So instead we will selectively and meticulously escape the most problematic characters
+			if (match == '"')
+				// Escape loose quotation marks that aren't surrounding a segment
+				return '""';
+			else if (match.startsWith('"') && match.endsWith('"'))
+				// If the segment is already surrounded by quotation marks, we don't need to do anything
+				return match;
+			else if (/^https?:\/\/[^ ]+$/i.test(match))
+				// If the segment appears to be a URL, sanitize it and surround in quotation marks to maximize potential results
+				// This fails to match some URLs and is made mostly redundant by the below code, but meh. When it works it works
+				return '"' + utils.sanitizeUrl(match) + '"';
+			else
+				// Loose words need most non-alphanumeric characters to be escaped
+				return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
+					const realOffset = offset + subOffset;
+					const leftPlus = realOffset > 0 && /[\w"]/.test(str[realOffset - 1]) ? '+' : '';
+					const rightPlus = realOffset + subMatch.length < str.length && /[\w"]/.test(str[realOffset + subMatch.length]) ? '+' : '';
+					return leftPlus + '"' + subMatch.split('').join('"+"') + '"' + rightPlus;
+				});
+		});
+
+		// Check if the search query matches any URLs when sanitized, and add them to the top of the search results
+		const searchResults = [];
+		let searchOffset = 0;
+		if (searchFilters.inUrl && !/[ "]/.test(query)) {
+			const archiveInfoSpread = getArchiveInfo(query, searchFilters.source || undefined);
+			if (archiveInfoSpread !== null) {
+				const [archiveInfoSet, _, archiveRootDir, __, isOrphan] = archiveInfoSpread;
+				for (let i = 0; i < archiveInfoSet.length; i++) {
+					const archiveInfo = archiveInfoSet[i];
+
+					// Apply search filters
+					if (archiveInfo.error
+					|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source)
+					|| (archiveInfo.types[0].startsWith('text/') && searchFilters.formatsMedia)
+					|| (!archiveInfo.types[0].startsWith('text/') && searchFilters.formatsText))
+						continue;
+
+					// Update offset but only add to result array if we're on the first page
+					searchOffset++;
+					if (page > 1)
+						continue;
+
+					// Initialize result entry
+					const searchResult = {
+						source: archiveInfo.source,
+						url: archiveInfo.url,
+						orphan: isOrphan,
+						displayUrl: '<b>' + archiveInfo.url + '</b>',
+						title: null,
+						content: null,
+					};
+
+					// Load in title/content text if applicable, trimming the latter to the first 24 words
+					const archiveDir = !isOrphan
+						? pathUtils.join(archiveRootDir, i.toString().padStart(2, '0') + '_' + archiveInfo.source)
+						: archiveRootDir;
+					const archivePathInfo = getArchivePathInfo(archiveDir);
+					if (utils.getPathInfo(archivePathInfo.searchPath)?.isFile) {
+						const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
+						searchResult.title = archiveSearchInfo.title;
+						searchResult.content = archiveSearchInfo.content?.match(/^(?:[^\s]+(?:\s+|$)){0,24}/)[0].trimEnd() || null;
+						if (searchResult.content !== null && searchResult.content.length < archiveSearchInfo.content.length)
+							searchResult.content += '...';
+					}
+
+					// Push to result array and prevent the database query from returning duplicates
+					searchResults.push(searchResult);
+					whereString += ` AND NOT (source == '${archiveInfo.source}' AND url == '${archiveInfo.url}')`;
+				}
+			}
+		}
+
 		try {
 			// Attempt to perform the search
 			// If there's an error, we just pretend there were no results
-			searchResults = searchDatabase.prepare(`
+			const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
+			const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
+			searchResults.push(...searchDatabase.prepare(`
 				SELECT source, url, orphan,
 					highlight(search, 1, '<b>', '</b>') displayUrl,
 					highlight(search, 2, '<b>', '</b>') title,
 					snippet(search, 3, '<b>', '</b>', '...', 24) content
 				FROM search WHERE ${whereString}
 				ORDER BY rank LIMIT ?2 OFFSET ?3
-			`).all(parsedQuery, config.resultsPerPage + 1, (page - 1) * config.resultsPerPage);
+			`).all(parsedQuery, limit, offset));
 		}
 		catch {}
 
@@ -648,10 +701,11 @@ function prepareSearch(params, modernMode) {
 			// Build HTML for each result
 			const resultTemplate = modernMode ? templates.modern.search.result : templates.compat.search.result;
 			for (const result of searchResults.slice(0, config.resultsPerPage)) {
+				const displayUrl = decodeURI(result.displayUrl);
 				resultSegments.push(buildHtml(resultTemplate, {
 					'LINK': `/view-${result.source}/${result.url.replaceAll('#', '%23')}`,
-					'TITLE': result.title ?? result.displayUrl,
-					'URL': result.displayUrl,
+					'TITLE': result.title ?? displayUrl,
+					'URL': displayUrl,
 					'SOURCE': result.source + (result.orphan ? ' (orphan file)' : ''),
 					'TEXT': result.content ?? '',
 				}));
@@ -720,7 +774,7 @@ function prepareSearch(params, modernMode) {
 }
 
 // Locate the archive in the filesystem and gather useful data
-function getArchiveInfo(sourceId, url) {
+function getArchiveInfo(url, sourceId = undefined) {
 	let archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan = false;
 
 	// Check the urls directory first
@@ -755,7 +809,7 @@ function getArchiveInfo(sourceId, url) {
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory
 		archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans');
-		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'orphan.json');
+		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
 		if (!utils.getPathInfo(archiveInfoSetPath)?.isFile)
 			return null;
 
@@ -768,14 +822,15 @@ function getArchiveInfo(sourceId, url) {
 	else
 		return null;
 
-	return [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan];
+	return [archiveInfoSet, archiveInfoIndex, archiveRootDir, archiveDir, isOrphan];
 }
 
 // Identify the correct archive file and injection list and return their paths
-function getArchivePathInfo(archiveDir, flagIds) {
+function getArchivePathInfo(archiveDir, flagIds = '') {
 	const archivePathInfo = {
 		filePath: pathUtils.join(archiveDir, 'file'),
 		injectPath: pathUtils.join(archiveDir, 'inject.json'),
+		searchPath: pathUtils.join(archiveDir, 'search.json'),
 		typeIndex: 0,
 	};
 
@@ -796,11 +851,12 @@ function getArchivePathInfo(archiveDir, flagIds) {
 function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) {
 	const archiveInfo = archiveInfoSet[archiveInfoIndex];
 	const archiveUrl = archiveInfo.url.replaceAll('#', '%23');
+	const displayUrl = decodeURI(archiveInfo.url);
 
 	let navbar = '';
 	if (modernMode) {
 		const navbarDefs = {
-			'URL': archiveInfo.url,
+			'URL': displayUrl,
 			'ORPHAN': isOrphan ? '<div class="navbar-orphan">(orphan file)</div>' : '',
 			'WARNING': archiveInfo.warn ? '<div class="navbar-warning">(possibly inaccurate URL)</div>' : '',
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
@@ -861,7 +917,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo.source) }) : '',
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, null)}/${archiveUrl}`,
-			'URL': archiveInfo.url,
+			'URL': displayUrl,
 			'SOURCE': source.title,
 			'DATE': (source.circa ? '~' : '') + source.archiveDate,
 		};

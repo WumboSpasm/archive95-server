@@ -72,17 +72,20 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	for (const sourceId in sources)
 		stats[sourceId] = { urls: 0, orphans: 0, screenshots: 0, errors: 0 };
 
-	// Gather totals
-	const urlTotal = Object.values(urlIndex).map(entries => entries.filter(entry => !entry.skip).length).reduce((sum, n) => sum + n, 0);
-	const orphanTotal = Object.values(pathIndex).map(entries =>
+	// Gather the total amount of build steps
+	let total = 0, current = 0;
+	// One step for each valid URL
+	total += Object.values(urlIndex).map(entries => entries.filter(entry => !entry.skip).length).reduce((sum, n) => sum + n, 0);
+	// One step for each valid orphan
+	total += Object.values(pathIndex).map(entries =>
 		Object.values(entries).filter(entry => entry.sanitizedUrl === null && !entry.skip).length
 	).reduce((sum, n) => sum + n, 0);
-	const screenshotTotal = Object.values(screenshotIndex).map(entries => entries.length).reduce((sum, n) => sum + n, 0);
+	// One step for each screenshot
+	total += Object.values(screenshotIndex).map(entries => entries.length).reduce((sum, n) => sum + n, 0);
 
 	// Build the URL file tree
-	let urlCurrent = 0;
 	for (const sanitizedUrl in urlIndex) {
-		// Condense archive info
+		// Gather archive info
 		const archives = [];
 		const urlEntries = urlIndex[sanitizedUrl];
 		for (const urlEntry of urlEntries) {
@@ -114,7 +117,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`[${++urlCurrent}/${urlTotal}] building ${archive.source} archive for ${sanitizedUrl}...`);
+			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedUrl}...`);
 			await buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, insertStatement);
 
 			// Increment URL totals
@@ -134,7 +137,6 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	}
 
 	// Build the orphan file tree
-	let orphanCurrent = 0;
 	for (const sourceId in pathIndex) {
 		for (const sanitizedPath in pathIndex[sourceId]) {
 			const orphanEntry = pathIndex[sourceId][sanitizedPath];
@@ -142,8 +144,8 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			if (orphanEntry.sanitizedUrl !== null || orphanEntry.skip)
 				continue;
 
-			// Gather orphan info
-			const orphan = {
+			// Gather archive info
+			const archive = {
 				source: sourceId,
 				url: null,
 				path: orphanEntry.path,
@@ -153,26 +155,26 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			};
 
 			// Create a containing directory for the current orphan
-			const targetDir = utils.getArchiveRootDir(pathUtils.join(orphan.source, sanitizedPath), 'orphans', tempBuildPath);
+			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, sanitizedPath), 'orphans', tempBuildPath);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`[${++orphanCurrent}/${orphanTotal}] building ${orphan.source} archive for ${sanitizedPath}...`);
-			await buildArchive(orphan, urlIndex, pathIndex, typeIndex, targetDir, insertStatement);
+			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedPath}...`);
+			await buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, insertStatement);
 
 			// Increment orphan totals
-			if (!orphan.error) {
-				stats[orphan.source].orphans++;
+			if (!archive.error) {
+				stats[archive.source].orphans++;
 				stats.total.orphans++;
 			}
 			else {
-				stats[orphan.source].errors++;
+				stats[archive.source].errors++;
 				stats.total.errors++;
 			}
 
-			// Save orphan info to a file
-			const orphanPath = pathUtils.join(targetDir, 'orphan.json');
-			Deno.writeTextFileSync(orphanPath, JSON.stringify(orphan, null, '\t'));
+			// Save archive info to a file
+			const archivePath = pathUtils.join(targetDir, 'archive.json');
+			Deno.writeTextFileSync(archivePath, JSON.stringify(archive, null, '\t'));
 		}
 	}
 
@@ -184,7 +186,6 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'types.json'), JSON.stringify(typeIndex, null, '\t'));
 
 	// Build the screenshot file tree
-	let screenshotCurrent = 0;
 	for (const sanitizedUrl in screenshotIndex) {
 		const screenshots = screenshotIndex[sanitizedUrl];
 
@@ -201,7 +202,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`[${++screenshotCurrent}/${screenshotTotal}] building ${screenshot.source} screenshot for ${sanitizedUrl}...`);
+			utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${sanitizedUrl}...`);
 			const sourcePath = pathUtils.join(config.inputPath, 'screenshots', screenshot.source, screenshot.path);
 			const thumbnail = new Deno.Command('convert', { args: [sourcePath, '-geometry', 'x64', '-'], stdout: 'piped' }).outputSync().stdout;
 			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
@@ -360,12 +361,12 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(inject_p, null, '\t'));
 		}
 
-		// Build title/description text
+		// Build title/content text
 		search = buildSearch(html, archive.types[0]);
 	}
 	else {
 		if (archive.types[0].startsWith('text/'))
-			// Build description text
+			// Build content text
 			search = buildSearch(decoder.decode(file), archive.types[0]);
 		else if (archive.types[0] == 'image/x-xbitmap') {
 			// Convert XBM to GIF for when presentation improvements are active
@@ -376,6 +377,10 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 
 		Deno.writeFileSync(targetPath, file);
 	}
+
+	// Write title/content text to file
+	if (search !== undefined)
+		Deno.writeTextFileSync(pathUtils.join(targetDir, 'search.json'), JSON.stringify(search, null, '\t'));
 
 	// Add archive to database
 	if (!archive.error)
@@ -503,9 +508,6 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 		else {
 			newStr += '"' + urlPrefix + '"';
 
-			if (resolvedUrl !== null)
-				resolvedUrl = encodeURI(resolvedUrl);
-
 			// Push resolved link info to injection list
 			const linkInject = {
 				index: index - offset + tagStart.length + 1 + urlPrefix.length,
@@ -587,8 +589,8 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 // Get the title and all visible text on a page
 function buildSearch(text, type) {
 	const search = {
-		title: '',
-		content: '',
+		title: null,
+		content: null,
 	};
 
 	if (type == 'text/html') {
@@ -614,16 +616,21 @@ function buildSearch(text, type) {
 		);
 	}
 	else
-		// We can't extract a title from pure text files, so just focus on the description
+		// We can't extract a title from pure text files, so just focus on the content
 		search.content = text;
 
-	for (const field in search)
-		search[field] = search[field]
-			.replace(/<.*?>/gs, ' ')
-			.replaceAll('<', '&lt;')
-			.replaceAll('>', '&gt;')
-			.replace(/(?:\s|&nbsp;)+/gi, ' ')
-			.trim();
+	for (const field in search) {
+		if (search[field] !== null) {
+			search[field] = search[field]
+				.replace(/<.*?>/gs, ' ')
+				.replaceAll('<', '&lt;')
+				.replaceAll('>', '&gt;')
+				.replace(/(?:\s|&nbsp;)+/gi, ' ')
+				.trim();
+			if (search[field] == '')
+				search[field] = null;
+		}
+	}
 
 	return search;
 }
