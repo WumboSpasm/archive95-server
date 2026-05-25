@@ -1,0 +1,278 @@
+{
+	"Technology": {
+		"Microsoft": {
+			"source": "einblicke",
+			"url": "http://www.microsoft.com/"
+		},
+		"Apple": {
+			"source": "pcpress",
+			"url": "http://www.apple.com/"
+		},
+		"SGI": {
+			"source": "sgi",
+			"url": "http://www.sgi.com/index.html"
+		},
+		"Sun": {
+			"source": "einblicke",
+			"url": "http://www.sun.com/"
+		},
+		"IBM": {
+			"source": "einblicke",
+			"url": "http://www.ibm.com/"
+		},
+		"Digital": {
+			"source": "roteiro",
+			"url": "http://www.digital.com:80/"
+		},
+		"Intel": {
+			"source": "einblicke",
+			"url": "http://www.intel.com/index.html"
+		},
+		"AMD": {
+			"source": "netcontrol96",
+			"url": "http://www.amd.com/"
+		},
+		"HP": {
+			"source": "pcpress",
+			"url": "http://www.hp.com/"
+		}
+	},
+	"Software": {
+		"Netscape": {
+			"source": "einblicke",
+			"url": "http://www.netscape.com/"
+		},
+		"Adobe": {
+			"source": "pcpress",
+			"url": "http://www.adobe.com/"
+		},
+		"Java": {
+			"source": "pcpress",
+			"url": "http://www.javasoft.com/"
+		},
+		"Oracle": {
+			"source": "pcpress",
+			"url": "http://www.oracle.com/"
+		},
+		"Borland": {
+			"source": "wwwdir",
+			"url": "http://www.borland.com/"
+		},
+		"RealAudio": {
+			"source": "einblicke",
+			"url": "http://www.realaudio.com/"
+		},
+		"Shockwave": {
+			"source": "roteiro",
+			"url": "http://www.macromedia.com:80/Tools/Shockwave/sdc/Plugin/index.htm"
+		}
+	},
+	"Directories": {
+		"Yahoo": {
+			"source": "einblicke",
+			"url": "http://www.yahoo.com/"
+		},
+		"Excite": {
+			"source": "roteiro",
+			"url": "http://www.excite.com:80/"
+		},
+		"AltaVista": {
+			"source": "roteiro",
+			"url": "http://www.altavista.digital.com:80/"
+		},
+		"Archie": {
+			"source": "wwwdir",
+			"url": "http://hoohoo.ncsa.uiuc.edu/archie.html"
+		},
+		"Galaxy": {
+			"source": "pcpress",
+			"url": "http://www.einet.net/galaxy.html"
+		},
+		"IMDB": {
+			"source": "chipfun",
+			"url": "http://www.leo.org/Movies"
+		},
+		"W3 Servers": {
+			"source": "wwwdir",
+			"url": "http://info.cern.ch/hypertext/DataSources/WWW/Geographical.html"
+		}
+	},
+	"Internet": {
+		"W3 Homepage": {
+			"source": "wwwdir",
+			"url": "http://info.cern.ch/hypertext/WWW/TheProject"
+		},
+		"GeoCities": {
+			"source": "roteiro",
+			"url": "http://www.geocities.com:80/"
+		},
+		"America Online": {
+			"source": "roteiro",
+			"url": "http://www.aol.com:80/"
+		},
+		"EFF": {
+			"source": "roteiro",
+			"url": "http://www.eff.org:80/"
+		},
+		"Blue Ribbon": {
+			"source": "chipspiele",
+			"url": "http://www.eff.org/blueribbon.html"
+		}
+	},
+	"Culture": {
+		"HotWired": {
+			"source": "hotwired",
+			"url": "http://www.hotwired.com/index.htm"
+		},
+		"IUMA": {
+			"source": "einblicke",
+			"url": "http://www.iuma.com/"
+		},
+		"Hollywood": {
+			"source": "einblicke",
+			"url": "http://hollywood.com/"
+		},
+		"Metaverse": {
+			"source": "pcpress",
+			"url": "http://metaverse.com/"
+		},
+		"The Stones": {
+			"source": "einblicke",
+			"url": "http://stones.com/"
+		},
+		"Clinton '96": {
+			"source": "roteiro",
+			"url": "http://www.clinton96.org:80/"
+		}
+	},
+	"Entertainment": {
+		"Disney": {
+			"source": "chipfun",
+			"url": "http://www.disney.com"
+		},
+		"Paramount": {
+			"source": "chipfun",
+			"url": "http://www.paramount.com/"
+		},
+		"MTV": {
+			"source": "chipfun",
+			"url": "http://www.mtv.com/"
+		},
+		"Sci-Fi": {
+			"source": "pcpress",
+			"url": "http://www.scifi.com/"
+		},
+		"Sony Pictures": {
+			"source": "chipfun",
+			"url": "http://www.spe.sony.com/Pictures/index.html"
+		},
+		"The Late Show": {
+			"source": "chipfun",
+			"url": "http://WWW.CBS.COM/lateshow/lateshow.html"
+		}
+	},
+	"News": {
+		"CNN": {
+			"source": "netcontrol96",
+			"url": "http://www.cnn.com/"
+		},
+		"The New York Times": {
+			"source": "netcontrol96",
+			"url": "http://www.nytimes.com/"
+		},
+		"The Telegraph": {
+			"source": "riscdisc",
+			"url": "http://www.telegraph.co.uk/home.html"
+		},
+		"NPR": {
+			"source": "pcpress",
+			"url": "http://www.npr.org/"
+		}
+	},
+	"Shopping": {
+		"Amazon": {
+			"source": "chipfun",
+			"url": "http://www.amazon.com/"
+		},
+		"CDnow": {
+			"source": "roteiro",
+			"url": "http://cdnow.com:80/"
+		},
+		"Branch Mall": {
+			"source": "pcpress",
+			"url": "http://grn.com/"
+		},
+		"Shopping2000": {
+			"source": "wwwdir",
+			"url": "http://www.shopping2000.com/"
+		},
+		"Wal-Mart": {
+			"source": "roteiro",
+			"url": "http://www.wal-mart.com:80/"
+		}
+	},
+	"Video Games": {
+		"PlayStation": {
+			"source": "chipfun",
+			"url": "http://www.scea.sony.com/SCEA"
+		},
+		"Sega": {
+			"source": "chipfun",
+			"url": "http://www.segaoa.com/"
+		},
+		"Interplay": {
+			"source": "chipfun",
+			"url": "http://www.interplay.com"
+		},
+		"GameSpot": {
+			"source": "netcontrol96",
+			"url": "http://www.gamespot.com/"
+		},
+		"NUKE": {
+			"source": "chipspiele",
+			"url": "http://www.nuke.com"
+		},
+		"Games Domain": {
+			"source": "chipspiele",
+			"url": "http://www.gamesdomain.co.uk"
+		}
+	},
+	"Miscellaneous": {
+		"Alan's Homepage": {
+			"source": "einblicke",
+			"url": "http://turtle.ncsa.uiuc.edu/alan/"
+		},
+		"J.P.'s Fishing Page": {
+			"source": "roteiro",
+			"url": "http://www.geo.mtu.edu:80/~jsuchosk/fish/fishpage"
+		},
+		"The Virtual Pet Cemetery": {
+			"source": "chipfun",
+			"url": "http://www.lavamind.com/pet.html"
+		},
+		"Jayme's Star Wars Page": {
+			"source": "netonacd",
+			"url": "http://www.hamline.edu/~jstoller/starwars.html"
+		},
+		"Kev's Cartoons": {
+			"source": "netonacd",
+			"url": "http://dune.wolfenet.com/~kevtoons/index.html"
+		},
+		"Calvin & Hobbes Gallery": {
+			"source": "einblicke",
+			"url": "http://eos.kub.nl:2080/calvin_hobbes/"
+		},
+		"Marat's GameBoy Page": {
+			"source": "chipfun",
+			"url": "http://www.cs.umd.edu:80/users/fms/GameBoy"
+		},
+		"Ami Cheat's Page": {
+			"source": "amigaplus",
+			"url": "http://www.netrover.com/~timt/amicheats.html"
+		},
+		"The Father of Shareware": {
+			"source": "chipspiele",
+			"url": "http://www.halcyon.com/knopf/jim"
+		}
+	}
+}

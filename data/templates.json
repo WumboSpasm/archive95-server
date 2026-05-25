@@ -1,12 +1,13 @@
 {
 	"compat": {
 		"search": [
-			"about",
-			"source",
+			"home",
 			"result"
 		],
+		"about": [],
 		"sources": [
-			"source"
+			"source",
+			"stats"
 		],
 		"navbar": [
 			"wayback",
@@ -34,10 +35,10 @@
 	},
 	"modern": {
 		"search": [
-			"about",
-			"source",
-			"result",
-			"navigate"
+			"home",
+			"highlights",
+			"navigate",
+			"result"
 		],
 		"navbar": [
 			"archive",

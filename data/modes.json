@@ -48,6 +48,12 @@
 		"hasUrl": false
 	},
 	{
+		"id": "about",
+		"hasSource": false,
+		"hasFlags": false,
+		"hasUrl": false
+	},
+	{
 		"id": "sources",
 		"hasSource": false,
 		"hasFlags": false,

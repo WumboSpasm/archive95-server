@@ -17,8 +17,12 @@ utils.loadConfig(args['config']);
 const templates = loadTemplates();
 const modes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
 const flags = JSON.parse(Deno.readTextFileSync('data/flags.json'));
+const highlights = JSON.parse(Deno.readTextFileSync('data/highlights.json'));
 const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'sources.json')));
 const stats = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'stats.json')));
+
+const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
+const sourcesPage = buildSourcesPage();
 
 // Load the database
 const searchDatabase = new Database(pathUtils.join(config.buildPath, 'search.sqlite'), { strict: true, readonly: true });
@@ -176,7 +180,7 @@ function serverHandler(request, info) {
 
 				// Build frame-related slices if applicable
 				if (inject.frames.length > 0) {
-					// If 'f' flag is supplied, build slice to remove <frameset> element and its contents
+					// If the 'f' flag is supplied, build a slice to remove <frameset> element and its contents
 					if (framesetInject !== undefined && flagIds.includes('f'))
 						slices.push({
 							start: framesetInject.start,
@@ -347,7 +351,7 @@ function serverHandler(request, info) {
 				const newFlagIds = checked ? flagIds.replace(flag.id, '') : cleanFlags(flagIds + flag.id);
 				optionsList.push(buildHtml(templates.compat.options.option, {
 					'OPTIONURL': `/${buildRoute('options', archiveInfo.source, newFlagIds)}/${archiveInfo.url}`,
-					'FILL': checked != flag.invert ? '*' : '&nbsp;&nbsp;',
+					'FILL': checked != flag.invert ? 'X' : ' ',
 					'DESCRIPTION': flag.description,
 				}));
 			}
@@ -421,38 +425,10 @@ function serverHandler(request, info) {
 				return new Response(buildHtml(templates.compat.random.main, { 'URL': randomUrl }), { headers: headers });
 			}
 		}
+		case 'about': {
+			return new Response(templates.compat.about.main, { headers: headers });
+		}
 		case 'sources': {
-			const grandTotal = stats.total.urls + stats.total.orphans;
-
-			// Build information for each source
-			const sourceRows = [];
-			for (const sourceId in sources) {
-				const source = sources[sourceId];
-				const sourceGrandTotal = stats[sourceId].urls + stats[sourceId].orphans;
-				sourceRows.push(buildHtml(templates.compat.sources.source, {
-					'ID': sourceId,
-					'TITLE': source.title,
-					'AUTHOR': source.author,
-					'ARCHIVEDATE': (source.circa ? '~' : '') + source.archiveDate,
-					'PUBLISHDATE': source.publishDate,
-					'DESCRIPTION': source.description,
-					'INTEGRITY': source.integrity,
-					'LINK': source.link,
-					'URLCOUNT': stats[sourceId].urls.toLocaleString('en-US'),
-					'ORPHANCOUNT': stats[sourceId].orphans.toLocaleString('en-US'),
-					'TOTALCOUNT': sourceGrandTotal.toLocaleString('en-US'),
-					'SCREENSHOTCOUNT': stats[sourceId].screenshots.toLocaleString('en-US'),
-					'PERCENT': Math.round((sourceGrandTotal / grandTotal) * 1000) / 10,
-				}));
-			}
-
-			const sourcesPage = buildHtml(templates.compat.sources.main, {
-				'URLTOTAL': stats.total.urls.toLocaleString('en-US'),
-				'ORPHANTOTAL': stats.total.orphans.toLocaleString('en-US'),
-				'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
-				'SCREENSHOTTOTAL': stats.total.screenshots.toLocaleString('en-US'),
-				'SOURCES': sourceRows.join('\n'),
-			});
 			return new Response(sourcesPage, { headers: headers });
 		}
 		case 'deadend': {
@@ -549,15 +525,15 @@ function prepareSearch(params, modernMode) {
 			}));
 		}
 
-		// Build about text
-		const aboutDefs = {
-			'SOURCES': sourceBullets.join('\n'),
-			'TOTAL': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
-		};
-
 		searchDefs['TITLE'] = 'Archive95';
-		searchDefs['HEADER'] = 'About this website';
-		searchDefs['CONTENT'] = buildHtml(modernMode ? templates.modern.search.about : templates.compat.search.about, aboutDefs);
+		searchDefs['HEADER'] = 'Welcome to Archive95';
+		if (modernMode) {
+			searchDefs['TOTAL'] = (stats.total.urls + stats.total.orphans).toLocaleString('en-US');
+			searchDefs['CONTENT'] = templates.modern.search.home;
+			searchDefs['HIGHLIGHTS'] = homeHighlightsModern;
+		}
+		else
+			searchDefs['CONTENT'] = homeContentCompat;
 	}
 	else {
 		// Parse the requested page, clamp it, and delete it from the query string so it doesn't screw up navigation button links
@@ -714,41 +690,38 @@ function prepareSearch(params, modernMode) {
 					resultSegments.push('<hr>');
 			}
 
-			// Build navigation buttons and result count to be inserted before (and possibly after) the results
 			const doPrevPage = page > 1 && searchResults.length > 0;
 			const doNextPage = page < config.maxPage && searchResults.length == config.resultsPerPage + 1;
+			const prevText = '&lt;&lt; Prev';
+			const nextText = 'Next &gt;&gt;';
+			const prevButton = doPrevPage ? `<a href="?${params.toString()}&page=${page - 1}">${prevText}</a>` : prevText;
+			const nextButton = doNextPage ? `<a href="?${params.toString()}&page=${page + 1}">${nextText}</a>` : nextText;
 			const multiplePages = doPrevPage || doNextPage;
 			const displayTotal = multiplePages ? config.resultsPerPage + '+' : searchResults.length.toString();
-			if (modernMode) {
-				const prevText = '&lt;&lt; Prev';
-				const nextText = 'Next &gt;&gt;';
-				const navigate = buildHtml(templates.modern.search.navigate, {
+
+			// Build navigation HTML
+			let navigate;
+			if (modernMode)
+				navigate = buildHtml(templates.modern.search.navigate, {
 					'TOTAL': displayTotal,
 					'S': searchResults.length != 1 ? 's' : '',
 					'QUERY': sanitizedQuery,
-					'PREV': !multiplePages ? '' : (doPrevPage ? `<a href="?${params.toString()}&page=${page - 1}">${prevText}</a>` : prevText),
-					'NEXT': !multiplePages ? '' : (doNextPage ? `<a href="?${params.toString()}&page=${page + 1}">${nextText}</a>` : nextText),
+					'PREV': multiplePages ? prevButton : '',
+					'NEXT': multiplePages ? nextButton : '',
 				});
+			else
+				navigate = prevButton + ' ' + nextButton;
 
+			// Insert navigation HTML before the search results (and if the page is displaying the maximum results, after)
+			if (modernMode || multiplePages) {
 				resultSegments.unshift(navigate);
 				if (multiplePages && searchResults.length >= config.resultsPerPage)
 					resultSegments.push(navigate);
 			}
-			else {
-				if (multiplePages) {
-					const prevText = 'Prev Page';
-					const nextText = 'Next Page';
-					const prevButton = doPrevPage ? `<a href="?${params.toString()}&page=${page - 1}">${prevText}</a>` : prevText;
-					const nextButton = doNextPage ? `<a href="?${params.toString()}&page=${page + 1}">${nextText}</a>` : nextText;
-					const navigate = prevButton + ', ' + nextButton;
 
-					resultSegments.unshift(navigate);
-					if (multiplePages && searchResults.length >= config.resultsPerPage)
-						resultSegments.push(navigate);
-				}
-
+			// Insert result total header before navigation HTML in compatibility mode
+			if (!modernMode)
 				resultSegments.unshift(`<h2>${displayTotal} result${searchResults.length != 1 ? 's' : ''} for ${sanitizedQuery}</h2>`);
-			}
 		}
 		else {
 			let noResults = 'No results were found for the given query.';
@@ -762,6 +735,7 @@ function prepareSearch(params, modernMode) {
 		searchDefs['QUERY'] = sanitizedQuery;
 		searchDefs['HEADER'] = 'Search results';
 		searchDefs['CONTENT'] = resultSegments.join('\n');
+		searchDefs['HIGHLIGHTS'] = '';
 	}
 
 	// Populate search source dropdown
@@ -987,7 +961,7 @@ function buildHtml(template, defs) {
 			def.indent = 'all';
 		}
 		def.value = (def.value ?? '').toString();
-		def.indent = def.indent && ['all', 'first', 'none'].some(option => def.indent == option) ? def.indent : 'all';
+		def.indent = def.indent && ['all', 'first', 'none', 'collapse'].some(option => def.indent == option) ? def.indent : 'all';
 		parsedDefs[field] = def;
 	}
 
@@ -998,12 +972,19 @@ function buildHtml(template, defs) {
 		const tabs = match[2] ?? '';
 		const def = parsedDefs[match[3]] ?? '';
 
-		// If required, indent either the first or all lines of the value based on the whitespace preceding the variable
 		let value;
-		if (def.value != '' && def.indent != 'none')
-			value = newLine + (def.indent == 'all' ? def.value.replace(/^/gm, tabs) : (tabs + def.value));
-		else
+		if (def.value == '' || def.indent == 'collapse')
+			// Delete all newlines and indents preceding the variable
 			value = def.value;
+		else if (def.indent == 'none')
+			// Delete all indents preceding the variable
+			value = newLine + def.value;
+		else if (def.indent == 'first')
+			// Preserve indents preceding the variable but don't add indents after any newlines
+			value = newLine + tabs + def.value;
+		else if (def.indent == 'all')
+			// Preserve indents preceding the variable and add indents after any newlines
+			value = newLine + def.value.replace(/^/gm, tabs);
 
 		varSlices.push({
 			start: match.index,
@@ -1117,6 +1098,102 @@ function loadTemplates() {
 	}
 
 	return templates;
+}
+
+// For compatibility mode, build the full homepage content
+// For modern mode, build just the highlights because they are displayed separately from the welcome text (which is static)
+function buildHomeContent() {
+	const highlightsHtmlArr = [];
+	for (const category in highlights) {
+		highlightsHtmlArr.push(`<dt><b>${category}:</b></dt>`);
+
+		const categoryHtmlArr = [];
+		const entries = highlights[category];
+		for (const name in entries) {
+			const entry = entries[name];
+			categoryHtmlArr.push(`<a href="/view-${entry.source}/${entry.url}">${name}</a>`);
+		}
+
+		highlightsHtmlArr.push(`<dd>${categoryHtmlArr.join(' - ')}</dd>`);
+	}
+
+	const highlightsHtml = highlightsHtmlArr.join('\n');
+	return [
+		buildHtml(templates.compat.search.home, {
+			'TOTALENTRIES': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
+			'TOTALSOURCES': Object.keys(sources).length.toLocaleString('en-US'),
+			'HIGHLIGHTS': highlightsHtml,
+		}),
+		buildHtml(templates.modern.search.highlights, {
+			'HIGHLIGHTS': highlightsHtml,
+		}),
+	];
+}
+
+// Build Sources page with statistics
+function buildSourcesPage() {
+	const getPercentString = (part, whole) => {
+		if (part == 0)
+			return '';
+
+		let percentString = ' (';
+		let percent = Math.round((part / whole) * 1000) / 10;
+		if (percent == 0) {
+			percent = 0.1;
+			percentString += '&lt;';
+		}
+		percentString += percent + '%)';
+
+		return percentString;
+	};
+
+	const grandTotalNoErrors = stats.total.urls + stats.total.orphans;
+	const grandTotal = grandTotalNoErrors + stats.total.errors;
+
+	// Build information for each source
+	const sourceRows = [];
+	for (const sourceId in sources) {
+		const source = sources[sourceId];
+
+		const sourceGrandTotalNoErrors = stats[sourceId].urls + stats[sourceId].orphans;
+		const sourceGrandTotal = sourceGrandTotalNoErrors + stats[sourceId].errors;
+		const sourceStats = buildHtml(templates.compat.sources.stats, {
+			'URLTOTAL': stats[sourceId].urls.toLocaleString('en-US') + getPercentString(stats[sourceId].urls, stats.total.urls),
+			'ORPHANTOTAL': stats[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats[sourceId].orphans, stats.total.orphans),
+			'ERRORTOTAL': stats[sourceId].errors.toLocaleString('en-US') + getPercentString(stats[sourceId].errors, stats.total.errors),
+			'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal),
+			'GRANDTOTALNOERRORS': sourceGrandTotalNoErrors.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoErrors, grandTotalNoErrors),
+			'SCREENSHOTTOTAL': stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots),
+		});
+
+		sourceRows.push(buildHtml(templates.compat.sources.source, {
+			'ID': sourceId,
+			'TITLE': source.title,
+			'AUTHOR': source.author,
+			'ARCHIVEDATE': (source.circa ? '~' : '') + source.archiveDate,
+			'PUBLISHDATE': source.publishDate,
+			'LINK': source.link,
+			'DESCRIPTION': source.description,
+			'INTEGRITY': source.integrity,
+			'REMEDIATIONS': source.remediations,
+			'STATS': { value: sourceStats, indent: 'first' },
+			'PERCENT': Math.round((sourceGrandTotal / grandTotal) * 1000) / 10,
+		}));
+	}
+
+	const overallStats = buildHtml(templates.compat.sources.stats, {
+		'URLTOTAL': stats.total.urls.toLocaleString('en-US'),
+		'ORPHANTOTAL': stats.total.orphans.toLocaleString('en-US'),
+		'ERRORTOTAL': stats.total.errors.toLocaleString('en-US'),
+		'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
+		'GRANDTOTALNOERRORS': grandTotalNoErrors.toLocaleString('en-US'),
+		'SCREENSHOTTOTAL': stats.total.screenshots.toLocaleString('en-US'),
+	});
+
+	return buildHtml(templates.compat.sources.main, {
+		'OVERALLSTATS': { value: overallStats, indent: 'first' },
+		'SOURCES': { value: sourceRows.join('\n'), indent: 'none' },
+	});
 }
 
 class ArchiveError extends Error {

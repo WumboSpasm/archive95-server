@@ -3,12 +3,17 @@
 	<b>Author:</b> {AUTHOR}<br>
 	<b>Archive Date:</b> {ARCHIVEDATE}<br>
 	<b>Publish Date:</b> {PUBLISHDATE}<br>
-	<b>Description:</b> {DESCRIPTION}<br>
-	<b>Data Integrity:</b> {INTEGRITY}<br>
 	<b>Link:</b> <a href="{LINK}" target="_blank">{LINK}</a><br>
 	<b>ID:</b> {ID}
 </p>
-<p>
-	<b>Statistics:</b> {URLCOUNT} URLs, {ORPHANCOUNT} orphans ({TOTALCOUNT} total; {PERCENT}% of entire archive)
-</p>
+<dl>
+	<dt><b>Description:</b></dt>
+	<dd>{DESCRIPTION}</dd>
+	<dt><b>Data Integrity:</b></dt>
+	<dd>{INTEGRITY}</dd>
+	<dt><b>Remediations:</b></dt>
+	<dd>{REMEDIATIONS}</dd>
+</dl>
+<b>Statistics:</b>
+{STATS}
 <hr>

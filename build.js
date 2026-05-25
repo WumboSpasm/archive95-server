@@ -560,7 +560,7 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 	inject.styles.index = headMatch !== null ? headMatch.index + headMatch[0].length : 0;
 
 	// Find index at which the navbar can be inserted
-	const bodyExp = /^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:\s.*?)?>.*?<\/head|title(?:\s.*?)?>.*?<\/title|body(?:\s.*?)?)>\s*)+)?/is;
+	const bodyExp = /^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:\s.*?)?>(?:(?!<(?!title|meta|link|\/)).)*?<\/head|title(?:\s.*?)?>.*?<\/title|body(?:\s.*?)?)>\s*)+)?/is;
 	const bodyMatch = newHtmlNoComments.match(bodyExp);
 	inject.navbar.index = bodyMatch !== null ? bodyMatch[0].length : 0;
 
