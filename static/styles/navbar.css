@@ -13,8 +13,9 @@
 	font-family: 'Times New Roman', Times, serif;
 	background-color: white;
 	border-top: 1px solid black;
-
-	/* Manually define default style in case navbar ends up inside an unclosed text style element */
+}
+/* Manually define default style with high specificity to prevent page styling from overriding it */
+.navbar * {
 	color: black;
 	font-size: initial;
 	font-weight: normal;
