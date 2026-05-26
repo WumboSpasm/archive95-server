@@ -235,7 +235,7 @@ function serverHandler(request, info) {
 				let embed, indent = 'all';
 				if (fileType.startsWith('text/') || fileType.startsWith('message/') || fileType == 'application/mbox') {
 					embed = buildHtml(templates.compat.embed.text, {
-						'TEXT': Deno.readTextFileSync(archivePathInfo.filePath).replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+						'TEXT': Deno.readTextFileSync(archivePathInfo.filePath).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
 					});
 					indent = 'first';
 				}
