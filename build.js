@@ -717,8 +717,8 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 			if (path.startsWith('WWW_BBCNC_ORG_UK'))
 				html = html.replace(
 					// In bbcnc.org.uk only, the brackets are inside the link elements
-					/(?<=<a\s.*?>\s*)\[(.*?)\](?=\s*<\/a>)/gis,
-					'$1',
+					/(<a\s[^>]+>\s*(?:<[^>]+>\s*)*)\[([^\]]+)\]((?:\s*<\/[^>]+>)*\s*<\/a>)/gis,
+					'$1$2$3',
 				);
 			else
 				html = html.replace(
