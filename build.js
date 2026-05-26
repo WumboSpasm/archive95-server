@@ -1232,64 +1232,97 @@ async function mimeType(file, filePath, url = null) {
 		new Deno.Command('mimetype', { args: ['-b',  filePath], stdout: 'piped' }).output(),
 	])).map(type => decoder.decode(type.stdout).trim());
 
+	// Anything that is text will have a magic type of text/plain
+	// The file extension can't always be trusted either, so we will need to do some manual checks
 	if (magicType == 'text/plain') {
-		// XBM and XPM are always recognized as text/plain and we can't always trust the file extension
-		// So we need to manually identify them ourselves
+		// Check if the file appears to be HTML
+		if (isHtml(rawText, url, extType == 'text/html'))
+			return 'text/html';
+
+		// Check if the file appears to be XBM
 		const xbmMatch = rawText.match(/static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/i);
 		if (xbmMatch !== null)
 			return 'image/x-xbitmap';
+
+		// Check if the file appears to be XPM
 		const xpmMatch = rawText.match(/^\s*!\s*XPM2/i);
 		if (xpmMatch !== null)
 			return 'image/x-xpixmap';
 
-		// Likewise, HTML file extensions are not always accurate, so we'll need to check its type manually
+		// If the file has an HTML file extension, disregard it since we already assume the file is not HTML
 		if (extType == 'text/html')
-			return isPlaintext(rawText, url) ? magicType : extType;
+			return 'text/plain';
 
-		// In all other cases, just use the file extension since it will probably be the most specific
+		// Otherwise, just use the file extension's type
 		return extType;
 	}
+	// Anything that is binary will have a magic type of application/octet-stream
+	// So if the file extension also indicates a binary file, then it can probably be trusted
 	else if (magicType == 'application/octet-stream' && !extType.startsWith('text/'))
 		return extType;
+	// Otherwise, just use the magic type
 	else
 		return magicType;
 }
 
-// Guess if a piece of text is HTML or plaintext
-function isPlaintext(text, url = null) {
-	// If it has an HTML comment opening sequence, then it's probably HTML
+// Guess if a piece of text is HTML
+function isHtml(text, url = null, pathHasHtmlExt = false) {
+	let decision;
+
+	// If the text has an HTML comment opening sequence, then it's probably HTML
 	if (text.includes('<!--'))
-		return false;
+		decision = true;
 
 	const parsedUrl = URL.parse(url);
-	const hasHtmlExt = parsedUrl !== null && /\.html?$/i.test(parsedUrl.pathname);
+	const urlHasHtmlExt = parsedUrl !== null && /\.[a-z]?html?$/i.test(parsedUrl.pathname);
 	const tagMatches = [...text.matchAll(/<\/?([a-z\d]+)(?: [^>\n]*?)?>/gi)];
-	if (tagMatches.length > 0 && hasHtmlExt)
-		// If there appear to be HTML tags and the URL has an HTML file extension, then it's probably HTML
-		return false;
-	else if (tagMatches.length == 0)
-		// If there is nothing resembling HTML tags, and it has newlines or a non-HTML file extension, then it's probably plaintext
-		return !hasHtmlExt || text.trim().includes('\n');
+
+	if (decision === undefined) {
+		if (tagMatches.length > 0 && urlHasHtmlExt)
+			// If there appear to be HTML tags in the text, and the URL has an HTML file extension, then it's probably HTML
+			decision = true;
+		else if (tagMatches.length == 0)
+			// If there is nothing resembling HTML tags in the text, then it's probably HTML only if it has an HTML file extension and no newlines
+			decision = urlHasHtmlExt && !text.trim().includes('\n');
+	}
+
+	const validTags = [
+		'html', 'head', 'title', 'meta', 'body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+		'p', 'b', 'i', 'u', 'a', 'img', 'pre', 'code', 'hr', 'ul', 'ol', 'li', 'dl',
+		'dt', 'dd', 'table', 'tr', 'th', 'td', 'input', 'button', 'select', 'isindex',
+		'plaintext', 'frame', 'frameset', 'noframes', 'style', 'applet', 'param',
+	];
 
 	// Compare each apparent HTML tag to a list of common tags
 	// If one matches, then it's probably HTML
-	const validTags = [
-		'html', 'head', 'title', 'meta', 'body',
-		'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-		'p', 'b', 'i', 'u', 'a', 'img', 'pre', 'hr',
-		'ul', 'ol', 'li', 'dl', 'dt', 'dd',
-		'table', 'tr', 'th', 'td', 'input', 'button',
-		'isindex', 'plaintext', 'frame', 'frameset',
-		'applet', 'param',
-	];
-	for (const tagMatch of tagMatches) {
-		const tag = tagMatch[1].toLowerCase();
-		if (validTags.some(validTag => tag == validTag))
-			return false;
+	if (decision === undefined) {
+		for (const tagMatch of tagMatches) {
+			const tag = tagMatch[1].toLowerCase();
+			if (validTags.some(validTag => tag == validTag)) {
+				decision = true;
+				break;
+			}
+		}
 	}
 
-	// If none of the apparent HTML tags match, then they're probably not HTML tags and it's probably plaintext
-	return true;
+	// If none of the apparent HTML tags match, then it's probably not HTML
+	if (decision === undefined)
+		decision = false;
+
+	// If the text appears to be HTML, but the URL and path both lack an HTML file extension, then weigh the amount of valid tags against the whole text content
+	// If there is an overwhelmingly larger amount of regular text compared to valid tags, then it's actually probably not HTML
+	if (decision === true && !pathHasHtmlExt && !urlHasHtmlExt) {
+		const validTagLength = tagMatches.filter(tagMatch => {
+			const tag = tagMatch[1].toLowerCase();
+			return validTags.some(validTag => tag == validTag);
+		}).reduce((sum, tagMatch) => sum + tagMatch[0].length, 0);
+
+		// Threshold subject to change
+		if (validTagLength / text.length < 0.02)
+			decision = false;
+	}
+
+	return decision;
 }
 
 // Execute a command with input data and return its output
