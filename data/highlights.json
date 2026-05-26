@@ -220,6 +220,10 @@
 			"source": "chipfun",
 			"url": "http://www.segaoa.com/"
 		},
+		"id Software": {
+			"source": "chipspiele",
+			"url": "http://www.idsoftware.com/"
+		},
 		"Interplay": {
 			"source": "chipfun",
 			"url": "http://www.interplay.com"
@@ -231,10 +235,6 @@
 		"NUKE": {
 			"source": "chipspiele",
 			"url": "http://www.nuke.com"
-		},
-		"Games Domain": {
-			"source": "chipspiele",
-			"url": "http://www.gamesdomain.co.uk"
 		}
 	},
 	"Miscellaneous": {
