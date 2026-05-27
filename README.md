@@ -33,5 +33,6 @@ Archive95 is an independent web archive using old CD-ROMs and other material as 
 - `f`: Force frameless version of pages
 - `w`: Don't point unarchived URLs to Wayback Machine
 - `e`: Point all URLs to live internet (overrides `w` flag)
+- `r`: Display error pages in navigation bar
 - `m`: Random button includes non-HTML files
 - `o`: Random button excludes orphans
