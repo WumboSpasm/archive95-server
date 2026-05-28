@@ -12,8 +12,8 @@ export function loadConfig(configPath) {
 }
 
 // Convert a sanitized URL/path into a properly escaped directory definition for quick lookup
-export function getArchiveRootDir(sanitizedUrl, namespace, buildPath = config.buildPath) {
-	return pathUtils.join(buildPath, namespace, sanitizedUrl
+export function getArchiveRootDir(sanitizedUrl, namespace, mountPath) {
+	return pathUtils.join(mountPath, namespace, sanitizedUrl
 		.replace(/[^a-z0-9 \/_.-]/gi, c => c.charCodeAt(0).toString(16).toUpperCase().match(/.{1,2}/g).map(h => '%' + h.padStart(2, '0')).join(''))
 		.replace(/%3F.*$/, match => match.replaceAll('/', '%2F'))
 		.replace(/(?<=^|\/)\.+(?=\/|$)/g, match => '%2E'.repeat(match.length))
@@ -71,4 +71,22 @@ export function logMessage(message) {
 export function getPathInfo(path) {
 	try { return Deno.lstatSync(path); } catch {}
 	return null;
+}
+
+// Create a filesystem image and format it
+export function createVhd(vhdPath) {
+	if (!Deno.spawnAndWaitSync('qemu-img', ['create', '-f', 'qcow2', '-o', 'preallocation=off', vhdPath, '16G']).success)
+		return false;
+	return Deno.spawnAndWaitSync('virt-format', ['--filesystem=xfs', '--format=qcow2', '-a', vhdPath]).success;
+}
+
+// (Re-)mount a filesystem image
+export function mountVhd(vhdPath, mountPath, readOnly = false) {
+	Deno.spawnAndWaitSync('guestunmount', [mountPath]);
+	return Deno.spawnAndWaitSync('guestmount', ['-a', vhdPath, '-m', '/dev/sda1', readOnly ? '-r' : '-w', mountPath]).success;
+}
+
+// Unmount a filesystem image
+export function unmountVhd(mountPath) {
+	return Deno.spawnAndWaitSync('guestunmount', [mountPath]).success;
 }

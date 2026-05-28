@@ -6,10 +6,11 @@ import * as utils from './utils.js';
 
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
-	boolean: ['clean'],
+	boolean: ['clean', 'vhd'],
 	string: ['config'],
 	default: {
 		clean: false,
+		vhd: false,
 		config: 'config.json',
 	},
 });
@@ -23,8 +24,9 @@ const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath
 // Load overrides for MIME types/character encodings
 const overrides = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'overrides.json')));
 
-// Get path of temporary build directory
+// Get paths of temporary build directory and mount location
 const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
+const tempBuildMountPath = pathUtils.join(tempBuildPath, 'mount');
 
 // Often reused regular expressions
 const linkExp = /((?:href|src|action|background|rectangle|http-equiv *= *"?refresh"?[^>]+content) *= *)("[^">]+"|[^ >]+)/gis;
@@ -37,6 +39,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	// Delete loose temporary files if they exist
 	if (utils.getPathInfo(tempBuildPath)?.isDirectory) {
 		utils.logMessage('deleting loose temp files...');
+		utils.unmountVhd(tempBuildMountPath);
 		Deno.removeSync(tempBuildPath, { recursive: true });
 	}
 
@@ -51,7 +54,22 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 		: {};
 
 	// Create the build and temporary directories
-	Deno.mkdirSync(tempBuildPath, { recursive: true });
+	Deno.mkdirSync(tempBuildMountPath, { recursive: true });
+
+	if (args['vhd']) {
+		// Create VHD to contain archive filesystem and mount it
+		utils.logMessage('creating filesystem...');
+		const tempBuildVhdPath = pathUtils.join(tempBuildPath, 'build.qcow2');
+		if (!utils.createVhd(tempBuildVhdPath)) {
+			utils.logMessage('failed to create filesystem');
+			Deno.exit(1);
+		}
+		utils.logMessage('mounting filesystem...');
+		if (!utils.mountVhd(tempBuildVhdPath, tempBuildMountPath)) {
+			utils.logMessage('failed to mount filesystem');
+			Deno.exit(1);
+		}
+	}
 
 	// Save source information to file
 	utils.logMessage('saving source information...')
@@ -105,7 +123,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			continue;
 
 		// Create the containing directory for the current URL
-		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'urls', tempBuildPath);
+		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'urls', tempBuildMountPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
 
 		// Create subdirectories for each archive of the current URL with file data and important information
@@ -155,7 +173,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			};
 
 			// Create a containing directory for the current orphan
-			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, sanitizedPath), 'orphans', tempBuildPath);
+			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, sanitizedPath), 'orphans', tempBuildMountPath);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
@@ -190,7 +208,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 		const screenshots = screenshotIndex[sanitizedUrl];
 
 		// Create the containing directory for the current URL
-		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'screenshots', tempBuildPath);
+		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'screenshots', tempBuildMountPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
 
 		// Create subdirectories for each screenshot of the current URL with file data and important information
@@ -204,7 +222,7 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${sanitizedUrl}...`);
 			const sourcePath = pathUtils.join(config.inputPath, 'screenshots', screenshot.source, screenshot.path);
-			const thumbnail = new Deno.Command('convert', { args: [sourcePath, '-geometry', 'x64', '-'], stdout: 'piped' }).outputSync().stdout;
+			const thumbnail = Deno.spawnAndWaitSync('convert', [sourcePath, '-geometry', 'x64', '-']).stdout;
 			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
 			Deno.writeFileSync(pathUtils.join(targetDir, 'thumbnail'), thumbnail);
 
@@ -218,6 +236,9 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 		Deno.writeTextFileSync(screenshotsPath, JSON.stringify(screenshots, null, '\t'));
 	}
 
+	// Unmount the temporary VHD since we don't need to add to it anymore
+	utils.unmountVhd(tempBuildMountPath);
+
 	// Save total entry statistics to file
 	utils.logMessage('saving entry statistics...');
 	const statsPath = pathUtils.join(tempBuildPath, 'stats.json');
@@ -227,18 +248,19 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	const deleteBuildPath = pathUtils.join(config.buildPath, '.delete');
 	Deno.mkdirSync(deleteBuildPath, { recursive: true });
 
+	// If the old VHD is currently mounted, unmount it and remember to mount the new VHD in its place
+	const buildMountPath = pathUtils.join(config.buildPath, 'mount');
+	const mountNewVhd = utils.unmountVhd(buildMountPath) && args['vhd'];
+
 	// Move old files to deletion directory and move new files out of temporary directory
 	utils.logMessage('moving files out of temp directory...');
 	const buildEntries = [
+		'build.qcow2',
 		'search.sqlite',
 		'sources.json',
 		'stats.json',
 		'types.json',
-		'urls',
-		'screenshots',
-		'orphans',
-		'inlinks_urls',
-		'inlinks_orphans',
+		'mount',
 	];
 	for (const buildEntry of buildEntries) {
 		const buildEntryPath = pathUtils.join(config.buildPath, buildEntry);
@@ -255,6 +277,13 @@ const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
 	// Remove temporary/deletion directories
 	utils.logMessage('deleting old build files...');
 	Deno.removeSync(deleteBuildPath, { recursive: true });
+
+	// Mount the new VHD if needed
+	if (mountNewVhd) {
+		const buildVhdPath = pathUtils.join(config.buildPath, 'build.qcow2');
+		if (!utils.mountVhd(buildVhdPath, buildMountPath))
+			utils.logMessage('failed to remount filesystem');
+	}
 
 	// We're done
 	const timeElapsed = Date.now() - startTime;
@@ -525,7 +554,7 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 					: pathUtils.join(linkInject.source, utils.sanitizePath(inlinkUrl));
 
 				// Don't bother with insanely long links because the OS may not be able to handle them
-				const inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildPath);
+				const inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildMountPath);
 				if (inlinksDir.length < 256) {
 					let inlinks = [];
 
@@ -1179,9 +1208,7 @@ async function getFile(archive, typeIndex = {}) {
 			const yuExp = /(<yu(?: +[a-z0-9]+)?>)(.*?)(<\/yu>|$)/gis;
 			const yuMatches = [...text.matchAll(yuExp)];
 			if (yuMatches.length > 0) {
-				const yuText = decoder.decode((
-					new Deno.Command('iconv', { args: [filePath, '-cf', 'YU', '-t', 'UTF-8'], stdout: 'piped' }).outputSync()
-				).stdout);
+				const yuText = decoder.decode(Deno.spawnAndWaitSync('iconv', [filePath, '-cf', 'YU', '-t', 'UTF-8']).stdout);
 				const yuMatches2 = [...yuText.matchAll(yuExp)];
 
 				let newText = '';

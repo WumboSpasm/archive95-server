@@ -1,19 +1,32 @@
 # Archive95
-Archive95 is an independent web archive using old CD-ROMs and other material as sources.
+ Archive95 is an independent web archive focused on material that predates or has otherwise evaded more mainstream archives.
 
 ![screenshot](https://github.com/user-attachments/assets/ecb38c89-ce39-40ec-a08b-1a527d7b41ec)
 
 ## Dependencies
-- A Linux environment with the `mimetype` and `iconv` utilities and the `IO::Scalar` Perl library
+- A Linux environment
 - [Deno](https://deno.com/)
-- [ImageMagick](https://imagemagick.org/) (specifically `convert`)
-- [uchardet](https://www.freedesktop.org/wiki/Software/uchardet/)
+- The following command-line utilities:
+  - `mimetype` (the `IO::Scalar` Perl library is also needed for stdin support)
+  - `iconv`
+  - `convert` (from [ImageMagick](https://imagemagick.org/))
+  - `uchardet`
+
+If building with the `--vhd` flag:
+- Support for the [XFS](https://en.wikipedia.org/wiki/XFS) filesystem
+- The following command-line utilities:
+  - `qemu-img`
+  - `virt-format`
+  - `guestmount`
+  - `guestunmount`
 
 ## Instructions
-1. Clone repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
+1. Clone the repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
 2. Download the latest revision of the dataset from [here](https://archive.org/details/archive95-dataset) and extract into the `data` folder
-3. Build filesystem and search database with `deno run -A build.js` (this will take a long time)
-4. Run server with `deno run -A main.js`
+3. Build the filesystem and search database with `deno run -A build.js`
+   - Note that this will take a long time (>2 hours on a relatively beefy machine) although subsequent builds should be much faster (~20 minutes on the same machine)
+   - Also note that this will create millions of inodes. You can relegate them to a virtual hard disk using the `--vhd` flag
+4. Run the server with `deno run -A main.js`
 
 ## Endpoints
 - `view`: View archived file in repaired form
