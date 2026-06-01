@@ -376,13 +376,12 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 	let search;
 	if (archive.types[0] == 'text/html') {
 		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
-		// This process can be repeated up to two more times for different variations of the HTML content
-		// (Namely, variations that attempt to fix non-standard/archaic markup with modern/legacy browsers in mind, respectively)
 		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
 		const [newHtml, inject] = buildInjectAndInlinks(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
 
+		// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
 		const html_p = improvePresentation(html);
 		if (html != html_p) {
 			const [newHtml_p, inject_p] = buildInjectAndInlinks(html_p, archive, urlIndex, pathIndex);
@@ -969,14 +968,55 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 
 // Attempt to fix invalid/deprecated/non-standard markup
 function improvePresentation(html) {
+	// Fix attributes with missing end quote
+	// This is done by meticulously checking if the value is overflowing and then determining the index at which to insert an end quote
+	const quoteExp = /(<[a-z0-9-]+\s+(?:[a-z0-9-]+(?:\s*=\s*(?:"[^"]*"\s*|[^>"\s]+\s+)|\s+))*[a-z0-9-]+\s*=\s*")([^"]*[<>][^"]*|\s*[^"=][^"]*=\s*)("|$)/gis;
+	let keepGoing;
+	do {
+		keepGoing = false;
+		html = html.replace(quoteExp, (_, before, value, after) => {
+			let trimmedValue = value;
+
+			// Check for greater than/less than symbols and trim them out if there are also newlines or if the string ends with the start of an attribute
+			const symbolMatch = trimmedValue.match(/\s*[<>]/);
+			const attrStartExp = /\s+[a-z0-9-]+\s*=\s*$/i;
+			let attrStartMatch = trimmedValue.match(attrStartExp);
+			if (symbolMatch !== null && (trimmedValue.includes('\n') || attrStartMatch !== null)) {
+				trimmedValue = trimmedValue.substring(0, symbolMatch.index);
+				attrStartMatch = trimmedValue.match(attrStartExp);
+			}
+
+			// Check for the start of an attribute and trim it out
+			if (attrStartMatch !== null)
+				trimmedValue = trimmedValue.substring(0, attrStartMatch.index);
+
+			// Check for any complete unquoted attribute definitions and trim them out
+			const attrExp = /\s+[a-z0-9-]+\s*=\s*[^<>"\s]+\s*$/i;
+			for (let attrMatch; (attrMatch = attrExp.exec(trimmedValue)) !== null;)
+				trimmedValue = trimmedValue.substring(0, attrMatch.index);
+
+			// Check for an ending single quote and trim it out
+			const singleQuoteMatch = trimmedValue.match(/(?<=^[^']+)'\s*$/);
+			if (singleQuoteMatch !== null)
+				trimmedValue = trimmedValue.substring(0, singleQuoteMatch.index);
+
+			// If the value was trimmed, use the trimmed value's length to determine where to insert the end quote
+			let newValue = value;
+			if (trimmedValue.length < value.length) {
+				newValue = value.substring(0, trimmedValue.length) + '"' + value.substring(trimmedValue.length);
+				keepGoing = true;
+			}
+
+			// Return the new string with an end quote inserted (or not)
+			return before + newValue + after;
+		});
+	}
+	while (keepGoing);
+
 	html = html.replace(
 		// Fix closing title tags with missing slash
 		/<(title)>((?:(?!<\/title>).)*?)<(title)>/gis,
 		'<$1>$2</$3>',
-	).replace(
-		// Fix attributes with missing end quote
-		/([a-z]+ *= *"[^"]*?)(>[^"]*?"[^>]*")/gis,
-		'$1"$2',
 	).replace(
 		// Remove spaces from comment closing sequences
 		/(<! *-+(?:(?!<! *-+).)*?-+) +>/gs,
