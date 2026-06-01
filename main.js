@@ -234,6 +234,9 @@ function serverHandler(request, info) {
 							// Otherwise, point the link to the Wayback Machine
 							sliceValue = buildWaybackLink(linkInject.url, archiveInfo.source);
 					}
+					else if (!/^[a-z]+:/i.test(linkInject.url))
+						// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
+						sliceValue = `/${buildRoute('view', archiveInfo.source, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url.replace(/^\/+/, '')}`;
 
 					slices.push({
 						start: linkInject.index,

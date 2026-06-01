@@ -476,19 +476,20 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 		if (source.urlMode > 0 && !isAbsolute) {
 			// Get absolute path and separate anchor if it exists
 			const parsedPath = URL.parse(rawUrl, 'http://ignoreme/' + archive.path);
+			let absolutePath = absoluteUrl;
 			if (parsedPath !== null) {
-				absoluteUrl = parsedPath.pathname.substring(1);
+				absolutePath = parsedPath.pathname.substring(1);
 				anchor = parsedPath.hash;
 			}
 
 			const pathEntries = pathIndex[archive.source];
 			if (pathEntries !== undefined) {
 				// Check if sanitized path exists in path index
-				let sanitizedPath = utils.sanitizePath(absoluteUrl);
+				let sanitizedPath = utils.sanitizePath(absolutePath);
 				let pathEntry = pathEntries[sanitizedPath];
 				// If it doesn't, try again with the anchor included
 				if (pathEntry === undefined && anchor != '') {
-					sanitizedPath = utils.sanitizePath(absoluteUrl + anchor, true);
+					sanitizedPath = utils.sanitizePath(absolutePath + anchor, true);
 					pathEntry = pathEntries[sanitizedPath];
 				}
 
@@ -510,6 +511,8 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 					}
 				}
 			}
+
+			absoluteUrl = (rawUrl.startsWith('/') ? '/' : '') + absolutePath;
 		}
 
 		if (resolvedUrl === null) {
