@@ -393,7 +393,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 			buildInlinks(archive, inlinksDirs);
 
 		// Build title/content text
-		search = buildSearch(html, archive.types[0]);
+		search = buildSearch(html_p, archive.types[0]);
 	}
 	else {
 		if (archive.types[0].startsWith('text/'))
