@@ -377,17 +377,20 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 	if (archive.types[0] == 'text/html') {
 		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
 		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
-		const [newHtml, inject] = buildInjectAndInlinks(html, archive, urlIndex, pathIndex);
+		const [newHtml, inject, inlinksDirs] = buildInject(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
 
 		// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
 		const html_p = improvePresentation(html);
 		if (html != html_p) {
-			const [newHtml_p, inject_p] = buildInjectAndInlinks(html_p, archive, urlIndex, pathIndex);
+			const [newHtml_p, inject_p, inlinksDirs_p] = buildInject(html_p, archive, urlIndex, pathIndex);
 			Deno.writeTextFileSync(targetPath + '_p', newHtml_p);
 			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(inject_p, null, '\t'));
+			buildInlinks(archive, inlinksDirs_p);
 		}
+		else
+			buildInlinks(archive, inlinksDirs);
 
 		// Build title/content text
 		search = buildSearch(html, archive.types[0]);
@@ -427,8 +430,8 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 	delete archive.path;
 }
 
-// Extract links from HTML, resolve them, and use to build injection list and inlinks
-function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
+// Extract links from HTML, resolve them, and use to build injection list
+function buildInject(html, archive, urlIndex, pathIndex) {
 	const inject = {
 		styles: {
 			index: -1,
@@ -439,10 +442,7 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 		frames: [],
 		links: [],
 	};
-	const inlinkEntry = {
-		source: archive.source,
-		url: archive.url ?? archive.path,
-	};
+	const inlinksDirs = [];
 
 	let offset = 0;
 	const source = sources[archive.source];
@@ -548,32 +548,15 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 			};
 			inject.links.push(linkInject);
 
-			// Check if link is valid before adding to inlinks list
+			// If the link is valid and of a reasonable length, add it to the inlinks directory list
 			const inlinkUrl = (resolvedUrl ?? absoluteUrl).replace(/(?<=^[^#]+)#[^#]+$/, '');
 			if (resolvedSource !== null || (/^https?:/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 				const sanitizedUrl = !isOrphan
 					? utils.sanitizeUrl(inlinkUrl)
 					: pathUtils.join(linkInject.source, utils.sanitizePath(inlinkUrl));
-
-				// Don't bother with insanely long links because the OS may not be able to handle them
 				const inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildMountPath);
-				if (inlinksDir.length < 256) {
-					let inlinks = [];
-
-					// Load inlinks list if it exists, otherwise prepare directory to write it into
-					const inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-					if (!utils.getPathInfo(inlinksPath)?.isFile)
-						Deno.mkdirSync(inlinksDir, { recursive: true });
-					else
-						inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
-
-					// Add to inlinks list if not a duplicate
-					if (!inlinks.some(inlink => inlinkEntry.source == inlink.source && inlinkEntry.url == inlink.url)) {
-						inlinks.push(inlinkEntry);
-						inlinks.sort((a, b) => a.url.localeCompare(b.url, 'en', { sensitivity: 'base' }));
-						Deno.writeTextFileSync(inlinksPath, JSON.stringify(inlinks, null, '\t'));
-					}
-				}
+				if (inlinksDir.length < 256)
+					inlinksDirs.push(inlinksDir);
 			}
 		}
 
@@ -614,7 +597,32 @@ function buildInjectAndInlinks(html, archive, urlIndex, pathIndex) {
 			type: 'noframes',
 		});
 
-	return [newHtml, inject];
+	return [newHtml, inject, inlinksDirs];
+}
+
+// Add the archive as an inlink at the supplied locations
+function buildInlinks(archive, inlinksDirs) {
+	const inlinkEntry = {
+		source: archive.source,
+		url: archive.url ?? archive.path,
+	};
+	for (const inlinksDir of inlinksDirs) {
+		let inlinks = [];
+
+		// Load inlinks list if it exists, otherwise prepare directory to write it into
+		const inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
+		if (!utils.getPathInfo(inlinksPath)?.isFile)
+			Deno.mkdirSync(inlinksDir, { recursive: true });
+		else
+			inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
+
+		// Add to inlinks list if not a duplicate
+		if (!inlinks.some(inlinkEntry2 => inlinkEntry.source == inlinkEntry2.source && inlinkEntry.url == inlinkEntry2.url)) {
+			inlinks.push(inlinkEntry);
+			inlinks.sort((a, b) => a.url.localeCompare(b.url, 'en', { sensitivity: 'base' }));
+			Deno.writeTextFileSync(inlinksPath, JSON.stringify(inlinks, null, '\t'));
+		}
+	}
 }
 
 // Get the title and all visible text on a page
