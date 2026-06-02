@@ -29,8 +29,8 @@ const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
 const tempBuildMountPath = pathUtils.join(tempBuildPath, 'mount');
 
 // Often reused regular expressions
-const linkExp = /((?:href|src|action|background|rectangle|http-equiv *= *"?refresh"?[^>]+content) *= *)("[^">]+"|[^ >]+)/gis;
-const baseExp = /<base\s+h?ref *= *("[^">]+"|[^ >]+)/is;
+const linkExp = /((?:href|src|action|background|rectangle|http-equiv\s*=\s*"?refresh"?[^>]+content)\s*=\s*)("[^">]+"|[^>\s]+)/gis;
+const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 // Do the build
 (async function performBuild() {
