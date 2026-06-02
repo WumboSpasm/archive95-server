@@ -6,12 +6,6 @@
 		"hasUrl": true
 	},
 	{
-		"id": "orphan",
-		"hasSource": true,
-		"hasFlags": true,
-		"hasUrl": true
-	},
-	{
 		"id": "raw",
 		"hasSource": true,
 		"hasFlags": false,
