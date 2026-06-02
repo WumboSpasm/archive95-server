@@ -1049,10 +1049,6 @@ function improvePresentation(html) {
 		/(<(a)\s(?:(?!<\/a>).)*?>(?:(?!<\/a>).)*?)(?=<a\s)/gis,
 		'$1</$2>',
 	).replace(
-		// Add missing closing tags to list elements
-		/(<(dt|dd)>(?:(?!<\/\1>).)*?)(?=<(?:dl|dt|dd|\/dl))/gis,
-		'$1</$2>',
-	).replace(
 		// Add missing "s" to <noframe> elements
 		/(<\/?)(no) ?(frame)(>)/gi,
 		(_, start, no, frame, end) => start + no + frame + (frame == frame.toUpperCase() ? 'S' : 's') + end,
