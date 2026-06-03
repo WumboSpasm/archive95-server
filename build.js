@@ -873,10 +873,13 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 		case 'netcontrol96':
 		case 'netcontrol98': {
 			// Remove injected script that exists on exactly one page
-			if (path == 'archive-b/ba1/index.shtml')
+			if (sourceId == 'netcontrol96' && path == 'archive-b/ba1/index.shtml')
 				html = html
 					.replace(/\n?<script [^>]*src="\/archived.js".*?>/, '')
 					.replace(/ onLoad="shownew\('\/'\)"/, '');
+			// Fix incorrect file paths on some pages
+			if (sourceId == 'netcontrol98')
+				html = html.replace(/nomorehere\/404\/sorry\/\/[^"]+\//g, '');
 			// Reverse encryption of email strings
 			const decodeEmail = encodedEmail => {
 				const bytes = encodedEmail.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
