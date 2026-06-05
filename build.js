@@ -1297,7 +1297,7 @@ async function mimeType(file, filePath, url = null) {
 
 	// First, check if the file is multipart and set the type accordingly
 	// TODO: Figure out why this doesn't seem to work
-	const mixedMatch = rawText.match(/^--(.+)\r?\nContent-type:/i);
+	const mixedMatch = rawText.match(/^[\r\n]*--(.+)\r?\nContent-type:/i);
 	if (mixedMatch !== null) {
 		const boundary = mixedMatch[1].includes(' ') ? '"' + mixedMatch[1] + '"' : mixedMatch[1];
 		return 'multipart/x-mixed-replace;boundary=' + boundary;
@@ -1326,14 +1326,14 @@ async function mimeType(file, filePath, url = null) {
 		if (xpmMatch !== null)
 			return 'image/x-xpixmap';
 
-		// If the file has an HTML file extension, disregard it since we already assume the file is not HTML
-		if (extType == 'text/html')
-			return 'text/plain';
+		// Otherwise, use the file extension's type if it is text-based
+		if (utils.isTextType(extType))
+			return extType;
 
-		// Otherwise, just use the file extension's type
-		return extType;
+		// If the file extension's type is not text-based, assume it cannot be trusted
+		return 'text/plain';
 	}
-	// Anything that is binary will have a magic type of application/octet-stream
+	// Any binary file will have a magic type of application/octet-stream
 	// So if the file extension also indicates a binary file, then it can probably be trusted
 	else if (magicType == 'application/octet-stream' && !extType.startsWith('text/'))
 		return extType;

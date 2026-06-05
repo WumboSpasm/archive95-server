@@ -1,0 +1,15 @@
+{
+	"include": [
+		"text/",
+		"message/",
+		"application/mac-binhex40",
+		"application/mbox",
+		"application/ram",
+		"application/winhlp",
+		"application/x-perl",
+		"application/x-troff-man"
+	],
+	"exclude": [
+		"text/html"
+	]
+}

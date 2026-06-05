@@ -58,6 +58,12 @@ export function safeDecode(str) {
 	return decodedStr;
 }
 
+// Determine if a given MIME type indicates that a file can be rendered in plaintext
+const textTypes = JSON.parse(Deno.readTextFileSync('data/texttypes.json'));
+export function isTextType(type) {
+	return textTypes.include.some(includeType => type.startsWith(includeType)) && !textTypes.exclude.some(excludeType => type.startsWith(excludeType));
+}
+
 // Log to the appropriate places based on the configuration
 export function logMessage(message) {
 	message = `[${new Date().toLocaleString()}] ${message}`;

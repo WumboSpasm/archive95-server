@@ -252,7 +252,7 @@ function serverHandler(request, info) {
 			else if (!flagIds.includes('n')) {
 				// Embed non-HTML files using the most appropriate template if the navbar is enabled
 				let embed, indent = 'all';
-				if (fileType.startsWith('text/') || fileType.startsWith('message/') || fileType == 'application/mbox') {
+				if (utils.isTextType(fileType)) {
 					embed = buildHtml(templates.compat.embed.text, {
 						'TEXT': Deno.readTextFileSync(archivePathInfo.filePath).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
 					});
