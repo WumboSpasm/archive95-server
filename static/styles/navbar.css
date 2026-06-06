@@ -49,12 +49,8 @@
 
 	font-weight: bold;
 }
-.navbar-orphan {
+.navbar-message {
 	color: #555555;
-	flex-shrink: 0;
-}
-.navbar-warning {
-	color: red;
 	flex-shrink: 0;
 }
 .navbar-options {

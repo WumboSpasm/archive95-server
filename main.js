@@ -861,12 +861,19 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	const archiveUrl = archiveInfo.url.replaceAll('#', '%23');
 	const displayUrl = decodeURI(archiveInfo.url);
 
+	const messages = [];
+	if (isOrphan)
+		messages.push('(orphan file)');
+	if (archiveInfo.warn)
+		messages.push('(possibly inaccurate URL)');
+	if (archiveInfo.error)
+		messages.push('(error page)');
+
 	let navbar = '';
 	if (modernMode) {
 		const navbarDefs = {
 			'URL': displayUrl,
-			'ORPHAN': isOrphan ? '<div class="navbar-orphan">(orphan file)</div>' : '',
-			'WARNING': archiveInfo.warn ? '<div class="navbar-warning">(possibly inaccurate URL)</div>' : '',
+			'MESSAGE': messages.length > 0 ? `<div class="navbar-message">${messages.join(' ')}</div>` : '',
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo.source)}" target="_blank">wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
@@ -918,16 +925,17 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	else {
 		const source = sources[archiveInfo.source];
 		const navbarDefs = {
-			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
-			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
-			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
-			'SOURCEINFO': `/sources#${archiveInfo.source}`,
-			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo.source) }) : '',
-			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
-			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
 			'URL': displayUrl,
 			'SOURCE': source.title,
 			'DATE': (source.circa ? '~' : '') + source.archiveDate,
+			'MESSAGE': messages.length > 0 ? messages.join(' ') : '',
+			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
+			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
+			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
+			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
+			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
+			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo.source) }) : '',
+			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 		};
 
 		const archiveButtons = [];
