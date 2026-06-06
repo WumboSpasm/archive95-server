@@ -111,7 +111,7 @@ function serverHandler(request, info) {
 
 	// Serve homepage/search results
 	if (requestPath == '')
-		return new Response(prepareSearch(requestUrl.searchParams, modernMode), { headers: headers });
+		return new Response(buildSearch(requestUrl.searchParams, modernMode), { headers: headers });
 
 	// Try serving from static file directory
 	const staticFilePath = 'static/' + requestPath;
@@ -169,7 +169,7 @@ function serverHandler(request, info) {
 			if (archiveInfoSpread === null)
 				throw new UnarchivedError(urlStr);
 
-			const [archiveInfoSet, archiveInfoIndex, _, archiveDir, isOrphan] = archiveInfoSpread;
+			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
@@ -306,7 +306,7 @@ function serverHandler(request, info) {
 			if (archiveInfoSpread === null)
 				throw new NotFoundError();
 
-			const [archiveInfoSet, archiveInfoIndex, _, archiveDir] = archiveInfoSpread;
+			const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
 			let archiveRawPath = pathUtils.join(archiveDir, 'raw');
@@ -452,6 +452,58 @@ function serverHandler(request, info) {
 				return new Response(buildHtml(templates.compat.random.main, { 'URL': randomUrl }), { headers: headers });
 			}
 		}
+		case 'api': {
+			headers.set('Content-Type', 'application/json;charset=UTF-8');
+
+			let json = {};
+			if (requestPath == 'api/search') {
+				// Perform a search and return the results
+				const [searchResults, _, page] = performSearch(requestUrl.searchParams);
+				json = {
+					total: 0,
+					page: page,
+					prevPage: page > 1 && searchResults.length > 0,
+					nextPage: page < config.maxPage && searchResults.length == config.resultsPerPage + 1,
+					results: []
+				};
+
+				if (json.nextPage)
+					searchResults.pop();
+				json.total = searchResults.length;
+				json.results = searchResults;
+			}
+			else {
+				// Fetch information on all archives belonging to the specified URL
+				// If no source is specified, return the full archive info set
+				// Otherwise, if the URL exactly matches a valid archive belonging to the source, return detailed information on just that archive
+				const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
+				if (archiveInfoSpread !== null) {
+					const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
+					const archiveInfo = archiveInfoSet[archiveInfoIndex];
+					if (sourceId !== undefined) {
+						if (archiveInfo.source == sourceId && archiveInfo.url == urlStr && archiveInfo.offset == offset) {
+							const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
+							archiveInfo.inject = utils.getPathInfo(archivePathInfo.injectPath)?.isFile
+								? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
+								: {};
+							archiveInfo.search = utils.getPathInfo(archivePathInfo.searchPath)?.isFile
+								? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
+								: {};
+
+							json = archiveInfo;
+						}
+						else
+							json = {};
+					}
+					else
+						json = archiveInfoSet;
+				}
+				else
+					json = [];
+			}
+
+			return new Response(JSON.stringify(json), { headers: headers });
+		}
 		case 'about': {
 			return new Response(templates.compat.about.main, { headers: headers });
 		}
@@ -464,7 +516,7 @@ function serverHandler(request, info) {
 				'MESSAGE': 'If you reached this page, it means the original destination of the link you followed has been lost.',
 				'LINKS': buildHtml(templates.compat.error.links, { 'OPTIONS': '' }),
 			});
-			return new Response(deadendPage, { status: 404, headers: { 'Content-Type': 'text/html' } });
+			return new Response(deadendPage, { status: 404, headers: headers });
 		}
 	}
 }
@@ -518,8 +570,9 @@ async function serverShutdown() {
 }
 Deno.addSignalListener('SIGINT', serverShutdown);
 
-// Build home/search pages based on query strings
-function prepareSearch(params, modernMode) {
+// Search the database based on a set of query string parameters and return the results
+function performSearch(params) {
+	// Build search filters
 	const searchFilters = {
 		inTitle: !params.has('in') || params.has('in', 'title'),
 		inContent: !params.has('in') || params.has('in', 'content'),
@@ -529,6 +582,222 @@ function prepareSearch(params, modernMode) {
 		formatsMedia: params.get('formats') == 'media',
 		source: sources[params.get('source')] !== undefined ? params.get('source') : null,
 	};
+
+	// If no search query was supplied, just return the built search filters
+	if (!params.has('query'))
+		return [[], searchFilters];
+
+	// Parse the requested page and clamp it
+	const page = Math.min(config.maxPage, Math.max(1, parseInt(params.get('page'), 10) || 1));
+
+	// "Search in" filter
+	const inConditions = [];
+	if (searchFilters.inTitle && searchFilters.inContent && searchFilters.inUrl)
+		inConditions.push('search MATCH ?1');
+	else {
+		if (searchFilters.inTitle)
+			inConditions.push('title MATCH ?1');
+		if (searchFilters.inContent)
+			inConditions.push('content MATCH ?1');
+		if (searchFilters.inUrl)
+			inConditions.push('url MATCH ?1');
+	}
+
+	// "Search formats" filter
+	let formatCondition;
+	if (searchFilters.formatsText)
+		formatCondition = "type LIKE 'text/%'";
+	else if (searchFilters.formatsMedia)
+		formatCondition = "type NOT LIKE 'text/%'";
+
+	// "Search source" filter
+	let sourceCondition;
+	if (searchFilters.source !== null)
+		sourceCondition = `source = '${searchFilters.source}'`;
+
+	// Build WHERE conditional based on supplied filters
+	let whereString = inConditions.join(' OR ');
+	if (formatCondition !== undefined || sourceCondition !== undefined)
+		whereString = '(' + whereString + ')';
+	if (formatCondition !== undefined)
+		whereString += ' AND ' + formatCondition;
+	if (sourceCondition !== undefined)
+		whereString += ' AND ' + sourceCondition;
+
+	// Parse the search query
+	const query = params.get('query');
+	const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
+		// FTS5 is used for database searches, and it's very easy to make invalid queries
+		// An easy fix would be to surround every word in quotation marks, but that would prevent most advanced features from being used
+		// So instead we will selectively and meticulously escape the most problematic characters
+		if (match == '"')
+			// Escape loose quotation marks that aren't surrounding a segment
+			return '""';
+		else if (match.startsWith('"') && match.endsWith('"'))
+			// If the segment is already surrounded by quotation marks, we don't need to do anything
+			return match;
+		else if (/^https?:\/\/[^ ]+$/i.test(match))
+			// If the segment appears to be a URL, sanitize it and surround in quotation marks to maximize potential results
+			// This fails to match some URLs and is made mostly redundant by the below code, but meh. When it works it works
+			return '"' + utils.sanitizeUrl(match) + '"';
+		else
+			// Loose words need most non-alphanumeric characters to be escaped
+			return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
+				const realOffset = offset + subOffset;
+				const leftPlus = realOffset > 0 && /[\w"]/.test(str[realOffset - 1]) ? '+' : '';
+				const rightPlus = realOffset + subMatch.length < str.length && /[\w"]/.test(str[realOffset + subMatch.length]) ? '+' : '';
+				return leftPlus + '"' + subMatch.split('').join('"+"') + '"' + rightPlus;
+			});
+	});
+
+	// Check if the search query matches any URLs when sanitized, and add them to the top of the search results
+	const searchResults = [];
+	let searchOffset = 0;
+	if (searchFilters.inUrl && !/[ "]/.test(query)) {
+		const archiveInfoSpread = getArchiveInfo(query, searchFilters.source || undefined);
+		if (archiveInfoSpread !== null) {
+			const [archiveInfoSet, _, archiveDir, isOrphan] = archiveInfoSpread;
+			for (let i = 0; i < archiveInfoSet.length; i++) {
+				const archiveInfo = archiveInfoSet[i];
+
+				// Apply search filters
+				if (archiveInfo.error
+				|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source)
+				|| (archiveInfo.types[0].startsWith('text/') && searchFilters.formatsMedia)
+				|| (!archiveInfo.types[0].startsWith('text/') && searchFilters.formatsText))
+					continue;
+
+				// Update offset but only add to result array if we're on the first page
+				searchOffset++;
+				if (page > 1)
+					continue;
+
+				// Initialize result entry
+				const searchResult = {
+					source: archiveInfo.source,
+					url: archiveInfo.url,
+					orphan: isOrphan ? 1 : 0,
+					offset: archiveInfo.offset,
+					displayUrl: '<b>' + archiveInfo.url + '</b>',
+					title: null,
+					content: null,
+				};
+
+				// Load in title/content text if applicable, trimming the latter to the first 24 words
+				const archivePathInfo = getArchivePathInfo(archiveDir);
+				if (utils.getPathInfo(archivePathInfo.searchPath)?.isFile) {
+					const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
+					searchResult.title = archiveSearchInfo.title;
+					searchResult.content = archiveSearchInfo.content?.match(/^(?:[^\s]+(?:\s+|$)){0,24}/)[0].trimEnd() || null;
+					if (searchResult.content !== null && searchResult.content.length < archiveSearchInfo.content.length)
+						searchResult.content += '...';
+				}
+
+				// Push to result array and prevent the database query from returning duplicates
+				searchResults.push(searchResult);
+				whereString += ` AND NOT (source == '${archiveInfo.source}' AND url == '${archiveInfo.url}')`;
+			}
+		}
+	}
+
+	try {
+		// Attempt to perform the search
+		// If there's an error, we just pretend there were no results
+		const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
+		const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
+		searchResults.push(...searchDatabase.prepare(`
+			SELECT source, url, orphan, offset,
+				highlight(search, 1, '<b>', '</b>') displayUrl,
+				highlight(search, 2, '<b>', '</b>') title,
+				snippet(search, 3, '<b>', '</b>', '...', 24) content
+			FROM search WHERE ${whereString}
+			ORDER BY rank LIMIT ?2 OFFSET ?3
+		`).all(parsedQuery, limit, offset));
+	}
+	catch {}
+
+	return [searchResults, searchFilters, page];
+}
+
+// Locate the archive in the filesystem and gather useful data
+function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
+	let archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan = false;
+
+	// Check the urls directory first
+	let archiveRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(url), 'urls', buildMountPath);
+	let archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
+	if (utils.getPathInfo(archiveInfoSetPath)?.isFile) {
+		// The archive exists in the urls directory, now identify where it resides in the set
+		archiveInfoSet = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
+		archiveInfoIndex = -1;
+		if (archiveInfoSet.length > 1 && sourceId !== undefined) {
+			for (let i = 0; i < archiveInfoSet.length; i++) {
+				// First make sure if the source matches
+				if (sourceId == archiveInfoSet[i].source) {
+					// If an exact URL (and if defined, offset) match was found, use this archive and stop searching
+					if (url == archiveInfoSet[i].url) {
+						archiveInfoIndex = i;
+						if (offset === undefined || offset == archiveInfoSet[i].offset)
+							break;
+					}
+					// Otherwise, if the archive isn't an error page, use it but keep searching for an exact URL match
+					if (!archiveInfoSet[i].error)
+						archiveInfoIndex = i;
+				}
+			}
+		}
+		// No match was found, so just use the earliest archive
+		if (archiveInfoIndex == -1)
+			archiveInfoIndex = 0;
+
+		const archiveInfo = archiveInfoSet[archiveInfoIndex];
+		archiveDir = pathUtils.join(archiveRootDir, archiveInfoIndex.toString().padStart(2, '0') + '_' + archiveInfo.source);
+	}
+	else if (sourceId !== undefined) {
+		// If a source was provided, check the orphans directory if nothing was found in the urls directory
+		archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans', buildMountPath);
+		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
+		if (!utils.getPathInfo(archiveInfoSetPath)?.isFile)
+			return null;
+
+		const archiveInfo = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
+		archiveInfoSet = [archiveInfo];
+		archiveInfoIndex = 0;
+		archiveDir = archiveRootDir;
+		isOrphan = true;
+	}
+	else
+		return null;
+
+	return [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan];
+}
+
+// Identify the correct archive file and injection list and return their paths
+function getArchivePathInfo(archiveDir, flagIds = '') {
+	const archivePathInfo = {
+		filePath: pathUtils.join(archiveDir, 'file'),
+		injectPath: pathUtils.join(archiveDir, 'inject.json'),
+		searchPath: pathUtils.join(archiveDir, 'search.json'),
+		typeIndex: 0,
+	};
+
+	if (!flagIds.includes('p')) {
+		const filePath_p = archivePathInfo.filePath + '_p';
+		const injectPath_p = pathUtils.join(archiveDir, 'inject_p.json');
+		if (utils.getPathInfo(filePath_p)?.isFile) {
+			archivePathInfo.filePath = filePath_p;
+			archivePathInfo.injectPath = injectPath_p;
+			archivePathInfo.typeIndex = 1;
+		}
+	}
+
+	return archivePathInfo;
+}
+
+// Build home/search pages based on query strings
+function buildSearch(params, modernMode) {
+	const [searchResults, searchFilters, page] = performSearch(params);
+	params.delete('page');
 
 	// Initialize template definitions based on search filters
 	const searchDefs = {
@@ -554,139 +823,7 @@ function prepareSearch(params, modernMode) {
 			searchDefs['CONTENT'] = homeContentCompat;
 	}
 	else {
-		// Parse the requested page, clamp it, and delete it from the query string so it doesn't screw up navigation button links
-		const page = Math.min(config.maxPage, Math.max(1, parseInt(params.get('page'), 10) || 1));
-		params.delete('page');
-
-		// "Search in" filter
-		const inConditions = [];
-		if (searchFilters.inTitle && searchFilters.inContent && searchFilters.inUrl)
-			inConditions.push('search MATCH ?1');
-		else {
-			if (searchFilters.inTitle)
-				inConditions.push('title MATCH ?1');
-			if (searchFilters.inContent)
-				inConditions.push('content MATCH ?1');
-			if (searchFilters.inUrl)
-				inConditions.push('url MATCH ?1');
-		}
-
-		// "Search formats" filter
-		let formatCondition;
-		if (searchFilters.formatsText)
-			formatCondition = "type LIKE 'text/%'";
-		else if (searchFilters.formatsMedia)
-			formatCondition = "type NOT LIKE 'text/%'";
-
-		// "Search source" filter
-		let sourceCondition;
-		if (searchFilters.source !== null)
-			sourceCondition = `source = '${searchFilters.source}'`;
-
-		// Build WHERE conditional based on supplied filters
-		let whereString = inConditions.join(' OR ');
-		if (formatCondition !== undefined || sourceCondition !== undefined)
-			whereString = '(' + whereString + ')';
-		if (formatCondition !== undefined)
-			whereString += ' AND ' + formatCondition;
-		if (sourceCondition !== undefined)
-			whereString += ' AND ' + sourceCondition;
-
-		// Parse the search query
-		const query = params.get('query');
-		const sanitizedQuery = sanitizeInject(query);
-		const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
-			// FTS5 is used for database searches, and it's very easy to make invalid queries
-			// An easy fix would be to surround every word in quotation marks, but that would prevent most advanced features from being used
-			// So instead we will selectively and meticulously escape the most problematic characters
-			if (match == '"')
-				// Escape loose quotation marks that aren't surrounding a segment
-				return '""';
-			else if (match.startsWith('"') && match.endsWith('"'))
-				// If the segment is already surrounded by quotation marks, we don't need to do anything
-				return match;
-			else if (/^https?:\/\/[^ ]+$/i.test(match))
-				// If the segment appears to be a URL, sanitize it and surround in quotation marks to maximize potential results
-				// This fails to match some URLs and is made mostly redundant by the below code, but meh. When it works it works
-				return '"' + utils.sanitizeUrl(match) + '"';
-			else
-				// Loose words need most non-alphanumeric characters to be escaped
-				return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
-					const realOffset = offset + subOffset;
-					const leftPlus = realOffset > 0 && /[\w"]/.test(str[realOffset - 1]) ? '+' : '';
-					const rightPlus = realOffset + subMatch.length < str.length && /[\w"]/.test(str[realOffset + subMatch.length]) ? '+' : '';
-					return leftPlus + '"' + subMatch.split('').join('"+"') + '"' + rightPlus;
-				});
-		});
-
-		// Check if the search query matches any URLs when sanitized, and add them to the top of the search results
-		const searchResults = [];
-		let searchOffset = 0;
-		if (searchFilters.inUrl && !/[ "]/.test(query)) {
-			const archiveInfoSpread = getArchiveInfo(query, searchFilters.source || undefined);
-			if (archiveInfoSpread !== null) {
-				const [archiveInfoSet, _, archiveRootDir, __, isOrphan] = archiveInfoSpread;
-				for (let i = 0; i < archiveInfoSet.length; i++) {
-					const archiveInfo = archiveInfoSet[i];
-
-					// Apply search filters
-					if (archiveInfo.error
-					|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source)
-					|| (archiveInfo.types[0].startsWith('text/') && searchFilters.formatsMedia)
-					|| (!archiveInfo.types[0].startsWith('text/') && searchFilters.formatsText))
-						continue;
-
-					// Update offset but only add to result array if we're on the first page
-					searchOffset++;
-					if (page > 1)
-						continue;
-
-					// Initialize result entry
-					const searchResult = {
-						source: archiveInfo.source,
-						url: archiveInfo.url,
-						orphan: isOrphan,
-						offset: archiveInfo.offset,
-						displayUrl: '<b>' + archiveInfo.url + '</b>',
-						title: null,
-						content: null,
-					};
-
-					// Load in title/content text if applicable, trimming the latter to the first 24 words
-					const archiveDir = !isOrphan
-						? pathUtils.join(archiveRootDir, i.toString().padStart(2, '0') + '_' + archiveInfo.source)
-						: archiveRootDir;
-					const archivePathInfo = getArchivePathInfo(archiveDir);
-					if (utils.getPathInfo(archivePathInfo.searchPath)?.isFile) {
-						const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
-						searchResult.title = archiveSearchInfo.title;
-						searchResult.content = archiveSearchInfo.content?.match(/^(?:[^\s]+(?:\s+|$)){0,24}/)[0].trimEnd() || null;
-						if (searchResult.content !== null && searchResult.content.length < archiveSearchInfo.content.length)
-							searchResult.content += '...';
-					}
-
-					// Push to result array and prevent the database query from returning duplicates
-					searchResults.push(searchResult);
-					whereString += ` AND NOT (source == '${archiveInfo.source}' AND url == '${archiveInfo.url}')`;
-				}
-			}
-		}
-
-		try {
-			// Attempt to perform the search
-			// If there's an error, we just pretend there were no results
-			const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
-			const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
-			searchResults.push(...searchDatabase.prepare(`
-				SELECT source, url, orphan, offset,
-					highlight(search, 1, '<b>', '</b>') displayUrl,
-					highlight(search, 2, '<b>', '</b>') title,
-					snippet(search, 3, '<b>', '</b>', '...', 24) content
-				FROM search WHERE ${whereString}
-				ORDER BY rank LIMIT ?2 OFFSET ?3
-			`).all(parsedQuery, limit, offset));
-		}
-		catch {}
+		const sanitizedQuery = sanitizeInject(params.get('query'));
 
 		const resultSegments = [];
 		if (searchResults.length > 0) {
@@ -764,81 +901,6 @@ function prepareSearch(params, modernMode) {
 	searchDefs['SOURCES'] = sourceOptions.join('\n');
 
 	return buildHtml(modernMode ? templates.modern.search.main : templates.compat.search.main, searchDefs);
-}
-
-// Locate the archive in the filesystem and gather useful data
-function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
-	let archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan = false;
-
-	// Check the urls directory first
-	let archiveRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(url), 'urls', buildMountPath);
-	let archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
-	if (utils.getPathInfo(archiveInfoSetPath)?.isFile) {
-		// The archive exists in the urls directory, now identify where it resides in the set
-		archiveInfoSet = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
-		archiveInfoIndex = -1;
-		if (archiveInfoSet.length > 1 && sourceId !== undefined) {
-			for (let i = 0; i < archiveInfoSet.length; i++) {
-				// First make sure if the source matches
-				if (sourceId == archiveInfoSet[i].source) {
-					// If an exact URL (and if defined, offset) match was found, use this archive and stop searching
-					if (url == archiveInfoSet[i].url) {
-						archiveInfoIndex = i;
-						if (offset === undefined || offset == archiveInfoSet[i].offset)
-							break;
-					}
-					// Otherwise, if the archive isn't an error page, use it but keep searching for an exact URL match
-					if (!archiveInfoSet[i].error)
-						archiveInfoIndex = i;
-				}
-			}
-		}
-		// No match was found, so just use the earliest archive
-		if (archiveInfoIndex == -1)
-			archiveInfoIndex = 0;
-
-		const archiveInfo = archiveInfoSet[archiveInfoIndex];
-		archiveDir = pathUtils.join(archiveRootDir, archiveInfoIndex.toString().padStart(2, '0') + '_' + archiveInfo.source);
-	}
-	else if (sourceId !== undefined) {
-		// If a source was provided, check the orphans directory if nothing was found in the urls directory
-		archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans', buildMountPath);
-		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
-		if (!utils.getPathInfo(archiveInfoSetPath)?.isFile)
-			return null;
-
-		const archiveInfo = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
-		archiveInfoSet = [archiveInfo];
-		archiveInfoIndex = 0;
-		archiveDir = archiveRootDir;
-		isOrphan = true;
-	}
-	else
-		return null;
-
-	return [archiveInfoSet, archiveInfoIndex, archiveRootDir, archiveDir, isOrphan];
-}
-
-// Identify the correct archive file and injection list and return their paths
-function getArchivePathInfo(archiveDir, flagIds = '') {
-	const archivePathInfo = {
-		filePath: pathUtils.join(archiveDir, 'file'),
-		injectPath: pathUtils.join(archiveDir, 'inject.json'),
-		searchPath: pathUtils.join(archiveDir, 'search.json'),
-		typeIndex: 0,
-	};
-
-	if (!flagIds.includes('p')) {
-		const filePath_p = archivePathInfo.filePath + '_p';
-		const injectPath_p = pathUtils.join(archiveDir, 'inject_p.json');
-		if (utils.getPathInfo(filePath_p)?.isFile) {
-			archivePathInfo.filePath = filePath_p;
-			archivePathInfo.injectPath = injectPath_p;
-			archivePathInfo.typeIndex = 1;
-		}
-	}
-
-	return archivePathInfo;
 }
 
 // Build navigation bar

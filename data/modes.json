@@ -49,6 +49,13 @@
 		"hasUrl": false
 	},
 	{
+		"id": "api",
+		"hasSource": true,
+		"hasOffset": true,
+		"hasFlags": true,
+		"hasUrl": true
+	},
+	{
 		"id": "about",
 		"hasSource": false,
 		"hasOffset": false,

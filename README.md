@@ -36,7 +36,9 @@ If building with the `--vhd` flag:
 - `screenshot`: View archived screenshot
 - `thumbnail`: View archived screenshot at a small resolution
 - `random`: Redirect to a random archived file
-- `sources`: View imformation about sources
+- `api`: Get information about archived files in JSON format
+- `about`: Learn about Archive95
+- `sources`: View information about sources
 
 ## Flags
 - `n`: Hide navigation bar
