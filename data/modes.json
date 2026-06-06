@@ -2,60 +2,70 @@
 	{
 		"id": "view",
 		"hasSource": true,
+		"hasOffset": true,
 		"hasFlags": true,
 		"hasUrl": true
 	},
 	{
 		"id": "raw",
 		"hasSource": true,
+		"hasOffset": true,
 		"hasFlags": false,
 		"hasUrl": true
 	},
 	{
 		"id": "inlinks",
 		"hasSource": true,
+		"hasOffset": false,
 		"hasFlags": true,
 		"hasUrl": true
 	},
 	{
 		"id": "options",
 		"hasSource": true,
+		"hasOffset": true,
 		"hasFlags": true,
 		"hasUrl": true
 	},
 	{
 		"id": "screenshot",
 		"hasSource": true,
+		"hasOffset": true,
 		"hasFlags": false,
 		"hasUrl": true
 	},
 	{
 		"id": "thumbnail",
 		"hasSource": true,
+		"hasOffset": true,
 		"hasFlags": false,
 		"hasUrl": true
 	},
 	{
 		"id": "random",
 		"hasSource": true,
+		"hasOffset": false,
 		"hasFlags": true,
 		"hasUrl": false
 	},
 	{
 		"id": "about",
 		"hasSource": false,
+		"hasOffset": false,
 		"hasFlags": false,
 		"hasUrl": false
 	},
 	{
 		"id": "sources",
 		"hasSource": false,
+		"hasOffset": false,
 		"hasFlags": false,
 		"hasUrl": false
 	},
 	{
 		"id": "deadend",
 		"hasSource": false,
+		"hasOffset": false,
 		"hasFlags": false,
 		"hasUrl": false
 	}

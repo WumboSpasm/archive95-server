@@ -137,26 +137,35 @@ function serverHandler(request, info) {
 	}
 
 	// Parse the route
-	const routeMatch = routeStr.match(/^([a-z0-9]+)(?:-([a-z0-9]+))?(?:_([a-z0-9]+))?$/);
+	const routeMatch = routeStr.match(/^([a-z0-9]+)(?:-([a-z0-9]+)(\+\d+)?)?(?:_([a-z0-9]+))?$/);
 	if (routeMatch === null)
 		throw new NotFoundError();
 
 	// Extract route segments and check their validity
-	let [_, modeId, sourceId, flagIds] = routeMatch;
+	let [_, modeId, sourceId, offset, flagIds] = routeMatch;
 	const mode = modes.find(mode => modeId == mode.id);
-	if (mode === undefined || (!mode.hasSource && sourceId !== undefined) || (!mode.hasFlags && flagIds !== undefined) || (mode.hasUrl == (urlStr == '')))
+	if (mode === undefined
+	|| (!mode.hasSource && sourceId !== undefined)
+	|| (!mode.hasOffset && offset !== undefined)
+	|| (!mode.hasFlags && flagIds !== undefined)
+	|| (mode.hasUrl == (urlStr == '')))
 		throw new NotFoundError();
 
 	// If the supplied source doesn't exist, clear it so we don't have to worry about it later
 	if (sourceId !== undefined && sources[sourceId] === undefined)
 		sourceId = undefined;
 
+	// Parse offset as an integer
+	offset = parseInt(offset, 10);
+	if (isNaN(offset))
+		offset = undefined;
+
 	// Clean up and sort flag IDs
 	flagIds = flagIds !== undefined ? cleanFlags(flagIds) : '';
 
 	switch (mode.id) {
 		case 'view': {
-			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId);
+			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSpread === null)
 				throw new UnarchivedError(urlStr);
 
@@ -224,19 +233,19 @@ function serverHandler(request, info) {
 						sliceValue = sliceValue.replace(/%23.*?(?=$|#)/, '');
 					else if (linkInject.source !== null)
 						// If the link is accompanied by a source, point it within the archive
-						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url}`;
+						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url}`;
 					else if (/^https?:/i.test(linkInject.url)) {
 						if (linkInject.embed || flagIds.includes('w'))
 							// Do the same as above if the 'w' flag is supplied or if the link is for embedded content
 							// It's fine if the link goes nowhere - it's better than potentially loading off-site resources
-							sliceValue = `/${buildRoute('view', archiveInfo.source, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url}`;
+							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url}`;
 						else
 							// Otherwise, point the link to the Wayback Machine
 							sliceValue = buildWaybackLink(linkInject.url, archiveInfo.source);
 					}
 					else if (!/^[a-z]+:/i.test(linkInject.url))
 						// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
-						sliceValue = `/${buildRoute('view', archiveInfo.source, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url.replace(/^\/+/, '')}`;
+						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url.replace(/^\/+/, '')}`;
 
 					slices.push({
 						start: linkInject.index,
@@ -269,7 +278,7 @@ function serverHandler(request, info) {
 						embed = templates.compat.embed.unsupported;
 
 					embed = buildHtml(embed, {
-						'FILE': `/${buildRoute('view', archiveInfo.source, cleanFlags(flagIds + 'n'))}/${archiveInfo.url}`,
+						'FILE': `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'n'))}/${archiveInfo.url}`,
 						'TYPE': fileType,
 					});
 				}
@@ -293,7 +302,7 @@ function serverHandler(request, info) {
 			}
 		}
 		case 'raw': {
-			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId);
+			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSpread === null)
 				throw new NotFoundError();
 
@@ -333,7 +342,7 @@ function serverHandler(request, info) {
 				const links = [];
 				for (const inlink of inlinks)
 					links.push(buildHtml(templates.compat.inlinks.link, {
-						'LINK': `/${buildRoute('view', inlink.source, flagIds)}/${inlink.url}`,
+						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url}`,
 						'ORIGINAL': inlink.url,
 						'SOURCE': inlink.source,
 					}));
@@ -352,7 +361,7 @@ function serverHandler(request, info) {
 			return new Response(inlinksPage, { headers: headers });
 		}
 		case 'options': {
-			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId);
+			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSpread === null)
 				throw new NotFoundError();
 
@@ -369,7 +378,7 @@ function serverHandler(request, info) {
 				const checked = flagIds.includes(flag.id);
 				const newFlagIds = checked ? flagIds.replace(flag.id, '') : cleanFlags(flagIds + flag.id);
 				optionsList.push(buildHtml(templates.compat.options.option, {
-					'OPTIONURL': `/${buildRoute('options', archiveInfo.source, newFlagIds)}/${archiveInfo.url}`,
+					'OPTIONURL': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, newFlagIds)}/${archiveInfo.url}`,
 					'FILL': checked != flag.invert ? 'X' : ' ',
 					'DESCRIPTION': flag.description,
 				}));
@@ -377,7 +386,7 @@ function serverHandler(request, info) {
 
 			const options = buildHtml(templates.compat.options.main, {
 				'OPTIONS': optionsList.join('\n'),
-				'ARCHIVEURL': `/${buildRoute('view', archiveInfo.source, flagIds)}/${archiveInfo.url}`,
+				'ARCHIVEURL': `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			});
 			return new Response(options, { headers: headers });
 		}
@@ -389,17 +398,16 @@ function serverHandler(request, info) {
 			if (!utils.getPathInfo(screenshotInfoSetPath)?.isFile)
 				throw new NotFoundError();
 
-			// Identify the desired screenshot from the set (lifted from getArchiveInfo)
+			// Identify the desired screenshot from the set (mostly lifted from getArchiveInfo)
 			const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
 			let screenshotInfoIndex = -1;
 			if (screenshotInfoSet.length > 1 && sourceId !== undefined) {
 				for (let i = 0; i < screenshotInfoSet.length; i++) {
 					if (sourceId == screenshotInfoSet[i].source) {
-						if (screenshotInfoIndex == -1)
+						if (urlStr == screenshotInfoSet[i].url) {
 							screenshotInfoIndex = i;
-						if (screenshotInfoSet[i].url == urlStr) {
-							screenshotInfoIndex = i;
-							break;
+							if (offset === undefined || offset == screenshotInfoSet[i].offset)
+								break;
 						}
 					}
 				}
@@ -434,7 +442,7 @@ function serverHandler(request, info) {
 				ORDER BY random() LIMIT 1
 			`).get(...whereParameters);
 
-			const randomUrl = `/${buildRoute('view', archiveInfo.source, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
+			const randomUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
 			if (modernMode)
 				// Perform an HTTP redirect if modern mode is active
 				return Response.redirect(requestUrl.origin + randomUrl);
@@ -652,6 +660,7 @@ function prepareSearch(params, modernMode) {
 						source: archiveInfo.source,
 						url: archiveInfo.url,
 						orphan: isOrphan,
+						offset: archiveInfo.offset,
 						displayUrl: '<b>' + archiveInfo.url + '</b>',
 						title: null,
 						content: null,
@@ -683,7 +692,7 @@ function prepareSearch(params, modernMode) {
 			const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
 			const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
 			searchResults.push(...searchDatabase.prepare(`
-				SELECT source, url, orphan,
+				SELECT source, url, orphan, offset,
 					highlight(search, 1, '<b>', '</b>') displayUrl,
 					highlight(search, 2, '<b>', '</b>') title,
 					snippet(search, 3, '<b>', '</b>', '...', 24) content
@@ -703,7 +712,7 @@ function prepareSearch(params, modernMode) {
 			for (const result of searchResults.slice(0, config.resultsPerPage)) {
 				const displayUrl = decodeURI(result.displayUrl);
 				resultSegments.push(buildHtml(resultTemplate, {
-					'LINK': `/view-${result.source}/${result.url.replaceAll('#', '%23')}`,
+					'LINK': `/${buildRoute('view', result.source, result.offset, null)}/${result.url.replaceAll('#', '%23')}`,
 					'TITLE': result.title ?? displayUrl,
 					'URL': displayUrl,
 					'SOURCE': result.source + (result.orphan ? ' (orphan file)' : ''),
@@ -772,7 +781,7 @@ function prepareSearch(params, modernMode) {
 }
 
 // Locate the archive in the filesystem and gather useful data
-function getArchiveInfo(url, sourceId = undefined) {
+function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	let archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan = false;
 
 	// Check the urls directory first
@@ -786,10 +795,11 @@ function getArchiveInfo(url, sourceId = undefined) {
 			for (let i = 0; i < archiveInfoSet.length; i++) {
 				// First make sure if the source matches
 				if (sourceId == archiveInfoSet[i].source) {
-					// If an exact URL match was found, use this archive and stop searching
+					// If an exact URL (and if defined, offset) match was found, use this archive and stop searching
 					if (url == archiveInfoSet[i].url) {
 						archiveInfoIndex = i;
-						break;
+						if (offset === undefined || offset == archiveInfoSet[i].offset)
+							break;
 					}
 					// Otherwise, if the archive isn't an error page, use it but keep searching for an exact URL match
 					if (!archiveInfoSet[i].error)
@@ -860,10 +870,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo.source)}" target="_blank">wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
-			'RAW': `/${buildRoute('raw', archiveInfo.source, null)}/${archiveUrl}`,
-			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, flagIds)}/${archiveUrl}`,
-			'OPTIONS': `/${buildRoute('options', archiveInfo.source, flagIds)}/${archiveUrl}`,
-			'RANDOM': `/${buildRoute('random', null, flagIds)}`,
+			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
+			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
+			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
+			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 		};
 
 		const archiveButtons = [];
@@ -875,7 +885,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
 			archiveButtons.push(buildHtml(templates.modern.navbar.archive, {
 				'ACTIVE': i == archiveInfoIndex ? ' class="navbar-active"' : '',
-				'URL': `/${buildRoute('view', archiveInfoSet[i].source, flagIds)}/${url}`,
+				'URL': `/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${url}`,
 				'ICON': `/images/sources/${archiveInfoSet[i].source}.gif`,
 				'SOURCE': source.title,
 				'DATE': (source.circa ? '~' : '') + source.archiveDate,
@@ -893,8 +903,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 					const screenshotUrl = screenshotInfo.url.replaceAll('#', '%23');
 					const screenshotSource = sources[screenshotInfo.source];
 					screenshots.push(buildHtml(templates.modern.navbar.screenshot, {
-						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, null)}/${screenshotUrl}`,
-						'THUMB': `/${buildRoute('thumbnail', screenshotInfo.source, null)}/${screenshotUrl}`,
+						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, screenshotInfo.offset, null)}/${screenshotUrl}`,
+						'THUMB': `/${buildRoute('thumbnail', screenshotInfo.source, screenshotInfo.offset, null)}/${screenshotUrl}`,
 						'SOURCE': screenshotSource.title,
 						'DATE': (screenshotSource.circa ? '~' : '') + screenshotSource.archiveDate,
 					}));
@@ -908,13 +918,13 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	else {
 		const source = sources[archiveInfo.source];
 		const navbarDefs = {
-			'RANDOM': `/${buildRoute('random', null, flagIds)}`,
-			'OPTIONS': `/${buildRoute('options', archiveInfo.source, flagIds)}/${archiveUrl}`,
-			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, flagIds)}/${archiveUrl}`,
+			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
+			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
+			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo.source) }) : '',
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
-			'RAW': `/${buildRoute('raw', archiveInfo.source, null)}/${archiveUrl}`,
+			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
 			'URL': displayUrl,
 			'SOURCE': source.title,
 			'DATE': (source.circa ? '~' : '') + source.archiveDate,
@@ -926,7 +936,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 				continue;
 
 			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
-			let archiveButton = `<a href="/${buildRoute('view', archiveInfoSet[i].source, flagIds)}/${url}">${archiveInfoSet[i].source}</a>`;
+			let archiveButton = `<a href="/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${url}">${archiveInfoSet[i].source}</a>`;
 			if (i == archiveInfoIndex)
 				archiveButton = '<b>' + archiveButton + '</b>';
 			archiveButtons.push(archiveButton);
@@ -943,7 +953,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 					const screenshotUrl = screenshotInfo.url.replaceAll('#', '%23');
 					const screenshotSource = sources[screenshotInfo.source];
 					screenshots.push(buildHtml(templates.compat.navbar.screenshot, {
-						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, null)}/${screenshotUrl}`,
+						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, screenshotInfo.offset, null)}/${screenshotUrl}`,
 						'SOURCE': screenshotSource.title,
 						'DATE': (screenshotSource.circa ? '~' : '') + screenshotSource.archiveDate,
 					}));
@@ -1067,10 +1077,13 @@ function isAncientBrowser(userAgent) {
 }
 
 // Join route segments back into a string, ie. mode[-source][_flags]
-function buildRoute(modeId, sourceId, flagIds) {
+function buildRoute(modeId, sourceId, offset, flagIds) {
 	let routeStr = modeId ?? '';
-	if (sourceId)
+	if (sourceId) {
 		routeStr += '-' + sourceId;
+		if (offset)
+			routeStr += '+' + offset;
+	}
 	if (flagIds)
 		routeStr += '_' + flagIds;
 

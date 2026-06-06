@@ -81,9 +81,9 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	const searchDatabase = new Database(pathUtils.join(tempBuildPath, 'search.sqlite'), { create: true });
 	searchDatabase.exec('PRAGMA journal_mode = WAL');
 	searchDatabase.exec('PRAGMA shrink_memory');
-	searchDatabase.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url, title, content, type UNINDEXED, orphan UNINDEXED)');
-	searchDatabase.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 1, 1000, 1000, 0, 0)')");
-	const insertStatement = searchDatabase.prepare('INSERT INTO search (source, url, title, content, type, orphan) VALUES (?, ?, ?, ?, ?, ?)');
+	searchDatabase.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
+	searchDatabase.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 1, 1000, 1000, 0, 0, 0)')");
+	const insertStatement = searchDatabase.prepare('INSERT INTO search (source, url, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
 	// Initialize total entry statistics
 	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
@@ -115,6 +115,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 					types: [],
 					warn: urlEntry.warn,
 					error: urlEntry.error,
+					offset: urlEntry.offset,
 				});
 		}
 
@@ -170,6 +171,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 				types: [],
 				warn: false,
 				error: orphanEntry.error,
+				offset: null,
 			};
 
 			// Create a containing directory for the current orphan
@@ -318,6 +320,9 @@ function buildIndexes() {
 					warn: entry.warn,
 					error: entry.error,
 					skip: entry.skip,
+					offset: urlIndex[sanitizedUrl].filter(urlEntry =>
+						!urlEntry.skip && sourceId == urlEntry.source && entry.url == urlEntry.url
+					).length || null,
 				});
 			}
 
@@ -353,6 +358,9 @@ function buildIndexes() {
 				url: entry.url,
 				path: entry.path,
 				type: entry.type,
+				offset: screenshotIndex[sanitizedUrl].filter(screenshotEntry =>
+					!screenshotEntry.skip && sourceId == screenshotEntry.source && entry.url == screenshotEntry.url
+				).length || null,
 			});
 		}
 	}
@@ -422,12 +430,12 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, 
 			search?.content || null,
 			archive.types[0],
 			archive.url === null,
+			archive.offset,
 		);
 
-	// We don't need to store the path anymore
+	// If the archive is an orphan, set its path as the URL
 	if (archive.url === null)
 		archive.url = archive.path;
-	delete archive.path;
 }
 
 // Extract links from HTML, resolve them, and use to build injection list
@@ -468,6 +476,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		const isAbsolute = /^[a-z]+:/i.test(rawUrl);
 		let resolvedSource = null;
 		let resolvedUrl = null;
+		let resolvedOffset = null;
 		let absoluteUrl = rawUrl;
 		let anchor = '';
 		let isOrphan = false;
@@ -500,7 +509,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 					if (pathEntry.sanitizedUrl !== null) {
 						// This entry has a valid URL, so fetch info from nearest source
 						const urlEntries = urlIndex[pathEntry.sanitizedUrl];
-						[resolvedSource, resolvedUrl] = nearestArchiveInfo(urlEntries, archive.source, sanitizedPath);
+						[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(urlEntries, archive.source, sanitizedPath);
 					}
 					else {
 						// This entry is an orphan
@@ -528,7 +537,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			const sanitizedUrl = utils.sanitizeUrl(absoluteUrl);
 			const urlEntries = urlIndex[sanitizedUrl];
 			if (urlEntries !== undefined)
-				[resolvedSource, resolvedUrl] = nearestArchiveInfo(urlEntries, archive.source);
+				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(urlEntries, archive.source);
 		}
 
 		// Build replacement string that cuts out the URL to be re-inserted by the server
@@ -545,6 +554,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				source: resolvedSource,
 				url: (resolvedUrl ?? absoluteUrl).replaceAll('#', '%23') + anchor,
 				embed: !/^href/i.test(tagStart),
+				offset: resolvedOffset,
 			};
 			inject.links.push(linkInject);
 
@@ -605,6 +615,7 @@ function buildInlinks(archive, inlinksDirs) {
 	const inlinkEntry = {
 		source: archive.source,
 		url: archive.url ?? archive.path,
+		offset: archive.offset,
 	};
 	for (const inlinksDir of inlinksDirs) {
 		let inlinks = [];
@@ -684,7 +695,7 @@ function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
 		const exactMatch = compareEntries.find(compareEntry => sourceId == compareEntry.source && sanitizedPath == utils.sanitizePath(compareEntry.path, keepAnchor));
 		if (exactMatch !== undefined) {
 			if (!exactMatch.error && !exactMatch.skip)
-				return [exactMatch.source, exactMatch.url];
+				return [exactMatch.source, exactMatch.url, exactMatch.offset];
 			else
 				backupUrl = exactMatch.url;
 		}
@@ -694,12 +705,12 @@ function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
 	// If we end up with only a single archive, then we don't need to continue
 	const compareEntriesNoSkip = compareEntries.filter(compareEntry => !compareEntry.skip);
 	if (compareEntriesNoSkip.length == 1)
-		return [compareEntriesNoSkip[0].source, compareEntriesNoSkip[0].url];
+		return [compareEntriesNoSkip[0].source, compareEntriesNoSkip[0].url, compareEntriesNoSkip[0].offset];
 
 	// Same as above, but filtered further to not include error pages
 	const compareEntriesNoError = compareEntriesNoSkip.filter(compareEntry => !compareEntry.error);
 	if (compareEntriesNoError.length == 1)
-		return [compareEntriesNoError[0].source, compareEntriesNoError[0].url];
+		return [compareEntriesNoError[0].source, compareEntriesNoError[0].url, compareEntriesNoSkip[0].offset];
 
 	// Now create a "definitive" filtered archive set that doesn't include error pages unless there are only error pages
 	const compareEntriesPure = compareEntriesNoError.length == 0 ? compareEntriesNoSkip : compareEntriesNoError;
@@ -721,12 +732,12 @@ function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
 	if (lowestTimeDistIndex > -1) {
 		// An archive was found, so return its source and URL
 		const nearestMatch = compareEntries[lowestTimeDistIndex];
-		return [nearestMatch.source, nearestMatch.url];
+		return [nearestMatch.source, nearestMatch.url, nearestMatch.offset];
 	}
 	else
 		// An archive was not found, so return null values
 		// Or if an invalid archive match was found, return its URL so we at least have something to point to the Wayback Machine
-		return [null, backupUrl];
+		return [null, backupUrl, null];
 }
 
 // Convert a given source's date into milliseconds for comparison purposes
