@@ -241,7 +241,7 @@ function serverHandler(request, info) {
 							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url}`;
 						else
 							// Otherwise, point the link to the Wayback Machine
-							sliceValue = buildWaybackLink(linkInject.url, archiveInfo.source);
+							sliceValue = buildWaybackLink(linkInject.url, archiveInfo);
 					}
 					else if (!/^[a-z]+:/i.test(linkInject.url))
 						// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
@@ -543,20 +543,6 @@ function prepareSearch(params, modernMode) {
 
 	// Render the homepage if no search query was supplied
 	if (!params.has('query')) {
-		// Build bulleted list of sources
-		const sourceTemplate = modernMode ? templates.modern.search.source : templates.compat.search.source;
-		const sourceBullets = [];
-		for (const sourceId in sources) {
-			const source = sources[sourceId];
-			sourceBullets.push(buildHtml(sourceTemplate, {
-				'LINK': source.link,
-				'TITLE': source.title,
-				'AUTHOR': source.author,
-				'DATE': (source.circa ? '~' : '') + source.archiveDate,
-				'COUNT': (stats[sourceId].urls + stats[sourceId].orphans).toLocaleString('en-US'),
-			}));
-		}
-
 		searchDefs['TITLE'] = 'Archive95';
 		searchDefs['HEADER'] = 'Welcome to Archive95';
 		if (modernMode) {
@@ -875,7 +861,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'URL': displayUrl,
 			'MESSAGE': messages.length > 0 ? `<div class="navbar-message">${messages.join(' ')}</div>` : '',
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
-			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo.source)}" target="_blank">wayback</a>` : '',
+			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
@@ -895,7 +881,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 				'URL': `/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${url}`,
 				'ICON': `/images/sources/${archiveInfoSet[i].source}.gif`,
 				'SOURCE': source.title,
-				'DATE': (source.circa ? '~' : '') + source.archiveDate,
+				'DATE': archiveInfoSet[i].date || source.archiveDate,
 			}));
 		}
 		navbarDefs['ARCHIVES'] = archiveButtons.join('\n');
@@ -913,7 +899,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, screenshotInfo.offset, null)}/${screenshotUrl}`,
 						'THUMB': `/${buildRoute('thumbnail', screenshotInfo.source, screenshotInfo.offset, null)}/${screenshotUrl}`,
 						'SOURCE': screenshotSource.title,
-						'DATE': (screenshotSource.circa ? '~' : '') + screenshotSource.archiveDate,
+						'DATE': screenshotSource.archiveDate,
 					}));
 				}
 			}
@@ -927,14 +913,14 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		const navbarDefs = {
 			'URL': displayUrl,
 			'SOURCE': source.title,
-			'DATE': (source.circa ? '~' : '') + source.archiveDate,
+			'DATE': archiveInfo.date || source.archiveDate,
 			'MESSAGE': messages.length > 0 ? messages.join(' ') : '',
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
-			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo.source) }) : '',
+			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 		};
 
@@ -963,7 +949,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 					screenshots.push(buildHtml(templates.compat.navbar.screenshot, {
 						'IMAGE': `/${buildRoute('screenshot', screenshotInfo.source, screenshotInfo.offset, null)}/${screenshotUrl}`,
 						'SOURCE': screenshotSource.title,
-						'DATE': (screenshotSource.circa ? '~' : '') + screenshotSource.archiveDate,
+						'DATE': screenshotSource.archiveDate,
 					}));
 				}
 			}
@@ -977,14 +963,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 }
 
 // Generate a link to the Wayback Machine
-function buildWaybackLink(url, sourceId) {
-	const dateStr = sources[sourceId].archiveDate;
-	const date = new Date(dateStr);
-
-	const year = date.getUTCFullYear().toString();
-	const month = dateStr.length > 4 ? (date.getUTCMonth() + 1).toString() : '';
-	const timestamp = year + (month && month.padStart(2, '0'));
-
+function buildWaybackLink(url, archiveInfo) {
+	const timestamp = (archiveInfo.date || sources[archiveInfo.source].archiveDate).replace(/[^\d]/g, '').substring(0, 14);
 	return `http://web.archive.org/web/${timestamp}/${url}`;
 }
 
@@ -1215,7 +1195,7 @@ function buildSourcesPage() {
 			'ID': sourceId,
 			'TITLE': source.title,
 			'AUTHOR': source.author,
-			'ARCHIVEDATE': (source.circa ? '~' : '') + source.archiveDate,
+			'ARCHIVEDATE': stats[sourceId].from && stats[sourceId].to ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
 			'PUBLISHDATE': source.publishDate,
 			'LINK': source.link,
 			'DESCRIPTION': source.description,

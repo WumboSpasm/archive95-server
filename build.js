@@ -88,7 +88,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	// Initialize total entry statistics
 	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
 	for (const sourceId in sources)
-		stats[sourceId] = { urls: 0, orphans: 0, screenshots: 0, errors: 0 };
+		stats[sourceId] = { from: null, to: null, urls: 0, orphans: 0, screenshots: 0, errors: 0 };
 
 	// Gather the total amount of build steps
 	let total = 0, current = 0;
@@ -112,6 +112,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 					source: urlEntry.source,
 					url: urlEntry.url,
 					path: urlEntry.path,
+					date: null,
 					types: [],
 					warn: urlEntry.warn,
 					error: urlEntry.error,
@@ -137,7 +138,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedUrl}...`);
-			await buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, insertStatement);
+			await buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement);
 
 			// Increment URL totals
 			if (!archive.error) {
@@ -168,6 +169,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 				source: sourceId,
 				url: null,
 				path: orphanEntry.path,
+				date: null,
 				types: [],
 				warn: false,
 				error: orphanEntry.error,
@@ -180,7 +182,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedPath}...`);
-			await buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, insertStatement);
+			await buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement);
 
 			// Increment orphan totals
 			if (!archive.error) {
@@ -369,9 +371,20 @@ function buildIndexes() {
 }
 
 // Parse an entry's file data, then add to database and file tree
-async function buildArchive(archive, urlIndex, pathIndex, typeIndex, targetDir, insertStatement) {
-	const [file, type, changed] = await getFile(archive, typeIndex);
+async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement) {
+	const [file, date, type, changed] = await getFile(archive, typeIndex);
+	archive.date = date;
 	archive.types.push(type);
+
+	// Update date range stats if applicable
+	if (archive.date !== null) {
+		const sourceStats = stats[archive.source];
+		const time = new Date(archive.date).getTime();
+		if (sourceStats.from === null || time < new Date(sourceStats.from).getTime())
+			sourceStats.from = archive.date;
+		if (sourceStats.to === null || time > new Date(sourceStats.to).getTime())
+			sourceStats.to = archive.date;
+	}
 
 	// If the loaded file data was changed, copy over the raw file
 	if (changed) {
@@ -509,7 +522,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 					if (pathEntry.sanitizedUrl !== null) {
 						// This entry has a valid URL, so fetch info from nearest source
 						const urlEntries = urlIndex[pathEntry.sanitizedUrl];
-						[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(urlEntries, archive.source, sanitizedPath);
+						[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, sanitizedPath);
 					}
 					else {
 						// This entry is an orphan
@@ -537,7 +550,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			const sanitizedUrl = utils.sanitizeUrl(absoluteUrl);
 			const urlEntries = urlIndex[sanitizedUrl];
 			if (urlEntries !== undefined)
-				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(urlEntries, archive.source);
+				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
 		}
 
 		// Build replacement string that cuts out the URL to be re-inserted by the server
@@ -685,14 +698,14 @@ function buildSearch(text, type) {
 	return search;
 }
 
-// Find an archive in a set of archives for a specific URL that is closest to a given source
-function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
+// Determine which entry in a set of archives for a specific URL is closest date-wise to a supplied archive
+function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 	let backupUrl = null;
 	if (sanitizedPath !== null) {
 		// If a sanitized path is defined, try using it to fast-track identification of nearest archive
 		// If a match is found but is invalid, take note of its URL and carry on
 		const keepAnchor = /(?<=^[^#]+)#[^#]+$/.test(sanitizedPath);
-		const exactMatch = compareEntries.find(compareEntry => sourceId == compareEntry.source && sanitizedPath == utils.sanitizePath(compareEntry.path, keepAnchor));
+		const exactMatch = compareEntries.find(compareEntry => archive.source == compareEntry.source && sanitizedPath == utils.sanitizePath(compareEntry.path, keepAnchor));
 		if (exactMatch !== undefined) {
 			if (!exactMatch.error && !exactMatch.skip)
 				return [exactMatch.source, exactMatch.url, exactMatch.offset];
@@ -715,13 +728,13 @@ function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
 	// Now create a "definitive" filtered archive set that doesn't include error pages unless there are only error pages
 	const compareEntriesPure = compareEntriesNoError.length == 0 ? compareEntriesNoSkip : compareEntriesNoError;
 
-	// Loop through each archive and find the one whose source's archive date is the closest to the supplied source
+	// Loop through each archive and find the one whose date is the closest to the supplied archive
 	let lowestTimeDistIndex = -1;
 	if (compareEntriesPure.length > 0) {
-		const sourceTime = getSourceTime(sourceId);
+		const archiveTime = getArchiveTime(archive);
 		let lowestTimeDistValue = -1;
 		for (let i = 0; i < compareEntriesPure.length; i++) {
-			const timeDist = Math.abs(sourceTime - getSourceTime(compareEntriesPure[i].source));
+			const timeDist = Math.abs(archiveTime - getArchiveTime(compareEntriesPure[i]));
 			if (lowestTimeDistValue == -1 || timeDist < lowestTimeDistValue) {
 				lowestTimeDistIndex = i;
 				lowestTimeDistValue = timeDist;
@@ -740,18 +753,21 @@ function nearestArchiveInfo(compareEntries, sourceId, sanitizedPath = null) {
 		return [null, backupUrl, null];
 }
 
-// Convert a given source's date into milliseconds for comparison purposes
+// Convert a given archive's date into milliseconds for comparison purposes
 // If the date contains only a year, the time is set to the last millisecond of that year
-function getSourceTime(sourceId) {
-	let sourceDate = sources[sourceId].archiveDate;
-	if (sourceDate.length == 4)
-		sourceDate = (parseInt(sourceDate, 10) + 1).toString();
+function getArchiveTime(archive) {
+	if (archive.date !== null)
+		return new Date(archive.date).getTime();
 
-	let sourceTime = new Date(sourceDate).getTime();
-	if (sourceDate.length == 4)
-		sourceTime--;
+	let archiveDate = sources[archive.source].archiveDate.replace(/^~/, '');
+	if (archiveDate.length == 4)
+		archiveDate = (parseInt(archiveDate, 10) + 1).toString();
 
-	return sourceTime;
+	let archiveTime = new Date(archiveDate).getTime();
+	if (archiveDate.length == 4)
+		archiveTime--;
+
+	return archiveTime;
 }
 
 // Attempt to revert source-specific markup alterations
@@ -1147,6 +1163,14 @@ async function getFile(archive, typeIndex = {}) {
 	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
 		return new Uint8Array();
 
+	// Get the file's timestamp if the source requires it
+	let date = null;
+	if (sources[archive.source].useTimestamps) {
+		const year = fileInfo.mtime.getFullYear();
+		if (year > 1990 && year < 2010)
+			date = fileInfo.mtime.toISOString().substring(0, 10);
+	}
+
 	// Load the file and shrink it if necessary
 	let file = Deno.readFileSync(filePath);
 	let changed = false;
@@ -1298,7 +1322,7 @@ async function getFile(archive, typeIndex = {}) {
 		changed = true;
 	}
 
-	return [file, type, changed];
+	return [file, date, type, changed];
 }
 
 // Identify the file's MIME type
