@@ -15,9 +15,9 @@ export function loadConfig(configPath) {
 export function getArchiveRootDir(sanitizedUrl, namespace, mountPath) {
 	return pathUtils.join(mountPath, namespace, sanitizedUrl
 		.replace(/[^a-z0-9 \/_.-]/gi, c => c.charCodeAt(0).toString(16).toUpperCase().match(/.{1,2}/g).map(h => '%' + h.padStart(2, '0')).join(''))
-		.replace(/%3F.*$/, match => match.replaceAll('/', '%2F'))
+		.replace(/(?<=%3F.*)\//g, '%2F')
 		.replace(/(?<=^|\/)\.+(?=\/|$)/g, match => '%2E'.repeat(match.length))
-		.replace(/\/{1,}/g, '/'));
+		.replace(/\/{2,}/g, '/'));
 }
 
 // Strip a URL down to its bare components, for comparison purposes
@@ -27,9 +27,9 @@ export function sanitizeUrl(url) {
 		.replace(/^www\d{0,2}\./, '')
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
 		.replace(/(?<=^[^#]+)#[^#]+$/, '')
-		.replace(/index\.html?$/, '')
-		.replace(/(?<!(?:\?.*|:))\/{2,}/g, '/')
-		.replace(/\/$/, '');
+		.replace(/(?<!\?.*)\/index\.html?$/, '')
+		.replace(/(?<!\?.*|:)\/{2,}/g, '/')
+		.replace(/(?<!\?.*)\/$/, '');
 }
 
 // Strip a path down to its bare components, for comparison purposes
@@ -38,7 +38,7 @@ export function sanitizePath(path, keepAnchor = false) {
 	if (!keepAnchor)
 		sanitizedPath = sanitizedPath.replace(/(?<=^[^#]+)#[^#]+$/, '');
 
-	return sanitizedPath.replace(/\/{2,}/g, '/');
+	return sanitizedPath.replace(/(?<!#.*)\/{2,}/g, '/');
 }
 
 // Decode string without throwing an error if a single encoded character is invalid
@@ -56,6 +56,18 @@ export function safeDecode(str) {
 	}
 
 	return decodedStr;
+}
+
+// Convert a date string into a number for quick comparisons
+export function dateStringToNum(dateStr) {
+	const cleanDateStr = dateStr.replace(/[^\d]/g, '');
+	let dateNum = parseInt(cleanDateStr, 10);
+	if (cleanDateStr.length < 6)
+		dateNum = dateNum * 100 + 13;
+	if (cleanDateStr.length < 8)
+		dateNum = dateNum * 100 + 32;
+
+	return dateNum;
 }
 
 // Determine if a given MIME type indicates that a file can be rendered in plaintext

@@ -379,10 +379,10 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 	// Update date range stats if applicable
 	if (archive.date !== null) {
 		const sourceStats = stats[archive.source];
-		const time = new Date(archive.date).getTime();
-		if (sourceStats.from === null || time < new Date(sourceStats.from).getTime())
+		const time = utils.dateStringToNum(archive.date);
+		if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
 			sourceStats.from = archive.date;
-		if (sourceStats.to === null || time > new Date(sourceStats.to).getTime())
+		if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
 			sourceStats.to = archive.date;
 	}
 
@@ -731,10 +731,11 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 	// Loop through each archive and find the one whose date is the closest to the supplied archive
 	let lowestTimeDistIndex = -1;
 	if (compareEntriesPure.length > 0) {
-		const archiveTime = getArchiveTime(archive);
+		const archiveTime = utils.dateStringToNum(archive.date ?? sources[archive.source].archiveDate);
 		let lowestTimeDistValue = -1;
 		for (let i = 0; i < compareEntriesPure.length; i++) {
-			const timeDist = Math.abs(archiveTime - getArchiveTime(compareEntriesPure[i]));
+			const compareEntryTime = utils.dateStringToNum(compareEntriesPure[i].date ?? sources[compareEntriesPure[i].source].archiveDate);
+			const timeDist = Math.abs(archiveTime - compareEntryTime);
 			if (lowestTimeDistValue == -1 || timeDist < lowestTimeDistValue) {
 				lowestTimeDistIndex = i;
 				lowestTimeDistValue = timeDist;
@@ -751,23 +752,6 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 		// An archive was not found, so return null values
 		// Or if an invalid archive match was found, return its URL so we at least have something to point to the Wayback Machine
 		return [null, backupUrl, null];
-}
-
-// Convert a given archive's date into milliseconds for comparison purposes
-// If the date contains only a year, the time is set to the last millisecond of that year
-function getArchiveTime(archive) {
-	if (archive.date !== null)
-		return new Date(archive.date).getTime();
-
-	let archiveDate = sources[archive.source].archiveDate.replace(/^~/, '');
-	if (archiveDate.length == 4)
-		archiveDate = (parseInt(archiveDate, 10) + 1).toString();
-
-	let archiveTime = new Date(archiveDate).getTime();
-	if (archiveDate.length == 4)
-		archiveTime--;
-
-	return archiveTime;
 }
 
 // Attempt to revert source-specific markup alterations
