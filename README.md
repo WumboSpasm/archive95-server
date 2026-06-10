@@ -29,8 +29,9 @@ If building with the `--vhd` flag:
 4. Run the server with `deno run -A main.js`
 
 ## Endpoints
-- `view`: View archived file in repaired form
+- `view`: View archived file
 - `raw`: View archived file in raw form
+- `browse`: View contents of a supplied directory
 - `inlinks`: View all archived pages that link to the supplied URL
 - `options`: Configure behavior of viewer
 - `screenshot`: View archived screenshot
