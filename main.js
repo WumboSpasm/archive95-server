@@ -316,6 +316,148 @@ function serverHandler(request, info) {
 			headers.set('Content-Type', archiveInfo.types[0]);
 			return new Response(Deno.openSync(archiveRawPath).readable, { headers: headers });
 		}
+		case 'browse': {
+			// Look for the directory listing file and load it
+			const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
+			let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'urls', buildMountPath), browseFileName);
+			let isOrphan = false;
+			if (!utils.getPathInfo(browseFilePath)?.isFile) {
+				if (sourceId === undefined)
+					throw new NotFoundError();
+				else {
+					browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans', buildMountPath), browseFileName);
+					if (!utils.getPathInfo(browseFilePath)?.isFile)
+						throw new NotFoundError();
+					isOrphan = true;
+				}
+			}
+			const browse = JSON.parse(Deno.readTextFileSync(browseFilePath));
+
+			// Build path header
+			const browseRoute = buildRoute('browse', sourceId, null, flagIds);
+			const browseNavigationArr = [];
+			const sanitizedBrowsePath = [];
+			const encodedBrowsePath = [];
+			for (let i = 0; i < browse.path.length; i++) {
+				sanitizedBrowsePath.push(sanitizeInject(browse.path[i]));
+				encodedBrowsePath.push(encodeURI(browse.path[i]));
+				if (i < browse.path.length - 1)
+					browseNavigationArr.push(`<a href="/${browseRoute}/${encodedBrowsePath.join('/')}">${encodedBrowsePath[i]}</a>`);
+				else
+					browseNavigationArr.push(sanitizedBrowsePath[i]);
+			}
+
+			// If we're viewing an orphan directory, temporarily remove the path segment representing the source to prevent issues
+			let sanitizedSourceSegment;
+			let encodedSourceSegment;
+			if (isOrphan) {
+				sanitizedSourceSegment = sanitizedBrowsePath.shift();
+				encodedSourceSegment = encodedBrowsePath.shift();
+			}
+
+			// Initialize entry list and the character lengths for each column
+			const columnLengths = [0, 0, 0, 0, 0, 0];
+			const browseEntries = [];
+			const addBrowseEntry = browseEntry => {
+				browseEntries.push(browseEntry);
+				for (let i = 0; i < browseEntry.length - 1; i++) {
+					if (browseEntry[i][1].length > columnLengths[i])
+						columnLengths[i] = browseEntry[i][1].length;
+				}
+			};
+
+			// Add column headers and (if applicable) parent directory button to entry list
+			addBrowseEntry([['Name', 'Name'], ['From', 'From'], ['To', 'To'], ['Type', 'Type'], ['Size', 'Size'], ['#', '#'], 'blank.gif']);
+			if (browse.path.length > 1)
+				addBrowseEntry([
+					[`<a href="/${browseRoute}/${encodedBrowsePath.slice(0, -1).join('/')}">Parent Directory</a>`, 'Parent Directory'],
+					['-', '-'], ['-', '-'], ['-', '-'], ['-', '-'], ['-', '-'],
+					'back.gif',
+				]);
+
+			// Add directories to entry list
+			for (const browseDir of browse.dirs) {
+				const browseDirName = (browseDir.name.length > 40 ? browseDir.name.substring(0, 37) + '...' : browseDir.name) + '/';
+				const browseDirCount = browseDir.count.toString();
+				addBrowseEntry([
+					[`<a href="/${browseRoute}/${encodedBrowsePath.concat(encodeURI(browseDir.name)).join('/')}">${sanitizeInject(browseDirName)}</a>`, browseDirName],
+					['-', '-'], ['-', '-'], ['-', '-'], ['-', '-'],
+					[browseDirCount, browseDirCount],
+					'dir.gif',
+				]);
+			}
+
+			// Add files to entry list
+			for (const browseFile of browse.files) {
+				const fromLink = `/${buildRoute('view', browseFile.from.source, browseFile.from.offset, flagIds)}/${browseFile.from.url}`;
+				const toLink = `/${buildRoute('view', browseFile.to.source, browseFile.to.offset, flagIds)}/${browseFile.to.url}`;
+				const isIndex = browseFile.name == '[__ARCHIVE95_INDEX__]';
+
+				// Determine which icon to use based on the file's MIME type
+				let icon = 'generic.gif';
+				if (browseFile.type.startsWith('text/'))
+					icon = 'text.gif';
+				else if (browseFile.type.startsWith('image/'))
+					icon = 'image.gif';
+				else if (browseFile.type.startsWith('audio/'))
+					icon = 'sound.gif';
+				else if (browseFile.type.startsWith('video/'))
+					icon = 'movie.gif';
+				else if (browseFile.type.startsWith('application/'))
+					icon = 'binary.gif';
+
+				const browseFileName = isIndex ? 'Index File' : (browseFile.name.length > 40 ? browseFile.name.substring(0, 37) + '...' : browseFile.name);
+				const browseFileType = browseFile.type.replace(/;.*$/, '');
+				const browseFileSize = browseFile.size.toString();
+				const browseFileCount = browseFile.count.toString();
+				addBrowseEntry([
+					[(isIndex ? '<b>' : '') + `<a href="${fromLink}">${sanitizeInject(browseFileName)}</a>` + (isIndex ? '</b>' : ''), browseFileName],
+					[`<a href="${fromLink}">${browseFile.from.date}</a>`, browseFile.from.date],
+					[`<a href="${toLink}">${browseFile.to.date}</a>`, browseFile.to.date],
+					[browseFileType, browseFileType],
+					[browseFileSize, browseFileSize],
+					[browseFileCount, browseFileCount],
+					icon,
+				]);
+			}
+
+			// Build appropriately-spaced HTML for each entry in the list
+			const browseEntryLines = [];
+			for (const browseEntry of browseEntries) {
+				let line = `<img src="/images/browse/${browseEntry[6]}"> `;
+				for (let i = 0; i < browseEntry.length - 1; i++) {
+					line += browseEntry[i][0];
+					if (i < browseEntry.length - 2) {
+						// Circa dates are rendered one character to the left for extra fanciness
+						let numSpaces = columnLengths[i] - browseEntry[i][1].length;
+						if (browseEntry[i + 1][1].startsWith('~')) {
+							browseEntry[i + 1][0] += ' ';
+							numSpaces += 3;
+						}
+						else
+							numSpaces += 4;
+
+						line += ' '.repeat(numSpaces);
+					}
+				}
+
+				browseEntryLines.push(line);
+			}
+
+			// Restore path segment representing the source if we're viewing an orphan directory
+			if (isOrphan) {
+				sanitizedBrowsePath.push(sanitizedSourceSegment);
+				encodedBrowsePath.push(encodedSourceSegment);
+			}
+
+			const browsePage = buildHtml(templates.compat.browse.main, {
+				'DIR': sanitizedBrowsePath.join('/'),
+				'NAVIGATION': browseNavigationArr.join(' / ') + ' /',
+				'COLUMNS': browseEntryLines[0],
+				'ENTRIES': browseEntryLines.slice(1).join('\n'),
+			});
+			return new Response(browsePage, { headers: headers });
+		}
 		case 'inlinks': {
 			let inlinks, displayUrl;
 
@@ -455,51 +597,80 @@ function serverHandler(request, info) {
 		case 'api': {
 			headers.set('Content-Type', 'application/json;charset=UTF-8');
 
-			let json = {};
-			if (requestPath == 'api/search') {
-				// Perform a search and return the results
-				const [searchResults, _, page] = performSearch(requestUrl.searchParams);
-				json = {
-					total: 0,
-					page: page,
-					prevPage: page > 1 && searchResults.length > 0,
-					nextPage: page < config.maxPage && searchResults.length == config.resultsPerPage + 1,
-					results: []
-				};
-
-				if (json.nextPage)
-					searchResults.pop();
-				json.total = searchResults.length;
-				json.results = searchResults;
-			}
+			// Identify the API sub-route and remove it from the URL string
+			const subRouteMatch = requestPath.match(/^[^\/]+\/+([^\/]+)/);
+			if (subRouteMatch === null)
+				throw new NotFoundError();
 			else {
-				// Fetch information on all archives belonging to the specified URL
-				// If no source is specified, return the full archive info set
-				// Otherwise, if the URL exactly matches a valid archive belonging to the source, return detailed information on just that archive
-				const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
-				if (archiveInfoSpread !== null) {
-					const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
-					const archiveInfo = archiveInfoSet[archiveInfoIndex];
-					if (sourceId !== undefined) {
-						if (archiveInfo.source == sourceId && archiveInfo.url == urlStr && archiveInfo.offset == offset) {
-							const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
-							archiveInfo.inject = utils.getPathInfo(archivePathInfo.injectPath)?.isFile
-								? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
-								: {};
-							archiveInfo.search = utils.getPathInfo(archivePathInfo.searchPath)?.isFile
-								? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
-								: {};
+				urlStr = urlStr.replace(/^.+?(?:\/+|$)/, '');
+				if (urlStr.startsWith('?'))
+					urlStr = '';
+			}
 
-							json = archiveInfo;
+			let json = {};
+			switch (subRouteMatch[1]) {
+				case 'search': {
+					// Perform a search and return the results
+					if (requestPath.startsWith('api/') && urlStr == '') {
+						const [searchResults, _, page] = performSearch(requestUrl.searchParams);
+						json = {
+							total: 0,
+							page: page,
+							prevPage: page > 1 && searchResults.length > 0,
+							nextPage: page < config.maxPage && searchResults.length == config.resultsPerPage + 1,
+							results: [],
+						};
+
+						if (json.nextPage)
+							searchResults.pop();
+						json.total = searchResults.length;
+						json.results = searchResults;
+					}
+
+					break;
+				}
+				case 'view': {
+					// Fetch information on all archives belonging to the specified URL
+					// If no source is specified, return the full archive info set
+					// Otherwise, if the URL exactly matches a valid archive belonging to the source, return detailed information on just that archive
+					const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
+					if (archiveInfoSpread !== null) {
+						const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
+						const archiveInfo = archiveInfoSet[archiveInfoIndex];
+						if (sourceId !== undefined) {
+							if (archiveInfo.source == sourceId && archiveInfo.url == urlStr && archiveInfo.offset == offset) {
+								const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
+								archiveInfo.inject = utils.getPathInfo(archivePathInfo.injectPath)?.isFile
+									? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
+									: {};
+								archiveInfo.search = utils.getPathInfo(archivePathInfo.searchPath)?.isFile
+									? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
+									: {};
+
+								json = archiveInfo;
+							}
+							else
+								json = {};
 						}
 						else
-							json = {};
+							json = archiveInfoSet;
 					}
 					else
-						json = archiveInfoSet;
+						json = [];
+
+					break;
 				}
-				else
-					json = [];
+				case 'browse': {
+					// Return the contents of the specified directory
+					const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
+					let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'urls', buildMountPath), browseFileName);
+					if (!utils.getPathInfo(browseFilePath)?.isFile && sourceId !== undefined)
+						browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans', buildMountPath), browseFileName);
+					if (utils.getPathInfo(browseFilePath)?.isFile)
+						json = JSON.parse(Deno.readTextFileSync(browseFilePath))
+
+					break;
+				}
 			}
 
 			return new Response(JSON.stringify(json), { headers: headers });
@@ -917,6 +1088,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	if (archiveInfo.error)
 		messages.push('(error page)');
 
+	const splitUrl = utils.splitUrl(archiveInfo.url ?? archiveInfo.path, isOrphan ? archiveInfo.source : null);
+	if (splitUrl.length > 1 && (archiveInfo.types[0] != 'text/html' || splitUrl[splitUrl.length - 1].includes('.')))
+		splitUrl.pop();
+
 	let navbar = '';
 	if (modernMode) {
 		const navbarDefs = {
@@ -926,6 +1101,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
+			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${splitUrl.join('/')}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
@@ -980,6 +1156,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
+			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${splitUrl.join('/')}`,
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',

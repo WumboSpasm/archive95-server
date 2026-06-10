@@ -14,6 +14,13 @@
 		"hasUrl": true
 	},
 	{
+		"id": "browse",
+		"hasSource": true,
+		"hasOffset": false,
+		"hasFlags": true,
+		"hasUrl": null
+	},
+	{
 		"id": "inlinks",
 		"hasSource": true,
 		"hasOffset": false,

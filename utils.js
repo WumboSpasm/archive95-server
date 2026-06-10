@@ -21,24 +21,42 @@ export function getArchiveRootDir(sanitizedUrl, namespace, mountPath) {
 }
 
 // Strip a URL down to its bare components, for comparison purposes
-export function sanitizeUrl(url) {
-	return safeDecode(url).toLowerCase()
+export function sanitizeUrl(url, doLowerCase = true) {
+	let sanitizedUrl = safeDecode(url);
+	if (doLowerCase)
+		sanitizedUrl = sanitizedUrl.toLowerCase();
+
+	return sanitizedUrl
 		.replace(/^https?:\/\//, '')
 		.replace(/^www\d{0,2}\./, '')
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
 		.replace(/(?<=^[^#]+)#[^#]+$/, '')
-		.replace(/(?<!\?.*)\/index\.html?$/, '')
-		.replace(/(?<!\?.*|:)\/{2,}/g, '/')
+		.replace(/(?<!\?.*)\/index\.[a-z]?html?$/i, '')
+		.replace(/(?<!\?.*)\/{2,}/g, '/')
 		.replace(/(?<!\?.*)\/$/, '');
 }
 
 // Strip a path down to its bare components, for comparison purposes
-export function sanitizePath(path, keepAnchor = false) {
-	let sanitizedPath = safeDecode(path).toLowerCase();
+export function sanitizePath(path, keepAnchor = false, doLowerCase = true) {
+	let sanitizedPath = safeDecode(path);
 	if (!keepAnchor)
 		sanitizedPath = sanitizedPath.replace(/(?<=^[^#]+)#[^#]+$/, '');
+	if (doLowerCase)
+		sanitizedPath = sanitizedPath.toLowerCase();
 
 	return sanitizedPath.replace(/(?<!#.*)\/{2,}/g, '/');
+}
+
+// Split a URL into segments for use by the directory browser
+export function splitUrl(url, orphanSource = null) {
+	const sanitizedUrl = orphanSource !== null
+		? pathUtils.join(orphanSource, sanitizePath(url, false, false))
+		: sanitizeUrl(url, false);
+
+	// The name is on purpose, FYI
+	const splittedUrl = sanitizedUrl.split(/(?<!\?.*)\//i);
+	splittedUrl[0] = splittedUrl[0].toLowerCase();
+	return splittedUrl;
 }
 
 // Decode string without throwing an error if a single encoded character is invalid

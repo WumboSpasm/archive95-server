@@ -113,6 +113,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 					url: urlEntry.url,
 					path: urlEntry.path,
 					date: null,
+					size: 0,
 					types: [],
 					warn: urlEntry.warn,
 					error: urlEntry.error,
@@ -170,6 +171,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 				url: null,
 				path: orphanEntry.path,
 				date: null,
+				size: 0,
 				types: [],
 				warn: false,
 				error: orphanEntry.error,
@@ -202,10 +204,6 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 	// Close the database since we don't need to add to it anymore
 	searchDatabase.close();
-
-	// Save type index to file
-	utils.logMessage('saving type index...');
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'types.json'), JSON.stringify(typeIndex, null, '\t'));
 
 	// Build the screenshot file tree
 	for (const sanitizedUrl in screenshotIndex) {
@@ -242,6 +240,10 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 	// Unmount the temporary VHD since we don't need to add to it anymore
 	utils.unmountVhd(tempBuildMountPath);
+
+	// Save type index to file
+	utils.logMessage('saving type index...');
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'types.json'), JSON.stringify(typeIndex, null, '\t'));
 
 	// Save total entry statistics to file
 	utils.logMessage('saving entry statistics...');
@@ -373,18 +375,9 @@ function buildIndexes() {
 // Parse an entry's file data, then add to database and file tree
 async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement) {
 	const [file, date, type, changed] = await getFile(archive, typeIndex);
+	archive.size = file.byteLength;
 	archive.date = date;
 	archive.types.push(type);
-
-	// Update date range stats if applicable
-	if (archive.date !== null) {
-		const sourceStats = stats[archive.source];
-		const time = utils.dateStringToNum(archive.date);
-		if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
-			sourceStats.from = archive.date;
-		if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
-			sourceStats.to = archive.date;
-	}
 
 	// If the loaded file data was changed, copy over the raw file
 	if (changed) {
@@ -415,6 +408,9 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 
 		// Build title/content text
 		search = buildSearch(html_p, archive.types[0]);
+
+		// Update file size
+		archive.size = new TextEncoder().encode(html).byteLength;
 	}
 	else {
 		if (archive.types[0].startsWith('text/'))
@@ -434,8 +430,12 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 	if (search !== undefined)
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'search.json'), JSON.stringify(search, null, '\t'));
 
-	// Add archive to database
-	if (!archive.error)
+
+	if (!archive.error) {
+		// Build directory browser indexes
+		buildBrowse(archive);
+
+		// Add archive to database
 		insertStatement.run(
 			archive.source,
 			archive.url ?? archive.path,
@@ -445,10 +445,21 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 			archive.url === null,
 			archive.offset,
 		);
+	}
 
 	// If the archive is an orphan, set its path as the URL
 	if (archive.url === null)
 		archive.url = archive.path;
+
+	// Update date range stats if applicable
+	if (archive.date !== null) {
+		const sourceStats = stats[archive.source];
+		const time = utils.dateStringToNum(archive.date);
+		if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
+			sourceStats.from = archive.date;
+		if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
+			sourceStats.to = archive.date;
+	}
 }
 
 // Extract links from HTML, resolve them, and use to build injection list
@@ -696,6 +707,160 @@ function buildSearch(text, type) {
 	}
 
 	return search;
+}
+
+// Build file/directory listings all the way up to the domain root directory
+function buildBrowse(archive) {
+	// Return whichever string contains more granular usage of uppercase letters
+	const getBetterString = (str1, str2) => {
+		// If the strings are identical, then return immediately
+		if (str1 == str2)
+			return str1;
+
+		// If one string is longer than the other for some reason, then return the longer string
+		if (str1.length != str2.length)
+			return str1.length > str2.length ? str1 : str2;
+
+		// If one string is fully uppercase, then return the other string
+		const letterCount = str1.replace(/[^a-z]+/gi, '').length;
+		const str1UpperCount = str1.replace(/[^A-Z]+/g, '').length;
+		if (str1UpperCount == letterCount)
+			return str2;
+		const str2UpperCount = str2.replace(/[^A-Z]+/g, '').length;
+		if (str2UpperCount == letterCount)
+			return str1;
+
+		// Otherwise, simply return which string has more uppercase letters
+		return str1UpperCount > str2UpperCount ? str1 : str2;
+	};
+
+	const isOrphan = archive.url === null;
+	const sanitizedUrl = isOrphan
+		? pathUtils.join(archive.source, utils.sanitizePath(archive.path))
+		: utils.sanitizeUrl(archive.url);
+	const namespace = isOrphan ? 'orphans' : 'urls';
+
+	// Get the start and end directories for traversal
+	let currentDir = utils.getArchiveRootDir(sanitizedUrl, namespace, tempBuildMountPath);
+	const endDir = pathUtils.join(tempBuildMountPath, namespace);
+
+	// Split URL into segments and resolve index files to a consistent identifier to reduce complexity
+	const splitUrl = utils.splitUrl(archive.url ?? archive.path, isOrphan ? archive.source : null);
+	const isIndex = archive.types[0] == 'text/html' && (splitUrl.length == 1 || !splitUrl[splitUrl.length - 1].includes('.'));
+	if (!isOrphan && isIndex)
+		splitUrl.push('[__ARCHIVE95_INDEX__]');
+	else
+		currentDir = pathUtils.join(currentDir, '..');
+
+	// Create up to two separate listings, one containing files from just the current archive's source and the other containing files from all sources
+	// The latter listing is only created if the current archive is not an orphan
+	const browseNames = [`browse_${archive.source}.json`];
+	if (!isOrphan)
+		browseNames.unshift('browse.json');
+
+	// Traverse up the directory tree and build listings
+	let splitUrlIndex = splitUrl.length - 1;
+	let fileDone = false;
+	while (currentDir != endDir) {
+		const segmentName = splitUrl[splitUrlIndex];
+		const segmentNameLower = segmentName.toLowerCase();
+
+		for (const browseName of browseNames) {
+			// Load the listing, or initialize it if it doesn't exist yet
+			const browsePath = pathUtils.join(currentDir, browseName);
+			let browse;
+			if (utils.getPathInfo(browsePath)?.isFile)
+				browse = JSON.parse(Deno.readTextFileSync(browsePath));
+			else
+				browse = {
+					path: [],
+					dirs: [],
+					files: [],
+				};
+
+			// Build the path
+			if (browse.path.length == 0)
+				browse.path = splitUrl.slice(0, splitUrlIndex);
+			else {
+				for (let i = 0; i < browse.path.length; i++)
+					browse.path[i] = getBetterString(browse.path[i], splitUrl[i]);
+			}
+
+			if (!fileDone) {
+				const browseFileArchive = {
+					date: archive.date,
+					source: archive.source,
+					url: archive.url ?? archive.path,
+					offset: archive.offset,
+				};
+
+				// Check if a file entry already exists and update it if applicable
+				let fileNotAddedYet = true;
+				const archiveTime = utils.dateStringToNum(archive.date);
+				for (const browseFile of browse.files) {
+					if (segmentNameLower != browseFile.name.toLowerCase())
+						continue;
+
+					browseFile.name = getBetterString(browseFile.name, segmentName);
+					if (archiveTime < utils.dateStringToNum(browseFile.from.date)) {
+						browseFile.from = browseFileArchive;
+						browseFile.type = archive.types[0];
+						browseFile.size = archive.size;
+					}
+					if (archiveTime > utils.dateStringToNum(browseFile.to.date))
+						browseFile.to = browseFileArchive;
+					browseFile.count++;
+
+					fileNotAddedYet = false;
+					break;
+				}
+
+				// If a file entry doesn't exist, add it and sort
+				if (fileNotAddedYet) {
+					browse.files.push({
+						name: segmentName,
+						from: browseFileArchive,
+						to: browseFileArchive,
+						type: archive.types[0],
+						size: archive.size,
+						count: 1,
+					});
+					browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+				}
+			}
+			else {
+				// Check if a directory entry already exists and update it if applicable
+				let dirNotAddedYet = true;
+				for (const browseDir of browse.dirs) {
+					if (segmentNameLower != browseDir.name.toLowerCase())
+						continue;
+
+					browseDir.name = getBetterString(browseDir.name, segmentName);
+					browseDir.count++;
+
+					dirNotAddedYet = false;
+					break;
+				}
+
+				// If a directory entry doesn't exist, add it and sort
+				if (dirNotAddedYet) {
+					browse.dirs.push({
+						name: segmentName,
+						count: 1,
+					});
+					browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+				}
+			}
+
+			// Save the updated listing
+			Deno.writeTextFileSync(browsePath, JSON.stringify(browse, null, '\t'));
+		}
+
+		// Move up one directory
+		currentDir = pathUtils.join(currentDir, '..');
+		splitUrlIndex--;
+		fileDone = true;
+	}
 }
 
 // Determine which entry in a set of archives for a specific URL is closest date-wise to a supplied archive
@@ -1148,7 +1313,7 @@ async function getFile(archive, typeIndex = {}) {
 		return new Uint8Array();
 
 	// Get the file's timestamp if the source requires it
-	let date = null;
+	let date = sources[archive.source].archiveDate;
 	if (sources[archive.source].useTimestamps) {
 		const year = fileInfo.mtime.getFullYear();
 		if (year > 1990 && year < 2010)
