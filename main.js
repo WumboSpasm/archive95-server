@@ -342,18 +342,14 @@ function serverHandler(request, info) {
 				sanitizedBrowsePath.push(sanitizeInject(browse.path[i]));
 				encodedBrowsePath.push(encodeURI(browse.path[i]));
 				if (i < browse.path.length - 1)
-					browseNavigationArr.push(`<a href="/${browseRoute}/${encodedBrowsePath.join('/')}">${encodedBrowsePath[i]}</a>`);
+					browseNavigationArr.push(`<a href="/${browseRoute}/${encodedBrowsePath.slice(isOrphan ? 1 : 0).join('/')}">${encodedBrowsePath[i]}</a>`);
 				else
 					browseNavigationArr.push(sanitizedBrowsePath[i]);
 			}
 
 			// If we're viewing an orphan directory, temporarily remove the path segment representing the source to prevent issues
-			let sanitizedSourceSegment;
-			let encodedSourceSegment;
-			if (isOrphan) {
-				sanitizedSourceSegment = sanitizedBrowsePath.shift();
-				encodedSourceSegment = encodedBrowsePath.shift();
-			}
+			if (isOrphan)
+				encodedBrowsePath.shift();
 
 			// Initialize entry list and the character lengths for each column
 			const columnLengths = [0, 0, 0, 0, 0, 0];
@@ -445,10 +441,8 @@ function serverHandler(request, info) {
 			}
 
 			// Restore path segment representing the source if we're viewing an orphan directory
-			if (isOrphan) {
-				sanitizedBrowsePath.push(sanitizedSourceSegment);
-				encodedBrowsePath.push(encodedSourceSegment);
-			}
+			if (isOrphan)
+				encodedBrowsePath.unshift(sourceId);
 
 			const browsePage = buildHtml(templates.compat.browse.main, {
 				'DIR': sanitizedBrowsePath.join('/'),
