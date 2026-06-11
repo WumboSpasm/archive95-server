@@ -1,5 +1,7 @@
 import * as pathUtils from 'jsr:@std/path';
 
+const textTypes = JSON.parse(Deno.readTextFileSync('data/texttypes.json'));
+
 // Attempt to load config file, otherwise use defaults
 export function loadConfig(configPath) {
 	globalThis.config = JSON.parse(Deno.readTextFileSync('data/config_template.json'));
@@ -31,7 +33,8 @@ export function sanitizeUrl(url, doLowerCase = true) {
 		.replace(/^www\d{0,2}\./, '')
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
 		.replace(/(?<=^[^#]+)#[^#]+$/, '')
-		.replace(/(?<!\?.*)\/index\.[a-z]?html?$/i, '')
+		.replace(/\?\d+,\d+$/, '')
+		.replace(/(?<!\?.*)\/(?:index\.[a-z]?html?|default\.htm)$/i, '')
 		.replace(/(?<!\?.*)\/{2,}/g, '/')
 		.replace(/(?<!\?.*)\/$/, '');
 }
@@ -89,7 +92,6 @@ export function dateStringToNum(dateStr) {
 }
 
 // Determine if a given MIME type indicates that a file can be rendered in plaintext
-const textTypes = JSON.parse(Deno.readTextFileSync('data/texttypes.json'));
 export function isTextType(type) {
 	return textTypes.include.some(includeType => type.startsWith(includeType)) && !textTypes.exclude.some(excludeType => type.startsWith(excludeType));
 }
