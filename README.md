@@ -7,10 +7,11 @@
 - A Linux environment
 - [Deno](https://deno.com/)
 - The following command-line utilities:
-   - `mimetype` (the `IO::Scalar` Perl library is also needed for stdin support)
+   - `mimetype` (the `IO::Scalar` Perl library is also required for stdin support)
+   - `uchardet`
    - `iconv`
    - `convert` (from [ImageMagick](https://imagemagick.org/))
-   - `uchardet`
+   - `ffmpeg` (the `libx264` library is also required for H.264 encoding)
 
 If building with the `--vhd` flag:
 - Support for the [XFS](https://en.wikipedia.org/wiki/XFS) filesystem

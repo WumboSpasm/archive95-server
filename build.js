@@ -28,6 +28,10 @@ const overrides = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPa
 const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
 const tempBuildMountPath = pathUtils.join(tempBuildPath, 'mount');
 
+// Get paths of conversion helper files
+const convertInputPath = pathUtils.join(tempBuildPath, '.convin');
+const convertOutputPath = pathUtils.join(tempBuildPath, '.convout');
+
 // Often reused regular expressions
 const linkExp = /((?:href|src|action|background|rectangle|http-equiv\s*=\s*"?refresh"?[^>]+content)\s*=\s*)("[^">]+"|[^>\s]+)/gis;
 const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
@@ -416,11 +420,73 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 		if (archive.types[0].startsWith('text/'))
 			// Build content text
 			search = buildSearch(decoder.decode(file), archive.types[0]);
-		else if (archive.types[0] == 'image/x-xbitmap') {
-			// Convert XBM to GIF for when presentation improvements are active
-			const file_p = (await inputAndExecute(file, 'convert', ['XBM:-', 'GIF:-'])).stdout;
-			Deno.writeFileSync(targetPath + '_p', file_p);
-			archive.types.push('image/gif');
+		else {
+			// Convert certain file formats to ones that are more broadly supported by browsers
+			// They will be used when presentation improvements are active
+			let convertCommand, doStdin = true, doStdout = true, type_p;
+			switch (archive.types[0]) {
+				case 'image/x-xbitmap': {
+					// XBM to GIF
+					convertCommand = ['convert', ['XBM:-', 'GIF:-']];
+					type_p = 'image/gif';
+					break;
+				}
+				case 'image/x-xpixmap': {
+					// XPM to GIF
+					convertCommand = ['convert', ['XPM:-', 'GIF:-']];
+					type_p = 'image/gif';
+					break;
+				}
+				case 'audio/basic':
+				case 'audio/mp2':
+				case 'audio/vnd.rn-realaudio':
+				case 'audio/x-aifc':
+				case 'audio/x-aiff': {
+					// AU/MP2/RA/AIFC/AIFF to WAV
+					convertCommand = ['ffmpeg', ['-y', '-i', 'pipe:', '-f', 'wav', convertOutputPath]];
+					doStdout = false;
+					type_p = 'audio/wav';
+					break;
+				}
+				case 'video/mpeg':
+				case 'video/quicktime':
+				case 'video/vnd.avi': {
+					// Work around FFmpeg failing to convert MOV files from stdin
+					if (archive.types[0] == 'video/quicktime') {
+						Deno.writeFileSync(convertInputPath, file);
+						doStdin = false;
+					}
+					// MPG/MOV/AVI to MP4
+					convertCommand = ['ffmpeg', [
+						'-y', '-i', doStdin ? 'pipe:' : convertInputPath,
+						'-crf', '1', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', convertOutputPath,
+					]];
+					doStdout = false;
+					type_p = 'video/mp4';
+					break;
+				}
+			}
+
+			if (convertCommand !== undefined) {
+				// Perform the conversion and utilize our helper files in case we cannot use stdin or stdout
+				let file_p = (doStdin ? await inputAndExecute(file, ...convertCommand) : Deno.spawnAndWaitSync(...convertCommand)).stdout;
+				if (!doStdout) {
+					if (utils.getPathInfo(convertOutputPath)?.isFile)
+						file_p = Deno.readFileSync(convertOutputPath);
+					else
+						file_p = new Uint8Array();
+				}
+				if (file_p.byteLength > 0) {
+					Deno.writeFileSync(targetPath + '_p', file_p);
+					archive.types.push(type_p);
+				}
+
+				// Delete any conversion helper files now that we no longer need them
+				if (utils.getPathInfo(convertInputPath)?.isFile)
+					Deno.removeSync(convertInputPath);
+				if (utils.getPathInfo(convertOutputPath)?.isFile)
+					Deno.removeSync(convertOutputPath);
+			}
 		}
 
 		Deno.writeFileSync(targetPath, file);
@@ -1591,9 +1657,9 @@ function inputAndExecute(input, app, args = undefined) {
 	const process = new Deno.Command(app, { args: args, stdin: 'piped', stdout: 'piped', stderr: 'piped' }).spawn();
 	const writer = process.stdin.getWriter();
 	const writePromise = writer.ready
-			.then(() => writer.write(input))
-			.then(() => writer.close())
-			.catch(() => {}); // This is here because mimetype likes to throw errors on random files for some reason (it still works though)
+		.then(() => writer.write(input))
+		.then(() => writer.close())
+		.catch(() => {}); // This is here because mimetype likes to throw errors on random files for some reason (it still works though)
 	const readPromise = process.output();
 	return Promise.all([writePromise, readPromise]).then(([_, output]) => {
 		process.unref();
