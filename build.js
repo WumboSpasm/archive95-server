@@ -1495,35 +1495,35 @@ async function mimeType(file, filePath, url = null) {
 
 	// Anything that is text will have a magic type of text/plain
 	// The file extension can't always be trusted either, so we will need to do some manual checks
+	// If none of the checks pass, we just use the magic type
+	let chosenType = magicType;
 	if (magicType == 'text/plain') {
 		// Check if the file appears to be HTML
 		if (isHtml(rawText, url, extType == 'text/html'))
-			return 'text/html';
-
+			chosenType = 'text/html';
 		// Check if the file appears to be XBM
-		const xbmMatch = rawText.match(/static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/i);
-		if (xbmMatch !== null)
-			return 'image/x-xbitmap';
-
+		else if (rawText.match(/static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/i) !== null)
+			chosenType = 'image/x-xbitmap';
 		// Check if the file appears to be XPM
-		const xpmMatch = rawText.match(/^\s*!\s*XPM2/i);
-		if (xpmMatch !== null)
-			return 'image/x-xpixmap';
-
+		else if (rawText.match(/^\s*!\s*XPM2/i) !== null)
+			chosenType = 'image/x-xpixmap';
 		// Otherwise, use the file extension's type if it is text-based
-		if (utils.isTextType(extType))
-			return extType;
-
+		else if (utils.isTextType(extType))
+			chosenType = extType;
 		// If the file extension's type is not text-based, assume it cannot be trusted
-		return 'text/plain';
+		else
+			chosenType = 'text/plain';
 	}
 	// Any binary file will have a magic type of application/octet-stream
 	// So if the file extension also indicates a binary file, then it can probably be trusted
 	else if (magicType == 'application/octet-stream' && !extType.startsWith('text/'))
-		return extType;
-	// Otherwise, just use the magic type
-	else
-		return magicType;
+		chosenType = extType;
+
+	// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
+	if (chosenType == 'audio/vnd.wave')
+		chosenType = 'audio/wav';
+
+	return chosenType;
 }
 
 // Guess if a piece of text is HTML
