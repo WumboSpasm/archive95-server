@@ -501,7 +501,7 @@ function serverHandler(request, info) {
 			}
 			else {
 				content = 'There are no links to this URL.';
-				displayUrl = sanitizeInject(sanitizedUrl);
+				displayUrl = sanitizeInject(sanitizedUrl, true);
 			}
 
 			const inlinksPage = buildHtml(templates.compat.inlinks.main, {
@@ -1002,7 +1002,7 @@ function buildSearch(params, modernMode) {
 			searchDefs['CONTENT'] = homeContentCompat;
 	}
 	else {
-		const sanitizedQuery = sanitizeInject(params.get('query'));
+		const sanitizedQuery = sanitizeInject(params.get('query'), true);
 
 		const resultSegments = [];
 		if (searchResults.length > 0) {
@@ -1339,12 +1339,14 @@ function cleanFlags(flagIds) {
 }
 
 // Escape characters that have the potential to enable XSS injections
-function sanitizeInject(str) {
+function sanitizeInject(str, amp = false) {
 	const charMap = {
 		'<': '&lt;',
 		'>': '&gt;',
 		'"': '&quot;',
 	};
+	if (amp)
+		charMap['&'] = '&amp;';
 
 	return str.replace(new RegExp(`[${Object.keys(charMap).join('')}]`, 'g'), m => charMap[m]);
 }
@@ -1524,7 +1526,7 @@ class NotFoundError extends ArchiveError {
 
 class UnarchivedError extends ArchiveError {
 	constructor(url) {
-		const safeUrl = sanitizeInject(url);
+		const safeUrl = sanitizeInject(url, true);
 		super(
 			404,
 			'Unarchived URL',
