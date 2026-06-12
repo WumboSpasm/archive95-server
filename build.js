@@ -658,7 +658,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				index: index - offset + tagStart.length + 1 + urlPrefix.length,
 				source: resolvedSource,
 				url: (resolvedUrl ?? absoluteUrl).replaceAll('#', '%23') + anchor,
-				embed: !/^href/i.test(tagStart),
+				embed: !/^(?:href|http-equiv)/i.test(tagStart),
 				offset: resolvedOffset,
 			};
 			inject.links.push(linkInject);
