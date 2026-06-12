@@ -544,7 +544,12 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 
 	let offset = 0;
 	const source = sources[archive.source];
+	const excludeIndexes = [...blankHtml(html).matchAll(linkExp)].map(linkMatch => linkMatch.index);
 	const newHtml = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '').replace(linkExp, (match, tagStart, url, index) => {
+		// Don't process link attributes that are probably intended to be rendered as plaintext
+		if (excludeIndexes.includes(index))
+			return match;
+
 		let rawUrl = trimQuotes(url);
 		// Anchors and missing URLs should be left unchanged, but make sure they're at least surrounded by quotes
 		if (rawUrl.startsWith('#') || rawUrl == '/deadend') {
@@ -736,40 +741,25 @@ function buildSearch(text, type) {
 	if (type == 'text/html') {
 		const titleMatch = [...text.matchAll(/<title>((?:(?!<\/title>).)*?)<\/title>/gis)];
 		if (titleMatch.length > 0)
-			search.title = titleMatch[titleMatch.length - 1][1];
+			search.title = titleMatch[titleMatch.length - 1][1].replace(/<.*?>/gs, ' ');
 
-		search.content = text.replace(
-			/<title>.*?<\/title>/gis,
-			'',
-		).replace(
-			/<script(?: [^>]*)?>.*?<\/script>/gis,
-			'',
-		).replace(
-			/<[^>]+alt *= *"(.*?)".*?>/gis,
-			' $1 ',
-		).replace(
-			/<[^>]+alt *= *([^ >]+).*?>/gis,
-			' $1 ',
-		).replace(
-			/<! *-+.*?-+ *>/gs,
-			'',
-		);
+		search.content = blankHtml(text);
 	}
 	else
 		// We can't extract a title from pure text files, so just focus on the content
 		search.content = text;
 
 	for (const field in search) {
-		if (search[field] !== null) {
-			search[field] = search[field]
-				.replace(/<.*?>/gs, ' ')
-				.replaceAll('<', '&lt;')
-				.replaceAll('>', '&gt;')
-				.replace(/(?:\s|&nbsp;)+/gi, ' ')
-				.trim();
-			if (search[field] == '')
-				search[field] = null;
-		}
+		if (search[field] === null)
+			continue;
+
+		search[field] = search[field]
+			.replace(/(?:\s|&nbsp;?)+/gi, ' ').trim()
+			.replaceAll('<', '&lt;')
+			.replaceAll('>', '&gt;');
+
+		if (search[field] == '')
+			search[field] = null;
 	}
 
 	return search;
@@ -1665,6 +1655,32 @@ function inputAndExecute(input, app, args = undefined) {
 		process.unref();
 		return output;
 	});
+}
+
+// Replace all tags in an HTML document with whitespace
+function blankHtml(html) {
+	return html.replace(
+		/<title>.*?<\/title>/gis,
+		match => ' '.repeat(match.length),
+	).replace(
+		/<script(?: [^>]*)?>.*?<\/script>/gis,
+		match => ' '.repeat(match.length),
+	).replace(
+		/(<[^>]+alt *= *")(.*?)(".*?>)/gis,
+		(_, before, keep, after) => ' '.repeat(before.length) + keep + ' '.repeat(after.length),
+	).replace(
+		/(<[^>]+alt *= *)([^ >]+)(.*?>)/gis,
+		(_, before, keep, after) => ' '.repeat(before.length) + keep + ' '.repeat(after.length),
+	).replace(
+		/<! *-+.*?-+ *>/gs,
+		match => ' '.repeat(match.length),
+	).replace(
+		/<.*?>/gs,
+		match => ' '.repeat(match.length),
+	).replace(
+		/\s+/gs,
+		match => ' '.repeat(match.length),
+	);
 }
 
 // Remove any quotes or whitespace surrounding a string
