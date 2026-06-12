@@ -116,7 +116,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 					source: urlEntry.source,
 					url: urlEntry.url,
 					path: urlEntry.path,
-					date: null,
+					date: urlEntry.date,
 					size: 0,
 					types: [],
 					warn: urlEntry.warn,
@@ -174,7 +174,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 				source: sourceId,
 				url: null,
 				path: orphanEntry.path,
-				date: null,
+				date: orphanEntry.date,
 				size: 0,
 				types: [],
 				warn: false,
@@ -314,6 +314,15 @@ function buildIndexes() {
 
 		const entries = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'archives', sourceId + '.json')));
 		for (const entry of entries) {
+			// Get the file's date and query its timestamp if the source permits it
+			let date = sources[sourceId].archiveDate;
+			if (!entry.skip && sources[sourceId].useTimestamps) {
+				const fileInfo = utils.getPathInfo(pathUtils.join(config.inputPath, 'archives', sourceId, entry.path));
+				const year = fileInfo.mtime.getFullYear();
+				if (year > 1990 && year < 2010)
+					date = fileInfo.mtime.toISOString().substring(0, 10);
+			}
+
 			// Get sanitized URL and add entry to URL index
 			let sanitizedUrl = null;
 			if (entry.url !== null) {
@@ -325,6 +334,7 @@ function buildIndexes() {
 					source: sourceId,
 					url: entry.url,
 					path: entry.path,
+					date: date,
 					warn: entry.warn,
 					error: entry.error,
 					skip: entry.skip,
@@ -341,6 +351,7 @@ function buildIndexes() {
 				pathIndex[sourceId][utils.sanitizePath(entry.path, entry.skip)] = {
 					sanitizedUrl: sanitizedUrl,
 					path: entry.path,
+					date: date,
 					error: entry.error,
 					skip: entry.skip,
 				};
@@ -378,9 +389,8 @@ function buildIndexes() {
 
 // Parse an entry's file data, then add to database and file tree
 async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement) {
-	const [file, date, type, changed] = await getFile(archive, typeIndex);
+	const [file, type, changed] = await getFile(archive, typeIndex);
 	archive.size = file.byteLength;
-	archive.date = date;
 	archive.types.push(type);
 
 	// If the loaded file data was changed, copy over the raw file
@@ -518,7 +528,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 		archive.url = archive.path;
 
 	// Update date range stats if applicable
-	if (archive.date !== null) {
+	if (sources[archive.source].useTimestamps) {
 		const sourceStats = stats[archive.source];
 		const time = utils.dateStringToNum(archive.date);
 		if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
@@ -952,10 +962,10 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 	// Loop through each archive and find the one whose date is the closest to the supplied archive
 	let lowestTimeDistIndex = -1;
 	if (compareEntriesPure.length > 0) {
-		const archiveTime = utils.dateStringToNum(archive.date ?? sources[archive.source].archiveDate);
+		const archiveTime = utils.dateStringToNum(archive.date);
 		let lowestTimeDistValue = -1;
 		for (let i = 0; i < compareEntriesPure.length; i++) {
-			const compareEntryTime = utils.dateStringToNum(compareEntriesPure[i].date ?? sources[compareEntriesPure[i].source].archiveDate);
+			const compareEntryTime = utils.dateStringToNum(compareEntriesPure[i].date);
 			const timeDist = Math.abs(archiveTime - compareEntryTime);
 			if (lowestTimeDistValue == -1 || timeDist < lowestTimeDistValue) {
 				lowestTimeDistIndex = i;
@@ -1368,14 +1378,6 @@ async function getFile(archive, typeIndex = {}) {
 	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
 		return new Uint8Array();
 
-	// Get the file's timestamp if the source requires it
-	let date = sources[archive.source].archiveDate;
-	if (sources[archive.source].useTimestamps) {
-		const year = fileInfo.mtime.getFullYear();
-		if (year > 1990 && year < 2010)
-			date = fileInfo.mtime.toISOString().substring(0, 10);
-	}
-
 	// Load the file and shrink it if necessary
 	let file = Deno.readFileSync(filePath);
 	let changed = false;
@@ -1527,7 +1529,7 @@ async function getFile(archive, typeIndex = {}) {
 		changed = true;
 	}
 
-	return [file, date, type, changed];
+	return [file, type, changed];
 }
 
 // Identify the file's MIME type

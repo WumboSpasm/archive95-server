@@ -1124,14 +1124,13 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			if (i != archiveInfoIndex && archiveInfoSet[i].error && !flagIds.includes('r'))
 				continue;
 
-			const source = sources[archiveInfoSet[i].source];
 			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
 			archiveButtons.push(buildHtml(templates.modern.navbar.archive, {
 				'ACTIVE': i == archiveInfoIndex ? ' class="navbar-active"' : '',
 				'URL': `/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${url}`,
 				'ICON': `/images/sources/${archiveInfoSet[i].source}.gif`,
-				'SOURCE': source.title,
-				'DATE': archiveInfoSet[i].date || source.archiveDate,
+				'SOURCE': sources[archiveInfoSet[i].source].title,
+				'DATE': archiveInfoSet[i].date,
 			}));
 		}
 		navbarDefs['ARCHIVES'] = archiveButtons.join('\n');
@@ -1159,11 +1158,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		navbar = buildHtml(templates.modern.navbar.main, navbarDefs);
 	}
 	else {
-		const source = sources[archiveInfo.source];
 		const navbarDefs = {
 			'URL': displayUrl,
-			'SOURCE': source.title,
-			'DATE': archiveInfo.date || source.archiveDate,
+			'SOURCE': sources[archiveInfo.source].title,
+			'DATE': archiveInfo.date,
 			'MESSAGE': messages.join(' '),
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
@@ -1215,7 +1213,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 // Generate a link to the Wayback Machine
 function buildWaybackLink(url, archiveInfo) {
-	const timestamp = (archiveInfo.date || sources[archiveInfo.source].archiveDate).replace(/[^\d]/g, '').substring(0, 14);
+	const timestamp = archiveInfo.date.replace(/[^\d]/g, '').substring(0, 14);
 	return `http://web.archive.org/web/${timestamp}/${url}`;
 }
 
@@ -1446,7 +1444,7 @@ function buildSourcesPage() {
 			'ID': sourceId,
 			'TITLE': source.title,
 			'AUTHOR': source.author,
-			'ARCHIVEDATE': stats[sourceId].from && stats[sourceId].to ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
+			'ARCHIVEDATE': source.useTimestamps ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
 			'PUBLISHDATE': source.publishDate,
 			'LINK': source.link,
 			'DESCRIPTION': source.description,
