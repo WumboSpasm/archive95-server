@@ -57,9 +57,9 @@
 	},
 	{
 		"id": "api",
-		"hasSource": true,
-		"hasOffset": true,
-		"hasFlags": true,
+		"hasSource": false,
+		"hasOffset": false,
+		"hasFlags": false,
 		"hasUrl": true
 	},
 	{

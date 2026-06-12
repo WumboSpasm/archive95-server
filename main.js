@@ -605,83 +605,102 @@ function serverHandler(request, info) {
 		case 'api': {
 			headers.set('Content-Type', 'application/json;charset=UTF-8');
 
-			// Identify the API sub-route and remove it from the URL string
-			const subRouteMatch = requestPath.match(/^[^\/]+\/+([^\/]+)/);
-			if (subRouteMatch === null)
-				throw new NotFoundError();
-			else {
-				urlStr = urlStr.replace(/^.+?(?:\/+|$)/, '');
-				if (urlStr.startsWith('?'))
-					urlStr = '';
-			}
+			const subRoute = urlStr.replace(/\/*(?:\?.*)?$/, '');
+			const params = requestUrl.searchParams;
 
-			let json = {};
-			switch (subRouteMatch[1]) {
+			switch (subRoute) {
 				case 'search': {
 					// Perform a search and return the results
-					if (requestPath.startsWith('api/') && urlStr == '') {
-						const [searchResults, _, page] = performSearch(requestUrl.searchParams);
-						json = {
-							total: 0,
-							page: page,
-							prevPage: page > 1 && searchResults.length > 0,
-							nextPage: page < config.maxPage && searchResults.length == config.resultsPerPage + 1,
-							results: [],
-						};
+					const [searchResults, _, page] = performSearch(params);
+					const json = {
+						total: 0,
+						page: page,
+						prevPage: page > 1 && searchResults.length > 0,
+						nextPage: page < config.maxPage && searchResults.length == config.resultsPerPage + 1,
+						results: [],
+					};
 
-						if (json.nextPage)
-							searchResults.pop();
-						json.total = searchResults.length;
-						json.results = searchResults;
-					}
+					if (json.nextPage)
+						searchResults.pop();
+					json.total = searchResults.length;
+					json.results = searchResults;
 
-					break;
+					return new Response(JSON.stringify(json), { headers: headers });
 				}
-				case 'view': {
-					// Fetch information on all archives belonging to the specified URL
-					// If no source is specified, return the full archive info set
-					// Otherwise, if the URL exactly matches a valid archive belonging to the source, return detailed information on just that archive
-					const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
-					if (archiveInfoSpread !== null) {
-						const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
-						const archiveInfo = archiveInfoSet[archiveInfoIndex];
-						if (sourceId !== undefined) {
-							if (archiveInfo.source == sourceId && archiveInfo.url == urlStr && archiveInfo.offset == offset) {
-								const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
-								archiveInfo.inject = utils.getPathInfo(archivePathInfo.injectPath)?.isFile
-									? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
-									: {};
-								archiveInfo.search = utils.getPathInfo(archivePathInfo.searchPath)?.isFile
-									? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
-									: {};
-
-								json = archiveInfo;
-							}
-							else
-								json = {};
-						}
-						else
-							json = archiveInfoSet;
+				case 'archives': {
+					// Return information on all archives belonging to the given URL
+					const urlParam = params.get('url');
+					if (urlParam) {
+						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
+						const archiveInfoSpread = getArchiveInfo(urlParam, sourceParam);
+						if (archiveInfoSpread !== null)
+							return new Response(JSON.stringify(archiveInfoSpread[0]), { headers: headers });
 					}
-					else
-						json = [];
 
-					break;
+					return new Response('[]', { headers: headers });
+				}
+				case 'get': {
+					// Return detailed information on the given archive
+					const urlParam = params.get('url');
+					if (urlParam) {
+						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
+						const offsetParam = parseInt(params.get('offset'), 10) || undefined;
+						const archiveInfoSpread = getArchiveInfo(urlParam, sourceParam, offsetParam);
+						if (archiveInfoSpread !== null) {
+							const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
+							const archiveInfo = archiveInfoSet[archiveInfoIndex];
+
+							const archivePathInfo = getArchivePathInfo(archiveDir, params.get('p') == 'true' ? 'p' : '');
+							archiveInfo.inject = utils.getPathInfo(archivePathInfo.injectPath)?.isFile
+								? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
+								: {};
+							archiveInfo.search = utils.getPathInfo(archivePathInfo.searchPath)?.isFile
+								? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
+								: {};
+
+							return new Response(JSON.stringify(archiveInfo), { headers: headers });
+						}
+					}
+
+					return new Response('{}', { headers: headers });
 				}
 				case 'browse': {
-					// Return the contents of the specified directory
-					const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
-					let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'urls', buildMountPath), browseFileName);
-					if (!utils.getPathInfo(browseFilePath)?.isFile && sourceId !== undefined)
-						browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans', buildMountPath), browseFileName);
-					if (utils.getPathInfo(browseFilePath)?.isFile)
-						json = JSON.parse(Deno.readTextFileSync(browseFilePath))
+					// Return the contents of the given directory
+					const urlParam = params.get('url');
+					const sourceParam = params.get('source') || undefined;
+					if (urlParam && (sourceParam === undefined || sources[sourceParam] !== undefined)) {
+						const browseFileName = sourceParam !== undefined ? `browse_${sourceParam}.json` : 'browse.json';
+						let browseFileDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'urls', buildMountPath);
+						let browseFilePath = pathUtils.join(browseFileDir, browseFileName);
+						if (!utils.getPathInfo(browseFilePath)?.isFile && sourceParam !== undefined) {
+							browseFileDir = utils.getArchiveRootDir(pathUtils.join(sourceParam, utils.sanitizePath(urlParam)), 'orphans', buildMountPath);
+							browseFilePath = pathUtils.join(browseFileDir, browseFileName);
+						}
+						if (utils.getPathInfo(browseFilePath)?.isFile)
+							return new Response(Deno.readTextFileSync(browseFilePath), { headers: headers });
+					}
 
-					break;
+					return new Response('{}', { headers: headers });
+				}
+				case 'inlinks': {
+					// Return all archived pages which link to the given URL
+					const urlParam = params.get('url');
+					if (urlParam) {
+						let inlinksDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'inlinks_urls', buildMountPath);
+						let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
+						if (!utils.getPathInfo(inlinksPath)?.isFile && sources[params.get('source')] !== undefined) {
+							inlinksDir = utils.getArchiveRootDir(pathUtils.join(params.get('source'), utils.sanitizePath(urlParam)), 'inlinks_orphans', buildMountPath);
+							inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
+						}
+						if (utils.getPathInfo(inlinksPath)?.isFile)
+							return new Response(Deno.readTextFileSync(inlinksPath), { headers: headers });
+					}
+
+					return new Response('[]', { headers: headers });
 				}
 			}
 
-			return new Response(JSON.stringify(json), { headers: headers });
+			throw new NotFoundError();
 		}
 		case 'about': {
 			return new Response(templates.compat.about.main, { headers: headers });
