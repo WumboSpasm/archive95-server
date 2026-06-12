@@ -976,7 +976,7 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 
 	if (lowestTimeDistIndex > -1) {
 		// An archive was found, so return its source and URL
-		const nearestMatch = compareEntries[lowestTimeDistIndex];
+		const nearestMatch = compareEntriesPure[lowestTimeDistIndex];
 		return [nearestMatch.source, nearestMatch.url, nearestMatch.offset];
 	}
 	else
