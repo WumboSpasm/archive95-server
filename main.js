@@ -284,6 +284,7 @@ function serverHandler(request, info) {
 					});
 				}
 
+				// Build download links to the file being embedded
 				const downloadsArr = [];
 				if (archiveInfo.types.length > 1 && !flagIds.includes('p')) {
 					const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'np'))}/${archiveInfo.url}`;
@@ -295,7 +296,7 @@ function serverHandler(request, info) {
 				else
 					downloadsArr.push(`<a href="${fileUrl}">Download</a>`);
 
-				// We don't need to do any fancy injection here
+				// We don't need to do any fancy navbar injection here
 				const navbar = buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode);
 				const html = buildHtml(templates.compat.embed.main, {
 					'URL': sanitizeInject(decodeURI(archiveInfo.url)),
