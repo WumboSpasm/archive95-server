@@ -299,7 +299,7 @@ function serverHandler(request, info) {
 				// We don't need to do any fancy navbar injection here
 				const navbar = buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode);
 				const html = buildHtml(templates.compat.embed.main, {
-					'URL': sanitizeInject(decodeURI(archiveInfo.url)),
+					'URL': (isOrphan ? archiveInfo.source + '/' : '') + sanitizeInject(decodeURI(archiveInfo.url)),
 					'STYLE': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
 					'COMPATNAVBAR': !modernMode ? navbar : '',
 					'EMBED': { value: embed, indent: indent },
