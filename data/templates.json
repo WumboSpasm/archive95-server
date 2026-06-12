@@ -18,8 +18,7 @@
 			"text",
 			"image",
 			"audio",
-			"video",
-			"unsupported"
+			"video"
 		],
 		"browse": [],
 		"inlinks": [

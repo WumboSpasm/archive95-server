@@ -260,6 +260,7 @@ function serverHandler(request, info) {
 			}
 			else if (!flagIds.includes('n')) {
 				// Embed non-HTML files using the most appropriate template if the navbar is enabled
+				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'n'))}/${archiveInfo.url}`;
 				let embed, indent = 'all';
 				if (utils.isTextType(fileType)) {
 					embed = buildHtml(templates.compat.embed.text, {
@@ -275,21 +276,33 @@ function serverHandler(request, info) {
 					else if (fileType.startsWith('video/'))
 						embed = templates.compat.embed.video;
 					else
-						embed = templates.compat.embed.unsupported;
+						embed = 'This file cannot be embedded.';
 
 					embed = buildHtml(embed, {
-						'FILE': `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'n'))}/${archiveInfo.url}`,
+						'FILE': fileUrl,
 						'TYPE': fileType,
 					});
 				}
 
+				const downloadsArr = [];
+				if (archiveInfo.types.length > 1 && !flagIds.includes('p')) {
+					const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'np'))}/${archiveInfo.url}`;
+					downloadsArr.push(
+						`<a href="${originalFileUrl}">Download (original)</a>`,
+						`<a href="${fileUrl}">Download (converted)</a>`,
+					);
+				}
+				else
+					downloadsArr.push(`<a href="${fileUrl}">Download</a>`);
+
 				// We don't need to do any fancy injection here
 				const navbar = buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode);
 				const html = buildHtml(templates.compat.embed.main, {
-					'URL': decodeURI(archiveInfo.url),
+					'URL': sanitizeInject(decodeURI(archiveInfo.url)),
 					'STYLE': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
 					'COMPATNAVBAR': !modernMode ? navbar : '',
 					'EMBED': { value: embed, indent: indent },
+					'DOWNLOADS': downloadsArr.join(' - '),
 					'MODERNNAVBAR': modernMode ? navbar : '',
 				});
 
@@ -1081,6 +1094,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		messages.push('(possibly inaccurate URL)');
 	if (archiveInfo.error)
 		messages.push('(error page)');
+	if (archiveInfo.types[0] != 'text/html')
+		messages.push('(embed)');
 
 	const splitUrl = utils.splitUrl(archiveInfo.url ?? archiveInfo.path, isOrphan ? archiveInfo.source : null);
 	if (splitUrl.length > 1 && (archiveInfo.types[0] != 'text/html' || splitUrl[splitUrl.length - 1].includes('.')))
@@ -1090,7 +1105,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	if (modernMode) {
 		const navbarDefs = {
 			'URL': displayUrl,
-			'MESSAGE': messages.length > 0 ? `<div class="navbar-message">${messages.join(' ')}</div>` : '',
+			'MESSAGE': messages.map(message => `<div class="navbar-message">${message}</div>`).join('\n'),
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
@@ -1146,7 +1161,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'URL': displayUrl,
 			'SOURCE': source.title,
 			'DATE': archiveInfo.date || source.archiveDate,
-			'MESSAGE': messages.length > 0 ? messages.join(' ') : '',
+			'MESSAGE': messages.join(' '),
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
