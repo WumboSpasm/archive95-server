@@ -1097,9 +1097,11 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	if (archiveInfo.types[0] != 'text/html')
 		messages.push('(embed)');
 
-	const splitUrl = utils.splitUrl(archiveInfo.url ?? archiveInfo.path, isOrphan ? archiveInfo.source : null);
+	const splitUrl = utils.splitUrl(archiveInfo.url, isOrphan ? archiveInfo.source : null);
 	if (splitUrl.length > 1 && (archiveInfo.types[0] != 'text/html' || splitUrl[splitUrl.length - 1].includes('.')))
 		splitUrl.pop();
+	if (isOrphan)
+		splitUrl.shift();
 
 	let navbar = '';
 	if (modernMode) {
