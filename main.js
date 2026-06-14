@@ -767,6 +767,7 @@ async function serverShutdown() {
 	Deno.exit();
 }
 Deno.addSignalListener('SIGINT', serverShutdown);
+Deno.addSignalListener('SIGTERM', serverShutdown);
 
 // Search the database based on a set of query string parameters and return the results
 function performSearch(params) {
