@@ -1468,7 +1468,7 @@ function buildSourcesPage() {
 			'AUTHOR': source.author,
 			'ARCHIVEDATE': stats[sourceId].from != stats[sourceId].to ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
 			'PUBLISHDATE': source.publishDate,
-			'LINKS': source.links.map(link => buildHtml(templates.compat.sources.link, { 'LINK': link })),
+			'LINKS': source.links.map(link => buildHtml(templates.compat.sources.link, { 'LINK': link })).join('\n'),
 			'DESCRIPTION': source.description,
 			'INTEGRITY': source.integrity,
 			'REMEDIATIONS': source.remediations,
