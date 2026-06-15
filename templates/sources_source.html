@@ -1,11 +1,11 @@
 <h2 id="{ID}">{TITLE}<img src="/images/sources/{ID}.gif" align="right"></h2>
-<p>
-	<b>Author:</b> {AUTHOR}<br>
-	<b>Archive Date:</b> {ARCHIVEDATE}<br>
-	<b>Publish Date:</b> {PUBLISHDATE}<br>
-	<b>Link:</b> <a href="{LINK}" target="_blank">{LINK}</a><br>
-	<b>ID:</b> {ID}
-</p>
+<dl>
+	<dt><b>Author:</b> {AUTHOR}</dt>
+	<dt><b>Archive Date:</b> {ARCHIVEDATE}</dt>
+	<dt><b>Publish Date:</b> {PUBLISHDATE}</dt>
+	<dt><b>Link(s):</b></dt>
+	{LINKS}
+</dl>
 <dl>
 	<dt><b>Description:</b></dt>
 	<dd>{DESCRIPTION}</dd>
@@ -14,6 +14,11 @@
 	<dt><b>Remediations:</b></dt>
 	<dd>{REMEDIATIONS}</dd>
 </dl>
-<b>Statistics:</b>
+<dl>
+	<dt><b>Statistics:</b></dt>
+</dl>
 {STATS}
+<dl>
+	<dt><b>ID:</b> <a href="#{ID}">{ID}</a></dt>
+</dl>
 <hr>
