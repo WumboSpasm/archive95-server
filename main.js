@@ -1466,7 +1466,7 @@ function buildSourcesPage() {
 			'ID': sourceId,
 			'TITLE': source.title,
 			'AUTHOR': source.author,
-			'ARCHIVEDATE': source.useTimestamps ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
+			'ARCHIVEDATE': stats[sourceId].from != stats[sourceId].to ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
 			'PUBLISHDATE': source.publishDate,
 			'LINKS': source.links.map(link => buildHtml(templates.compat.sources.link, { 'LINK': link })),
 			'DESCRIPTION': source.description,

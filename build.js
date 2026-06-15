@@ -314,14 +314,10 @@ function buildIndexes() {
 
 		const entries = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'archives', sourceId + '.json')));
 		for (const entry of entries) {
-			// Get the file's date and query its timestamp if the source permits it
-			let date = sources[sourceId].archiveDate;
-			if (!entry.skip && sources[sourceId].useTimestamps) {
-				const fileInfo = utils.getPathInfo(pathUtils.join(config.inputPath, 'archives', sourceId, entry.path));
-				const year = fileInfo.mtime.getFullYear();
-				if (year > 1990 && year < 2010)
-					date = fileInfo.mtime.toISOString().substring(0, 10);
-			}
+			// Get the entry's archival date
+			const date = entry.archived !== null
+				? new Date(entry.archived).toISOString().substring(0, 10)
+				: sources[sourceId].archiveDate;
 
 			// Get sanitized URL and add entry to URL index
 			let sanitizedUrl = null;
@@ -527,15 +523,13 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 	if (archive.url === null)
 		archive.url = archive.path;
 
-	// Update date range stats if applicable
-	if (sources[archive.source].useTimestamps) {
-		const sourceStats = stats[archive.source];
-		const time = utils.dateStringToNum(archive.date);
-		if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
-			sourceStats.from = archive.date;
-		if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
-			sourceStats.to = archive.date;
-	}
+	// Update date range stats
+	const sourceStats = stats[archive.source];
+	const time = utils.dateStringToNum(archive.date);
+	if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
+		sourceStats.from = archive.date;
+	if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
+		sourceStats.to = archive.date;
 }
 
 // Extract links from HTML, resolve them, and use to build injection list
