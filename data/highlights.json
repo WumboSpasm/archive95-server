@@ -180,13 +180,17 @@
 			"source": "netcontrol96",
 			"url": "http://www.nytimes.com/"
 		},
+		"NPR": {
+			"source": "pcpress",
+			"url": "http://www.npr.org/"
+		},
 		"The Telegraph": {
 			"source": "riscdisc",
 			"url": "http://www.telegraph.co.uk/home.html"
 		},
-		"NPR": {
-			"source": "pcpress",
-			"url": "http://www.npr.org/"
+		"ESPN": {
+			"source": "atlas",
+			"url": "http://espnet.sportszone.com/"
 		}
 	},
 	"Shopping": {
