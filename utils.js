@@ -126,5 +126,6 @@ export function mountVhd(vhdPath, mountPath, readOnly = false) {
 
 // Unmount a filesystem image
 export function unmountVhd(mountPath) {
-	return Deno.spawnAndWaitSync('guestunmount', [mountPath]).success;
+	try { return Deno.spawnAndWaitSync('guestunmount', [mountPath]).success; }
+	catch { return false; }
 }
