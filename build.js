@@ -1054,6 +1054,20 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 			html = html.replace(/^<base href=".*?">\n/, '');
 			break;
 		}
+		case 'chipnet': {
+			html = html
+				// Remove added empty comments
+				.replaceAll('<!-- -->', '')
+				// Remove broken containing directories from links
+				.replace(linkExp, (_, tagStart, url) => {
+					url = trimQuotes(url);
+					const dirMatch = url.match(/\/[a-z]+:/i);
+					if (dirMatch !== null)
+						url = url.substring(dirMatch.index + 1);
+					return tagStart + '"' + url.replace(/~.+?\/~/, '~') + '"';
+				});
+			break;
+		}
 		case 'pcpress': {
 			// Attempt to fix broken external links
 			const links = getLinks(html, baseUrl)
