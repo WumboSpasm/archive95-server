@@ -46,6 +46,10 @@
 			"source": "pcpress",
 			"url": "http://www.adobe.com/"
 		},
+		"Macromedia": {
+			"source": "chipnet",
+			"url": "http://www.macromedia.com/index.hi.html"
+		},
 		"Java": {
 			"source": "pcpress",
 			"url": "http://www.javasoft.com/"
@@ -61,10 +65,6 @@
 		"RealAudio": {
 			"source": "einblicke",
 			"url": "http://www.realaudio.com/"
-		},
-		"Shockwave": {
-			"source": "roteiro",
-			"url": "http://www.macromedia.com:80/Tools/Shockwave/sdc/Plugin/index.htm"
 		}
 	},
 	"Directories": {
@@ -99,16 +99,16 @@
 	},
 	"Internet": {
 		"W3 Homepage": {
-			"source": "wwwdir",
-			"url": "http://info.cern.ch/hypertext/WWW/TheProject"
+			"source": "atlas",
+			"url": "http://info.cern.ch/"
 		},
 		"GeoCities": {
 			"source": "roteiro",
 			"url": "http://www.geocities.com:80/"
 		},
 		"America Online": {
-			"source": "roteiro",
-			"url": "http://www.aol.com:80/"
+			"source": "chipnet",
+			"url": "http://www.aol.com/"
 		},
 		"EFF": {
 			"source": "roteiro",
