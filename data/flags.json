@@ -15,21 +15,21 @@
 	},
 	{
 		"id": "d",
-		"description": "Render pages inside of an iframe",
-		"invert": true,
+		"description": "Render page content inline",
+		"invert": false,
 		"hidden": false,
 		"modern": true
 	},
 	{
 		"id": "i",
-		"description": "Render pages as iframe content",
+		"description": "Render iframe-ready page content",
 		"invert": true,
 		"hidden": true,
 		"modern": false
 	},
 	{
 		"id": "f",
-		"description": "Force frameless version of pages",
+		"description": "Render page content without frames",
 		"invert": false,
 		"hidden": false,
 		"modern": false

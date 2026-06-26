@@ -24,10 +24,21 @@ If building with the `--vhd` flag:
 ## Instructions
 1. Clone the repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
 2. Download the latest revision of the dataset from [here](https://archive.org/details/archive95-dataset) and extract into the `data` folder
-3. Build the filesystem and search database with `deno run -A build.js`
+3. Install package dependencies with `deno install`
+4. Build the filesystem and search database with `deno task build`
    - Note that this will take a long time (>2 hours on a relatively beefy machine) although subsequent builds should be much faster (~20 minutes on the same machine)
    - Also note that this will create millions of inodes. You can relegate them to a virtual hard disk using the `--vhd` flag (note that this will take an even longer time)
-4. Run the server with `deno run -A main.js`
+5. Run the server with `deno task start`
+
+## Command-Line Flags
+
+### General
+- `--config=<path>` - Load a config file at the specified path
+   - Default is `config.json` in the repository root, or `data/config_template.json` if it does not exist
+
+### Build Only
+- `--clean` - Perform a clean build
+- `--vhd` - Use a virtual hard disk to store build files
 
 ## Endpoints
 - `view`: View archived file
@@ -38,16 +49,41 @@ If building with the `--vhd` flag:
 - `screenshot`: View archived screenshot
 - `thumbnail`: View archived screenshot at a small resolution
 - `random`: Redirect to a random archived file
-- `api`: Get information about archived files in JSON format
+- `api`: Get information about the archive in JSON format
+   - See the "API Endpoints" section for more information
 - `about`: Learn about Archive95
 - `sources`: View information about sources
 
 ## Flags
 - `n`: Hide navigation bar
 - `p`: Disable presentation improvements
+- `d`: Render page content inline
+- `i`: Render iframe-ready page content (overrides `d` flag)
 - `f`: Force frameless version of pages
 - `w`: Don't point unarchived URLs to Wayback Machine
 - `e`: Point all URLs to live internet (overrides `w` flag)
 - `r`: Display error pages in navigation bar
 - `m`: Random button includes non-HTML files
 - `o`: Random button excludes orphans
+
+## API Endpoints
+- `api/search` - Return search results
+   - `query` (required) - A search query
+   - `source` - A source ID by which to filter results
+   - `in` - A field by which to filter results; possible values are `title`, `content`, and `url`
+      - This parameter can be defined multiple times with different values
+   - `formats` - A file format group by which to filter results; possible values are `all`, `text`, and `media`
+- `api/archives` - Return all archives belonging to a URL
+   - `url` (required) - A URL or orphan file path
+   - `source` - If `url` is an orphan file path, then this is the source ID that it belongs to
+- `api/get` - Return detailed information about an archive
+   - `url` (required) - The archive's URL or orphan file path
+   - `source` - The archive's source ID; required if the archive is an orphan
+   - `offset` - If there are multiple archives with the same `url` and `source` value, then this is a number denoting the archive's offset
+   - `p` - If this has a value of `true`, then the returned search/inject info reflects the presentation improvements flag
+- `api/browse` - Return contents of a directory
+   - `url` (required) - A URL or orphan path denoting a directory
+   - `source` - If `url` is an orphan path, then this is the source ID that it belongs to
+- `api/inlinks` - Return all archives which link to a URL
+   - `url` (required) - A URL or orphan file path
+   - `source` - If `url` is an orphan file path, then this is the source ID that it belongs to
