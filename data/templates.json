@@ -16,6 +16,7 @@
 			"screenshot"
 		],
 		"embed": [
+			"frame",
 			"text",
 			"image",
 			"audio",

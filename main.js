@@ -173,26 +173,28 @@ function serverHandler(request, info) {
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
-			if (fileType == 'text/html') {
-				// For HTML files, we build a list of slices from the injection list to pass to replaceSlices
+			if (fileType == 'text/html' && (!modernMode || /[ndi]/.test(flagIds))) {
+				// For HTML files, we build a list of slices from the injection list and pass it to replaceSlices
 				const inject = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
 				const framesetInject = inject.frames.find(frameInject => frameInject.type == 'frameset');
-				const doNavbar = !flagIds.includes('n') && (framesetInject === undefined || flagIds.includes('f'));
+				const doNavbar = !flagIds.includes('n') && !flagIds.includes('i') && (framesetInject === undefined || flagIds.includes('f'));
 				const slices = [];
 
-				// Build stylesheet slices
-				const styles = [];
+				// Build metadata slices
+				const metadata = [];
+				if (flagIds.includes('i'))
+					metadata.push('<base target="_parent">');
 				if (modernMode) {
 					if (doNavbar)
-						styles.push('<link rel="stylesheet" href="/styles/navbar.css">');
+						metadata.push('<link rel="stylesheet" href="/styles/navbar.css">');
 					if (!flagIds.includes('p'))
-						styles.push('<link rel="stylesheet" href="/styles/presentation.css">');
+						metadata.push('<link rel="stylesheet" href="/styles/presentation.css">');
 				}
-				if (styles.length > 0)
+				if (metadata.length > 0)
 					slices.push({
-						start: inject.styles.index,
+						start: inject.metadata.index,
 						end: null,
-						value: styles.join('\n'),
+						value: metadata.join('\n'),
 					});
 
 				// Build navbar slice
@@ -225,6 +227,7 @@ function serverHandler(request, info) {
 				}
 
 				// Build slices for each link on the page
+				flagIds = flagIds.replace(/[di]/g, '');
 				const embedFlagIds = !flagIds.includes('n') ? cleanFlags(flagIds + 'n') : flagIds;
 				for (const linkInject of inject.links) {
 					let sliceValue = linkInject.url;
@@ -259,8 +262,9 @@ function serverHandler(request, info) {
 				return new Response(html, { headers: headers });
 			}
 			else if (!flagIds.includes('n')) {
-				// Embed non-HTML files using the most appropriate template if the navbar is enabled
-				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'n'))}/${archiveInfo.url}`;
+				// Embed files using the most appropriate template if the navbar is enabled
+				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : flagIds.replace('i', '') + 'n');
+				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, fileFlags)}/${archiveInfo.url}`;
 				let embed, indent = 'all';
 				if (utils.isTextType(fileType)) {
 					embed = buildHtml(templates.compat.embed.text, {
@@ -269,7 +273,9 @@ function serverHandler(request, info) {
 					indent = 'first';
 				}
 				else {
-					if (fileType.startsWith('image/'))
+					if (fileType == 'text/html')
+						embed = templates.compat.embed.frame;
+					else if (fileType.startsWith('image/'))
 						embed = templates.compat.embed.image;
 					else if (fileType.startsWith('audio/'))
 						embed = templates.compat.embed.audio;
@@ -286,31 +292,44 @@ function serverHandler(request, info) {
 
 				// Build download links to the file being embedded
 				const downloadsArr = [];
-				if (archiveInfo.types.length > 1 && !flagIds.includes('p')) {
-					const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'np'))}/${archiveInfo.url}`;
-					downloadsArr.push(
-						`<a href="${originalFileUrl}">Download (original)</a>`,
-						`<a href="${fileUrl}">Download (converted)</a>`,
-					);
+				if (fileType != 'text/html') {
+					if (archiveInfo.types.length > 1 && !flagIds.includes('p')) {
+						const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'np'))}/${archiveInfo.url}`;
+						downloadsArr.push(
+							`<a href="${originalFileUrl}">Download (original)</a>`,
+							`<a href="${fileUrl}">Download (converted)</a>`,
+						);
+					}
+					else
+						downloadsArr.push(`<a href="${fileUrl}">Download</a>`);
 				}
-				else
-					downloadsArr.push(`<a href="${fileUrl}">Download</a>`);
 
-				// We don't need to do any fancy navbar injection here
-				const navbar = buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode);
+				// Build page title
+				let title = (isOrphan ? archiveInfo.source + '/' : '') + decodeURI(archiveInfo.url);
+				if (fileType == 'text/html' && utils.getPathInfo(archivePathInfo.searchPath)?.isFile) {
+					const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
+					if (archiveSearchInfo.title)
+						title = archiveSearchInfo.title;
+				}
+
+				// Build navbar
+				const doNavbar = !flagIds.includes('i');
+				const navbar = doNavbar ? buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) : '';
+
+				// We don't need to do any fancy injection here
 				const html = buildHtml(templates.compat.embed.main, {
-					'URL': (isOrphan ? archiveInfo.source + '/' : '') + sanitizeInject(decodeURI(archiveInfo.url)),
-					'STYLE': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
-					'COMPATNAVBAR': !modernMode ? navbar : '',
+					'TITLE': sanitizeInject(title),
+					'METADATA': doNavbar && modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
+					'COMPATNAVBAR': doNavbar && !modernMode ? navbar : '',
 					'EMBED': { value: embed, indent: indent },
-					'DOWNLOADS': downloadsArr.join(' - '),
-					'MODERNNAVBAR': modernMode ? navbar : '',
+					'DOWNLOADS': downloadsArr.length > 0 ? '<hr>\n' + downloadsArr.join(' - ') : '',
+					'MODERNNAVBAR': doNavbar && modernMode ? navbar : '',
 				});
 
 				return new Response(html, { headers: headers });
 			}
 			else {
-				// Plainly serve the file if the navbar is disabled and it's not an HTML file
+				// Serve the unprocessed file if the navbar is disabled
 				headers.set('Content-Type', fileType + (doUnicode && fileType.startsWith('text/') ? ';charset=UTF-8' : ''));
 				return new Response(Deno.openSync(archivePathInfo.filePath).readable, { headers: headers });
 			}
@@ -522,7 +541,7 @@ function serverHandler(request, info) {
 			// The "Apply changes" link simply returns you to the viewer with the flags from the current URL
 			const optionsList = [];
 			for (const flag of flags) {
-				if (flag.hidden)
+				if (flag.hidden || (!modernMode && flag.modern))
 					continue;
 
 				const checked = flagIds.includes(flag.id);
@@ -1128,7 +1147,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	if (modernMode) {
 		const navbarDefs = {
 			'URL': displayUrl,
-			'MESSAGE': messages.map(message => `<div class="navbar-message">${message}</div>`).join('\n'),
+			'MESSAGE': messages.map(message => `<div class="archive95-navbar-message">${message}</div>`).join('\n'),
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
@@ -1146,7 +1165,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
 			archiveButtons.push(buildHtml(templates.modern.navbar.archive, {
-				'ACTIVE': i == archiveInfoIndex ? ' class="navbar-active"' : '',
+				'ACTIVE': i == archiveInfoIndex ? ' class="archive95-navbar-active"' : '',
 				'URL': `/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${url}`,
 				'ICON': `/images/sources/${archiveInfoSet[i].source}.gif`,
 				'SOURCE': sources[archiveInfoSet[i].source].title,

@@ -535,7 +535,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 // Extract links from HTML, resolve them, and use to build injection list
 function buildInject(html, archive, urlIndex, pathIndex) {
 	const inject = {
-		styles: {
+		metadata: {
 			index: -1,
 		},
 		navbar: {
@@ -677,10 +677,10 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 	// Blank commented-out markup so it doesn't get caught by any of the below regex
 	const newHtmlNoComments = newHtml.replace(/<! *-+.*?-+ *>/gs, match => ' '.repeat(match.length));
 
-	// Find index at which stylesheets can be inserted
+	// Find index at which metadata can be inserted
 	const headExp = /<head(?:er)?(?:\s.*?)?>/i;
 	const headMatch = newHtmlNoComments.match(headExp);
-	inject.styles.index = headMatch !== null ? headMatch.index + headMatch[0].length : 0;
+	inject.metadata.index = headMatch !== null ? headMatch.index + headMatch[0].length : 0;
 
 	// Find index at which the navbar can be inserted
 	const bodyExp = /^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:\s.*?)?>(?:(?!<(?!title|meta|link|\/)).)*?<\/head|title(?:\s.*?)?>.*?<\/title|body(?:\s.*?)?)>\s*)+)?/is;

@@ -3,48 +3,70 @@
 		"id": "n",
 		"description": "Show navigation bar",
 		"invert": true,
-		"hidden": false
+		"hidden": false,
+		"modern": false
 	},
 	{
 		"id": "p",
 		"description": "Improve presentation across browsers",
 		"invert": true,
-		"hidden": false
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "d",
+		"description": "Render pages inside of an iframe",
+		"invert": true,
+		"hidden": false,
+		"modern": true
+	},
+	{
+		"id": "i",
+		"description": "Render pages as iframe content",
+		"invert": true,
+		"hidden": true,
+		"modern": false
 	},
 	{
 		"id": "f",
 		"description": "Force frameless version of pages",
 		"invert": false,
-		"hidden": false
+		"hidden": false,
+		"modern": false
 	},
 	{
 		"id": "w",
 		"description": "Point unarchived URLs to Wayback Machine",
 		"invert": true,
-		"hidden": false
+		"hidden": false,
+		"modern": false
 	},
 	{
 		"id": "e",
 		"description": "Point all URLs to live internet",
 		"invert": false,
-		"hidden": true
+		"hidden": true,
+		"modern": false
 	},
 	{
 		"id": "r",
 		"description": "Exclude error pages from navigation bar",
 		"invert": true,
-		"hidden": false
+		"hidden": false,
+		"modern": false
 	},
 	{
 		"id": "m",
 		"description": "Random button includes non-HTML files",
 		"invert": false,
-		"hidden": false
+		"hidden": false,
+		"modern": false
 	},
 	{
 		"id": "o",
 		"description": "Random button includes orphan files",
 		"invert": true,
-		"hidden": false
+		"hidden": false,
+		"modern": false
 	}
 ]
