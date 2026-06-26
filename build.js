@@ -743,9 +743,34 @@ function buildSearch(text, type) {
 	};
 
 	if (type == 'text/html') {
-		const titleMatch = [...text.matchAll(/<title>((?:(?!<\/title>).)*?)<\/title>/gis)];
-		if (titleMatch.length > 0)
-			search.title = titleMatch[titleMatch.length - 1][1].replace(/<.*?>/gs, ' ');
+		const titleMatches = [...text.matchAll(/<title>((?:(?!<\/title>).)*?)<\/title>/gis)];
+		if (titleMatches.length > 0) {
+			if (titleMatches.length > 1) {
+				// If there are multiple title elements, use the last one only if there aren't multiple instances of opening container tags
+				// This is to prevent obviously incorrect titles on pages like the W3 server list from being used
+				const containMatches = [...text.matchAll(/<(html|head|body)[\s>]/gis)];
+				const doneTags = [];
+				let useLastTitle = true;
+				for (const containMatch of containMatches) {
+					if (doneTags.includes(containMatch[1]))
+						continue;
+
+					const tagInstances = containMatches.filter(filterMatch => containMatch[1] == filterMatch[1]).length;
+					if (tagInstances > 1) {
+						useLastTitle = false;
+						break;
+					}
+
+					doneTags.push(containMatch[1]);
+				}
+
+				search.title = titleMatches[useLastTitle ? titleMatches.length - 1 : 0][1];
+			}
+			else
+				search.title = titleMatches[0][1];
+
+			search.title = search.title.replace(/<.*?>/gs, ' ');
+		}
 
 		search.content = blankHtml(text);
 	}
