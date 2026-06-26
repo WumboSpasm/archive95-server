@@ -548,7 +548,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 
 	let offset = 0;
 	const source = sources[archive.source];
-	const excludeIndexes = [...blankHtml(html).matchAll(linkExp)].map(linkMatch => linkMatch.index);
+	const excludeIndexes = [...blankHtml(html, true).matchAll(linkExp)].map(linkMatch => linkMatch.index);
 	const newHtml = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '').replace(linkExp, (match, tagStart, url, index) => {
 		// Don't process link attributes that are probably intended to be rendered as plaintext
 		if (excludeIndexes.includes(index))
@@ -1668,12 +1668,27 @@ function inputAndExecute(input, app, args = undefined) {
 }
 
 // Replace all tags in an HTML document with whitespace
-function blankHtml(html) {
-	return html.replace(
+function blankHtml(html, excludeScripts = false) {
+	const scriptSlices = [];
+	if (excludeScripts) {
+		html = html.replace(/(?<=<script(?: [^>]*)?>).*?(?=<\/script>)/gis, (match, index) => {
+			scriptSlices.push({
+				start: index,
+				end: index + match.length,
+				value: match,
+			});
+
+			return ' '.repeat(match.length);
+		});
+	}
+	else
+		html = html.replace(
+			/<script(?: [^>]*)?>.*?<\/script>/gis,
+			match => ' '.repeat(match.length),
+		);
+
+	html = html.replace(
 		/<title>.*?<\/title>/gis,
-		match => ' '.repeat(match.length),
-	).replace(
-		/<script(?: [^>]*)?>.*?<\/script>/gis,
 		match => ' '.repeat(match.length),
 	).replace(
 		/(<[^>]+alt *= *")(.*?)(".*?>)/gis,
@@ -1691,6 +1706,11 @@ function blankHtml(html) {
 		/\s+/gs,
 		match => ' '.repeat(match.length),
 	);
+
+	if (scriptSlices.length > 0)
+		html = utils.replaceSlices(html, scriptSlices);
+
+	return html;
 }
 
 // Remove any quotes or whitespace surrounding a string

@@ -79,6 +79,24 @@ export function safeDecode(str) {
 	return decodedStr;
 }
 
+// Efficiently replace slices of a string with different values
+export function replaceSlices(str, slices) {
+	let offset = 0;
+	let newStr = '';
+	for (const slice of slices.toSorted((a, b) => a.start - b.start)) {
+		// This segment was consumed by a previous replacement, so skip it
+		if (offset > slice.start)
+			continue;
+
+		newStr += str.substring(0, slice.start - offset) + slice.value;
+		const newOffset = Math.max(slice.start, slice.end);
+		str = str.substring(newOffset - offset);
+		offset = newOffset;
+	}
+
+	return newStr + str;
+}
+
 // Convert a date string into a number for quick comparisons
 export function dateStringToNum(dateStr) {
 	const cleanDateStr = dateStr.replace(/[^\d]/g, '');

@@ -258,7 +258,7 @@ function serverHandler(request, info) {
 				}
 
 				// Apply our built slices to the HTML and serve it
-				const html = replaceSlices(Deno.readTextFileSync(archivePathInfo.filePath), slices);
+				const html = utils.replaceSlices(Deno.readTextFileSync(archivePathInfo.filePath), slices);
 				return new Response(html, { headers: headers });
 			}
 			else if (!flagIds.includes('n')) {
@@ -1303,25 +1303,7 @@ function buildHtml(template, defs) {
 		});
 	}
 
-	return replaceSlices(template, varSlices);
-}
-
-// Efficiently replace slices of a string with different values
-function replaceSlices(str, slices) {
-	let offset = 0;
-	let newStr = '';
-	for (const slice of slices.toSorted((a, b) => a.start - b.start)) {
-		// This segment was consumed by a previous replacement, so skip it
-		if (offset > slice.start)
-			continue;
-
-		newStr += str.substring(0, slice.start - offset) + slice.value;
-		const newOffset = Math.max(slice.start, slice.end);
-		str = str.substring(newOffset - offset);
-		offset = newOffset;
-	}
-
-	return newStr + str;
+	return utils.replaceSlices(template, varSlices);
 }
 
 // Check if the user agent suggests a somewhat recent (ie. >2019) browser
