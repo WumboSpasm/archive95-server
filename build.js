@@ -1,6 +1,6 @@
-import { Database } from 'jsr:@db/sqlite@0.13';
-import { parseArgs } from 'jsr:@std/cli/parse-args';
-import * as pathUtils from 'jsr:@std/path';
+import { Database } from '@db/sqlite';
+import { parseArgs } from '@std/cli/parse-args';
+import * as pathUtils from '@std/path';
 
 import * as utils from './utils.js';
 

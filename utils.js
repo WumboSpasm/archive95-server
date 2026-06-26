@@ -1,4 +1,4 @@
-import * as pathUtils from 'jsr:@std/path';
+import * as pathUtils from '@std/path';
 
 const textTypes = JSON.parse(Deno.readTextFileSync('data/texttypes.json'));
 

@@ -1,0 +1,37 @@
+{
+	"tasks": {
+		"start": "deno run --permission-set=server main.js",
+		"build": "deno run --permission-set=build build.js"
+	},
+	"imports": {
+		"@std/media-types": "jsr:@std/media-types@1.1.0",
+		"@db/sqlite": "jsr:@db/sqlite@0.13.0",
+		"@std/cli/parse-args": "jsr:@std/cli@1.0.30/parse-args",
+		"@std/path": "jsr:@std/path@1.1.5"
+	},
+	"permissions": {
+		"server": {
+			"read": true,
+			"net": true,
+			"env": true,
+			"ffi": true
+		},
+		"build": {
+			"read": true,
+			"write": true,
+			"env": true,
+			"run": [
+				"mimetype",
+				"uchardet",
+				"iconv",
+				"convert",
+				"ffmpeg",
+				"qemu-img",
+				"virt-format",
+				"guestmount",
+				"guestunmount"
+			],
+			"ffi": true
+		}
+	}
+}
