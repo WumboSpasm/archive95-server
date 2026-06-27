@@ -1,0 +1,30 @@
+body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.archive95-embed {
+	overflow: auto;
+	flex-grow: 1;
+}
+.archive95-embed:not([data-type='text/html']) {
+	padding: 8px;
+}
+.archive95-embed > iframe {
+	width: 100%;
+	height: 100%;
+
+	border: 0;
+}
+.archive95-embed > pre {
+	margin: 0;
+}
+
+.archive95-navbar {
+	flex-shrink: 0;
+}

@@ -186,7 +186,10 @@ function serverHandler(request, info) {
 					metadata.push('<base target="_parent">');
 				if (modernMode) {
 					if (doNavbar)
-						metadata.push('<link rel="stylesheet" href="/styles/navbar.css">');
+						metadata.push(
+							'<link rel="stylesheet" href="/styles/floating.css">',
+							'<link rel="stylesheet" href="/styles/navbar.css">',
+						);
 					if (!flagIds.includes('p'))
 						metadata.push('<link rel="stylesheet" href="/styles/presentation.css">');
 				}
@@ -263,7 +266,7 @@ function serverHandler(request, info) {
 			}
 			else if (!flagIds.includes('n')) {
 				// Embed files using the most appropriate template if the navbar is enabled
-				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : flagIds.replace('i', '') + 'n');
+				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : 'n');
 				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, fileFlags)}/${archiveInfo.url}`;
 				let embed, indent = 'all';
 				if (utils.isTextType(fileType)) {
@@ -294,7 +297,7 @@ function serverHandler(request, info) {
 				const downloadsArr = [];
 				if (fileType != 'text/html') {
 					if (archiveInfo.types.length > 1 && !flagIds.includes('p')) {
-						const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, cleanFlags(flagIds + 'np'))}/${archiveInfo.url}`;
+						const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, 'np')}/${archiveInfo.url}`;
 						downloadsArr.push(
 							`<a href="${originalFileUrl}">Download (original)</a>`,
 							`<a href="${fileUrl}">Download (converted)</a>`,
@@ -317,13 +320,13 @@ function serverHandler(request, info) {
 				const navbar = doNavbar ? buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) : '';
 
 				// We don't need to do any fancy injection here
-				const html = buildHtml(templates.compat.embed.main, {
+				const html = buildHtml(templates[modernMode ? 'modern' : 'compat'].embed.main, {
 					'TITLE': sanitizeInject(title),
 					'METADATA': doNavbar && modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
-					'COMPATNAVBAR': doNavbar && !modernMode ? navbar : '',
+					'TYPE': fileType,
 					'EMBED': { value: embed, indent: indent },
 					'DOWNLOADS': downloadsArr.length > 0 ? '<hr>\n' + downloadsArr.join(' - ') : '',
-					'MODERNNAVBAR': doNavbar && modernMode ? navbar : '',
+					'NAVBAR': doNavbar ? navbar : '',
 				});
 
 				return new Response(html, { headers: headers });

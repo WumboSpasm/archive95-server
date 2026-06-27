@@ -1,25 +1,16 @@
 .archive95-navbar {
 	width: 100%;
+	min-height: 120px;
 	text-align: left;
 	box-sizing: border-box;
-	z-index: 99;
-	position: fixed;
-	bottom: 0;
-	left: 0;
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
 
+	color: black;
 	font-family: 'Times New Roman', Times, serif;
 	background-color: white;
 	border-top: 1px solid black;
-}
-/* Manually define default style with high specificity to prevent page styling from overriding it */
-.archive95-navbar * {
-	color: black;
-	font-size: initial;
-	font-weight: normal;
-	font-style: normal;
 }
 .archive95-navbar a:link {
 	color: blue;
@@ -88,23 +79,4 @@
 }
 .archive95-navbar-extras a {
 	align-items: center;
-}
-
-.archive95-frame {
-	width: 100%;
-	height: calc(100% - 120px);
-	position: absolute;
-	top: 0;
-	left: 0;
-
-	border: 0;
-}
-
-/* Insert spacer underneath document so navbar doesn't obscure text */
-:root::after {
-	height: 120px;
-	clear: both;
-	display: block;
-
-	content: '';
 }
