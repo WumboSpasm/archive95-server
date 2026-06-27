@@ -57,6 +57,10 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		? JSON.parse(Deno.readTextFileSync(typeIndexPath))
 		: {};
 
+	// Initialize indexes of build JSONs to be sorted later
+	const inlinksIndex = [];
+	const browseIndex = [];
+
 	// Create the build and temporary directories
 	Deno.mkdirSync(tempBuildMountPath, { recursive: true });
 
@@ -129,6 +133,9 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		if (archives.length == 0)
 			continue;
 
+		// Sort archives by date
+		archives.sort((a, b) => utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date));
+
 		// Create the containing directory for the current URL
 		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'urls', tempBuildMountPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
@@ -143,7 +150,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedUrl}...`);
-			await buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement);
+			await buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement);
 
 			// Increment URL totals
 			if (!archive.error) {
@@ -188,7 +195,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedPath}...`);
-			await buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement);
+			await buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement);
 
 			// Increment orphan totals
 			if (!archive.error) {
@@ -240,6 +247,34 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		// Save screenshot info to file
 		const screenshotsPath = pathUtils.join(urlDir, 'screenshots.json');
 		Deno.writeTextFileSync(screenshotsPath, JSON.stringify(screenshots, null, '\t'));
+	}
+
+	// Sort inlinks.json files
+	utils.logMessage('sorting inlinks...');
+	for (const inlinksPath of inlinksIndex) {
+		const inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
+		if (inlinks.length > 1) {
+			inlinks.sort((a, b) => {
+				const httpExp = /^https?:/i;
+				const aIsUrl = httpExp.test(a.url);
+				const bIsUrl = httpExp.test(b.url);
+				return aIsUrl == bIsUrl
+					? a.url.localeCompare(b.url, 'en', { sensitivity: 'base' })
+					: (aIsUrl ? -1 : 1);
+			});
+			Deno.writeTextFileSync(inlinksPath, JSON.stringify(inlinks, null, '\t'));
+		}
+	}
+
+	// Sort browse.json files
+	utils.logMessage('sorting directory browser entries...');
+	for (const browsePath of browseIndex) {
+		const browse = JSON.parse(Deno.readTextFileSync(browsePath));
+		if (browse.files.length > 1 || browse.dirs.length > 1) {
+			browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+			browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+			Deno.writeTextFileSync(browsePath, JSON.stringify(browse, null, '\t'));
+		}
 	}
 
 	// Unmount the temporary VHD since we don't need to add to it anymore
@@ -384,7 +419,7 @@ function buildIndexes() {
 }
 
 // Parse an entry's file data, then add to database and file tree
-async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targetDir, insertStatement) {
+async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement) {
 	const [file, type, changed] = await getFile(archive, typeIndex);
 	archive.size = file.byteLength;
 	archive.types.push(type);
@@ -411,10 +446,10 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 			const [newHtml_p, inject_p, inlinksDirs_p] = buildInject(html_p, archive, urlIndex, pathIndex);
 			Deno.writeTextFileSync(targetPath + '_p', newHtml_p);
 			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(inject_p, null, '\t'));
-			buildInlinks(archive, inlinksDirs_p);
+			buildInlinks(archive, inlinksDirs_p, inlinksIndex);
 		}
 		else
-			buildInlinks(archive, inlinksDirs);
+			buildInlinks(archive, inlinksDirs, inlinksIndex);
 
 		// Build title/content text
 		search = buildSearch(html_p, archive.types[0]);
@@ -505,7 +540,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, stats, targ
 
 	if (!archive.error) {
 		// Build directory browser indexes
-		buildBrowse(archive);
+		buildBrowse(archive, browseIndex);
 
 		// Add archive to database
 		insertStatement.run(
@@ -710,7 +745,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 }
 
 // Add the archive as an inlink at the supplied locations
-function buildInlinks(archive, inlinksDirs) {
+function buildInlinks(archive, inlinksDirs, inlinksIndex) {
 	const inlinkEntry = {
 		source: archive.source,
 		url: archive.url ?? archive.path,
@@ -721,15 +756,16 @@ function buildInlinks(archive, inlinksDirs) {
 
 		// Load inlinks list if it exists, otherwise prepare directory to write it into
 		const inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-		if (!utils.getPathInfo(inlinksPath)?.isFile)
+		if (!utils.getPathInfo(inlinksPath)?.isFile) {
 			Deno.mkdirSync(inlinksDir, { recursive: true });
+			inlinksIndex.push(inlinksPath);
+		}
 		else
 			inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
 
 		// Add to inlinks list if not a duplicate
 		if (!inlinks.some(inlinkEntry2 => inlinkEntry.source == inlinkEntry2.source && inlinkEntry.url == inlinkEntry2.url)) {
 			inlinks.push(inlinkEntry);
-			inlinks.sort((a, b) => a.url.localeCompare(b.url, 'en', { sensitivity: 'base' }));
 			Deno.writeTextFileSync(inlinksPath, JSON.stringify(inlinks, null, '\t'));
 		}
 	}
@@ -795,7 +831,7 @@ function buildSearch(text, type) {
 }
 
 // Build file/directory listings all the way up to the domain root directory
-function buildBrowse(archive) {
+function buildBrowse(archive, browseIndex) {
 	// Return whichever string contains more granular usage of uppercase letters
 	const getBetterString = (str1, str2) => {
 		// If the strings are identical, then return immediately
@@ -856,12 +892,14 @@ function buildBrowse(archive) {
 			let browse;
 			if (utils.getPathInfo(browsePath)?.isFile)
 				browse = JSON.parse(Deno.readTextFileSync(browsePath));
-			else
+			else {
 				browse = {
 					path: [],
 					dirs: [],
 					files: [],
 				};
+				browseIndex.push(browsePath);
+			}
 
 			// Build the path
 			if (browse.path.length == 0)
@@ -901,7 +939,7 @@ function buildBrowse(archive) {
 				}
 
 				// If a file entry doesn't exist, add it and sort
-				if (fileNotAddedYet) {
+				if (fileNotAddedYet)
 					browse.files.push({
 						name: segmentName,
 						from: browseFileArchive,
@@ -910,8 +948,6 @@ function buildBrowse(archive) {
 						size: archive.size,
 						count: 1,
 					});
-					browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
-				}
 			}
 			else {
 				// Check if a directory entry already exists and update it if applicable
@@ -928,13 +964,11 @@ function buildBrowse(archive) {
 				}
 
 				// If a directory entry doesn't exist, add it and sort
-				if (dirNotAddedYet) {
+				if (dirNotAddedYet)
 					browse.dirs.push({
 						name: segmentName,
 						count: 1,
 					});
-					browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
-				}
 			}
 
 			// Save the updated listing
