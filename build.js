@@ -6,13 +6,9 @@ import * as utils from './utils.js';
 
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
-	boolean: ['clean', 'vhd'],
+	boolean: ['clean'],
 	string: ['config'],
-	default: {
-		clean: false,
-		vhd: false,
-		config: 'config.json',
-	},
+	default: { clean: false, config: 'config.json' },
 });
 
 // Load configuration
@@ -24,9 +20,8 @@ const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath
 // Load overrides for MIME types/character encodings
 const overrides = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'overrides.json')));
 
-// Get paths of temporary build directory and mount location
+// Get paths of temporary build directory
 const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
-const tempBuildMountPath = pathUtils.join(tempBuildPath, 'mount');
 
 // Get paths of conversion helper files
 const convertInputPath = pathUtils.join(tempBuildPath, '.convin');
@@ -43,7 +38,6 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	// Delete loose temporary files if they exist
 	if (utils.getPathInfo(tempBuildPath)?.isDirectory) {
 		utils.logMessage('deleting loose temp files...');
-		utils.unmountVhd(tempBuildMountPath);
 		Deno.removeSync(tempBuildPath, { recursive: true });
 	}
 
@@ -62,22 +56,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	const browseIndex = [];
 
 	// Create the build and temporary directories
-	Deno.mkdirSync(tempBuildMountPath, { recursive: true });
-
-	if (args['vhd']) {
-		// Create VHD to contain archive filesystem and mount it
-		utils.logMessage('creating filesystem...');
-		const tempBuildVhdPath = pathUtils.join(tempBuildPath, 'build.qcow2');
-		if (!utils.createVhd(tempBuildVhdPath)) {
-			utils.logMessage('failed to create filesystem');
-			Deno.exit(1);
-		}
-		utils.logMessage('mounting filesystem...');
-		if (!utils.mountVhd(tempBuildVhdPath, tempBuildMountPath)) {
-			utils.logMessage('failed to mount filesystem');
-			Deno.exit(1);
-		}
-	}
+	Deno.mkdirSync(tempBuildPath, { recursive: true });
 
 	// Save source information to file
 	utils.logMessage('saving source information...')
@@ -137,7 +116,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		archives.sort((a, b) => utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date));
 
 		// Create the containing directory for the current URL
-		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'urls', tempBuildMountPath);
+		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'urls', tempBuildPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
 
 		// Create subdirectories for each archive of the current URL with file data and important information
@@ -190,7 +169,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			};
 
 			// Create a containing directory for the current orphan
-			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, sanitizedPath), 'orphans', tempBuildMountPath);
+			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, sanitizedPath), 'orphans', tempBuildPath);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
@@ -221,7 +200,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		const screenshots = screenshotIndex[sanitizedUrl];
 
 		// Create the containing directory for the current URL
-		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'screenshots', tempBuildMountPath);
+		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'screenshots', tempBuildPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
 
 		// Create subdirectories for each screenshot of the current URL with file data and important information
@@ -277,9 +256,6 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		}
 	}
 
-	// Unmount the temporary VHD since we don't need to add to it anymore
-	utils.unmountVhd(tempBuildMountPath);
-
 	// Save type index to file
 	utils.logMessage('saving type index...');
 	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'types.json'), JSON.stringify(typeIndex, null, '\t'));
@@ -293,19 +269,18 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	const deleteBuildPath = pathUtils.join(config.buildPath, '.delete');
 	Deno.mkdirSync(deleteBuildPath, { recursive: true });
 
-	// If the old VHD is currently mounted, unmount it and remember to mount the new VHD in its place
-	const buildMountPath = pathUtils.join(config.buildPath, 'mount');
-	const mountNewVhd = utils.unmountVhd(buildMountPath) && args['vhd'];
-
 	// Move old files to deletion directory and move new files out of temporary directory
 	utils.logMessage('moving files out of temp directory...');
 	const buildEntries = [
-		'build.qcow2',
 		'search.sqlite',
 		'sources.json',
 		'stats.json',
 		'types.json',
-		'mount',
+		'inlinks_orphans',
+		'inlinks_urls',
+		'orphans',
+		'screenshots',
+		'urls',
 	];
 	for (const buildEntry of buildEntries) {
 		const buildEntryPath = pathUtils.join(config.buildPath, buildEntry);
@@ -322,13 +297,6 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	// Remove temporary/deletion directories
 	utils.logMessage('deleting old build files...');
 	Deno.removeSync(deleteBuildPath, { recursive: true });
-
-	// Mount the new VHD if needed
-	if (mountNewVhd) {
-		const buildVhdPath = pathUtils.join(config.buildPath, 'build.qcow2');
-		if (!utils.mountVhd(buildVhdPath, buildMountPath))
-			utils.logMessage('failed to remount filesystem');
-	}
 
 	// We're done
 	const timeElapsed = Date.now() - startTime;
@@ -698,7 +666,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				const sanitizedUrl = !isOrphan
 					? utils.sanitizeUrl(inlinkUrl)
 					: pathUtils.join(linkInject.source, utils.sanitizePath(inlinkUrl));
-				const inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildMountPath);
+				const inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildPath);
 				if (inlinksDir.length < 256)
 					inlinksDirs.push(inlinksDir);
 			}
@@ -862,8 +830,8 @@ function buildBrowse(archive, browseIndex) {
 	const namespace = isOrphan ? 'orphans' : 'urls';
 
 	// Get the start and end directories for traversal
-	let currentDir = utils.getArchiveRootDir(sanitizedUrl, namespace, tempBuildMountPath);
-	const endDir = pathUtils.join(tempBuildMountPath, namespace);
+	let currentDir = utils.getArchiveRootDir(sanitizedUrl, namespace, tempBuildPath);
+	const endDir = pathUtils.join(tempBuildPath, namespace);
 
 	// Split URL into segments and resolve index files to a consistent identifier to reduce complexity
 	const splitUrl = utils.splitUrl(archive.url ?? archive.path, isOrphan ? archive.source : null);

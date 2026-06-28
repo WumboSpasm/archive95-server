@@ -29,21 +29,6 @@ utils.logMessage('opening database...');
 const searchDatabase = new Database(pathUtils.join(config.buildPath, 'search.sqlite'), { strict: true, readonly: true });
 searchDatabase.exec('PRAGMA shrink_memory');
 
-// Mount the filesystem
-const buildVhdPath = pathUtils.join(config.buildPath, 'build.qcow2');
-const buildMountPath = pathUtils.join(config.buildPath, 'mount');
-let usingVhd = false;
-if (utils.getPathInfo(buildVhdPath)?.isFile) {
-	utils.logMessage('mounting filesystem...');
-	if (!utils.getPathInfo(buildMountPath)?.isDirectory)
-		Deno.mkdirSync(buildMountPath);
-	if (!utils.mountVhd(buildVhdPath, buildMountPath, true)) {
-		utils.logMessage('failed to mount filesystem');
-		Deno.exit(1);
-	}
-	usingVhd = true;
-}
-
 // Start the server
 let httpServer, httpsServer;
 (function startServer() {
@@ -355,13 +340,13 @@ function serverHandler(request, info) {
 		case 'browse': {
 			// Look for the directory listing file and load it
 			const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
-			let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'urls', buildMountPath), browseFileName);
+			let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'urls'), browseFileName);
 			let isOrphan = false;
 			if (!utils.getPathInfo(browseFilePath)?.isFile) {
 				if (sourceId === undefined)
 					throw new NotFoundError();
 				else {
-					browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans', buildMountPath), browseFileName);
+					browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans'), browseFileName);
 					if (!utils.getPathInfo(browseFilePath)?.isFile)
 						throw new NotFoundError();
 					isOrphan = true;
@@ -493,7 +478,7 @@ function serverHandler(request, info) {
 
 			// Check inlinks_urls and inlinks_orphans directories for list of inlinks
 			const sanitizedUrl = utils.sanitizeUrl(urlStr);
-			let inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_urls', buildMountPath);
+			let inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_urls');
 			let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
 			if (utils.getPathInfo(inlinksPath)?.isFile) {
 				inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
@@ -501,7 +486,7 @@ function serverHandler(request, info) {
 			}
 			else if (sourceId !== null) {
 				const sanitizedPath = utils.sanitizePath(urlStr);
-				inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'inlinks_orphans', buildMountPath);
+				inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'inlinks_orphans');
 				inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
 				if (utils.getPathInfo(inlinksPath)?.isFile) {
 					inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
@@ -565,7 +550,7 @@ function serverHandler(request, info) {
 		case 'screenshot':
 		case 'thumbnail': {
 			// Check if the screenshot exists
-			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'screenshots', buildMountPath);
+			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (!utils.getPathInfo(screenshotInfoSetPath)?.isFile)
 				throw new NotFoundError();
@@ -692,10 +677,10 @@ function serverHandler(request, info) {
 					const sourceParam = params.get('source') || undefined;
 					if (urlParam && (sourceParam === undefined || sources[sourceParam] !== undefined)) {
 						const browseFileName = sourceParam !== undefined ? `browse_${sourceParam}.json` : 'browse.json';
-						let browseFileDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'urls', buildMountPath);
+						let browseFileDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'urls');
 						let browseFilePath = pathUtils.join(browseFileDir, browseFileName);
 						if (!utils.getPathInfo(browseFilePath)?.isFile && sourceParam !== undefined) {
-							browseFileDir = utils.getArchiveRootDir(pathUtils.join(sourceParam, utils.sanitizePath(urlParam)), 'orphans', buildMountPath);
+							browseFileDir = utils.getArchiveRootDir(pathUtils.join(sourceParam, utils.sanitizePath(urlParam)), 'orphans');
 							browseFilePath = pathUtils.join(browseFileDir, browseFileName);
 						}
 						if (utils.getPathInfo(browseFilePath)?.isFile)
@@ -708,10 +693,10 @@ function serverHandler(request, info) {
 					// Return all archived pages which link to the given URL
 					const urlParam = params.get('url');
 					if (urlParam) {
-						let inlinksDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'inlinks_urls', buildMountPath);
+						let inlinksDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'inlinks_urls');
 						let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
 						if (!utils.getPathInfo(inlinksPath)?.isFile && sources[params.get('source')] !== undefined) {
-							inlinksDir = utils.getArchiveRootDir(pathUtils.join(params.get('source'), utils.sanitizePath(urlParam)), 'inlinks_orphans', buildMountPath);
+							inlinksDir = utils.getArchiveRootDir(pathUtils.join(params.get('source'), utils.sanitizePath(urlParam)), 'inlinks_orphans');
 							inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
 						}
 						if (utils.getPathInfo(inlinksPath)?.isFile)
@@ -776,11 +761,6 @@ async function serverShutdown() {
 	if (httpsServer) {
 		utils.logMessage('shutting down server on HTTPS...');
 		await httpsServer.shutdown();
-	}
-
-	if (usingVhd) {
-		utils.logMessage('unmounting filesystem...');
-		utils.unmountVhd(buildMountPath);
 	}
 
 	utils.logMessage('closing database...');
@@ -945,7 +925,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	let archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan = false;
 
 	// Check the urls directory first
-	let archiveRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(url), 'urls', buildMountPath);
+	let archiveRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(url), 'urls');
 	let archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
 	if (utils.getPathInfo(archiveInfoSetPath)?.isFile) {
 		// The archive exists in the urls directory, now identify where it resides in the set
@@ -976,7 +956,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	}
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory
-		archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans', buildMountPath);
+		archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans');
 		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
 		if (!utils.getPathInfo(archiveInfoSetPath)?.isFile)
 			return null;
@@ -1179,7 +1159,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const screenshots = [];
 		if (!isOrphan) {
-			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(archiveInfo.url), 'screenshots', buildMountPath);
+			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
 				const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
@@ -1230,7 +1210,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const screenshots = [];
 		if (!isOrphan) {
-			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(archiveInfo.url), 'screenshots', buildMountPath);
+			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
 				const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));

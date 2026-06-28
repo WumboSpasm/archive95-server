@@ -13,21 +13,13 @@
    - `convert` (from [ImageMagick](https://imagemagick.org/))
    - `ffmpeg` (the `libx264` library is also required for H.264 encoding)
 
-If building with the `--vhd` flag:
-- Support for the [XFS](https://en.wikipedia.org/wiki/XFS) filesystem
-- The following command-line utilities:
-   - `qemu-img`
-   - `virt-format`
-   - `guestmount`
-   - `guestunmount`
-
 ## Instructions
 1. Clone the repository with `git clone https://github.com/WumboSpasm/archive95-server.git`
 2. Download the latest revision of the dataset from [here](https://archive.org/details/archive95-dataset) and extract into the `data` folder
 3. Install package dependencies with `deno install`
 4. Build the filesystem and search database with `deno task build`
    - Note that this will take a long time (>2 hours on a relatively beefy machine) although subsequent builds should be much faster (~20 minutes on the same machine)
-   - Also note that this will create millions of inodes. You can relegate them to a virtual hard disk using the `--vhd` flag (note that this will take an even longer time)
+   - Also note that this will create millions of inodes
 5. Run the server with `deno task start`
 
 ## Command-Line Flags
@@ -38,7 +30,6 @@ If building with the `--vhd` flag:
 
 ### Build Only
 - `--clean` - Perform a clean build
-- `--vhd` - Use a virtual hard disk to store build files
 
 ## Endpoints
 - `view`: View archived file

@@ -25,11 +25,7 @@
 				"uchardet",
 				"iconv",
 				"convert",
-				"ffmpeg",
-				"qemu-img",
-				"virt-format",
-				"guestmount",
-				"guestunmount"
+				"ffmpeg"
 			],
 			"ffi": true
 		}
