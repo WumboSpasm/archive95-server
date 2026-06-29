@@ -392,6 +392,8 @@ function buildIndexes() {
 // Parse an entry's file data, then add to database and file tree
 async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement) {
 	const [file, type, changed] = await getFile(archive, typeIndex);
+	if (file === null)
+		return;
 	archive.size = file.byteLength;
 	archive.types.push(type);
 
@@ -1061,6 +1063,14 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 				);
 			break;
 		}
+		case 'wwcatalog': {
+			html = html
+				// Remove header
+				.replace(/\n?WWC snapshot of .*\n\n<HR>/, '')
+				// Fix mailto links
+				.replace(/(mailto:)\/\/[^@]+\//gi, '$1');
+			break;
+		}
 		case 'einblicke': {
 			html = html.replace(
 				// Remove footer
@@ -1428,7 +1438,7 @@ async function getFile(archive, typeIndex = {}) {
 	const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, archive.path);
 	const fileInfo = utils.getPathInfo(filePath);
 	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
-		return new Uint8Array();
+		return [null, null, false];
 
 	// Load the file and shrink it if necessary
 	let file = Deno.readFileSync(filePath);
