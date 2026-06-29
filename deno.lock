@@ -6,6 +6,7 @@
     "jsr:@std/cli@1.0.30": "1.0.30",
     "jsr:@std/encoding@1": "1.0.10",
     "jsr:@std/fmt@1": "1.0.10",
+    "jsr:@std/fmt@1.0.10": "1.0.10",
     "jsr:@std/fs@1": "1.0.24",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/media-types@1.1.0": "1.1.0",
@@ -26,7 +27,7 @@
       "integrity": "eb2f0b7546c7bca2000d8b0282c54d50d91cf6d75cb26a80df25a6de8c4bc044",
       "dependencies": [
         "jsr:@std/encoding",
-        "jsr:@std/fmt",
+        "jsr:@std/fmt@1",
         "jsr:@std/fs",
         "jsr:@std/path@1"
       ]
@@ -67,6 +68,7 @@
     "dependencies": [
       "jsr:@db/sqlite@0.13.0",
       "jsr:@std/cli@1.0.30",
+      "jsr:@std/fmt@1.0.10",
       "jsr:@std/media-types@1.1.0",
       "jsr:@std/path@1.1.5"
     ]

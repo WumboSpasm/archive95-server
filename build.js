@@ -1,4 +1,5 @@
 import { Database } from '@db/sqlite';
+import { format } from "@std/fmt/bytes";
 import { parseArgs } from '@std/cli/parse-args';
 import * as pathUtils from '@std/path';
 
@@ -245,13 +246,15 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		}
 	}
 
-	// Sort browse.json files
+	// Sort and format size field of browse.json files
 	utils.logMessage('sorting directory browser entries...');
 	for (const browsePath of browseIndex) {
 		const browse = JSON.parse(Deno.readTextFileSync(browsePath));
-		if (browse.files.length > 1 || browse.dirs.length > 1) {
+		if (browse.files.length > 0 || browse.dirs.length > 1) {
 			browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
 			browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+			for (const browseFile of browse.files)
+				browseFile.size = format(browseFile.size, { maximumFractionDigits: 1 }).replace(/ (.).*$/, (_, c) => c == 'B' ? '' : c.toUpperCase());
 			Deno.writeTextFileSync(browsePath, JSON.stringify(browse, null, '\t'));
 		}
 	}
@@ -877,6 +880,7 @@ function buildBrowse(archive, browseIndex) {
 					browse.path[i] = getBetterString(browse.path[i], splitUrl[i]);
 			}
 
+			const archiveTime = utils.dateStringToNum(archive.date);
 			if (!fileDone) {
 				const browseFileArchive = {
 					date: archive.date,
@@ -887,7 +891,6 @@ function buildBrowse(archive, browseIndex) {
 
 				// Check if a file entry already exists and update it if applicable
 				let fileNotAddedYet = true;
-				const archiveTime = utils.dateStringToNum(archive.date);
 				for (const browseFile of browse.files) {
 					if (segmentNameLower != browseFile.name.toLowerCase())
 						continue;
@@ -925,6 +928,10 @@ function buildBrowse(archive, browseIndex) {
 						continue;
 
 					browseDir.name = getBetterString(browseDir.name, segmentName);
+					if (archiveTime < utils.dateStringToNum(browseDir.from))
+						browseDir.from = archive.date;
+					if (archiveTime > utils.dateStringToNum(browseDir.to))
+						browseDir.to = archive.date;
 					browseDir.count++;
 
 					dirNotAddedYet = false;
@@ -935,6 +942,8 @@ function buildBrowse(archive, browseIndex) {
 				if (dirNotAddedYet)
 					browse.dirs.push({
 						name: segmentName,
+						from: archive.date,
+						to: archive.date,
 						count: 1,
 					});
 			}

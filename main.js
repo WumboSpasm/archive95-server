@@ -398,7 +398,9 @@ function serverHandler(request, info) {
 				const browseDirCount = browseDir.count.toString();
 				addBrowseEntry([
 					[`<a href="/${browseRoute}/${encodedBrowsePath.concat(encodeURI(browseDir.name)).join('/')}">${sanitizeInject(browseDirName)}</a>`, browseDirName],
-					['-', '-'], ['-', '-'], ['-', '-'], ['-', '-'],
+					[browseDir.from, browseDir.from],
+					[browseDir.to, browseDir.to],
+					['-', '-'], ['-', '-'],
 					[browseDirCount, browseDirCount],
 					'dir.gif',
 				]);
