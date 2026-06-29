@@ -1018,6 +1018,14 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 // Attempt to revert source-specific markup alterations
 function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 	switch (sourceId) {
+		case 'cdwin': {
+			// Replace error links
+			html = html.replace(/[./]*blind\.html?/g, '/deadend');
+			// Fix a link to GNN on the EUnet homepage
+			if (path == 'EUNET/INDEX.HTM')
+				html = html.replace('/magazin/www/html', '..');
+			break;
+		}
 		case 'sgi': {
 			// Fix anomaly with HTML files in the Edu/ directory
 			if (path.startsWith('Edu/'))
