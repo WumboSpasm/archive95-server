@@ -563,8 +563,23 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			return match;
 
 		let rawUrl = trimQuotes(url);
-		// Anchors and missing URLs should be left unchanged, but make sure they're at least surrounded by quotes
-		if (rawUrl.startsWith('#') || rawUrl == '/deadend') {
+		if (rawUrl.startsWith('#')) {
+			// Fast-track anchor URLs
+			const linkInject = {
+				index: index - offset + tagStart.length + 1,
+				source: null,
+				url: rawUrl,
+				embed: false,
+				offset: null,
+			};
+			inject.links.push(linkInject);
+
+			const newStr = tagStart + '""';
+			offset += match.length - newStr.length;
+			return newStr;
+		}
+		else if (rawUrl == '/deadend') {
+			// Leave missing URLs unchanged but make sure they're surrounded by quotes
 			const newStr = tagStart + '"' + rawUrl + '"';
 			offset += match.length - newStr.length;
 			return newStr;

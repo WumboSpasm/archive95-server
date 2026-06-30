@@ -215,28 +215,33 @@ function serverHandler(request, info) {
 				}
 
 				// Build slices for each link on the page
-				flagIds = flagIds.replace(/[di]/g, '');
-				const embedFlagIds = !flagIds.includes('n') ? cleanFlags(flagIds + 'n') : flagIds;
+				const linkFlagIds = flagIds.replace(/[di]/g, '');
+				const embedFlagIds = !linkFlagIds.includes('n') ? cleanFlags(linkFlagIds + 'n') : linkFlagIds;
 				for (const linkInject of inject.links) {
 					let sliceValue = linkInject.url;
-					if (flagIds.includes('e'))
+					if (linkInject.url.startsWith('#')) {
+						// Force iframe anchor links to always trigger inside the iframe instead of reloading the parent page
+						if (flagIds.includes('i'))
+							sliceValue += '" target="_self';
+					}
+					else if (flagIds.includes('e'))
 						// If the 'e' flag is supplied, don't process the link except to remove unnecessary anchors
 						sliceValue = sliceValue.replace(/%23.*?(?=$|#)/, '');
 					else if (linkInject.source !== null)
 						// If the link is accompanied by a source, point it within the archive
-						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url}`;
+						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkInject.embed ? embedFlagIds : linkFlagIds)}/${linkInject.url}`;
 					else if (/^https?:/i.test(linkInject.url)) {
 						if (linkInject.embed || flagIds.includes('w'))
 							// Do the same as above if the 'w' flag is supplied or if the link is for embedded content
 							// It's fine if the link goes nowhere - it's better than potentially loading off-site resources
-							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url}`;
+							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${linkInject.url}`;
 						else
 							// Otherwise, point the link to the Wayback Machine
 							sliceValue = buildWaybackLink(linkInject.url, archiveInfo);
 					}
 					else if (!/^[a-z]+:/i.test(linkInject.url))
 						// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
-						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : flagIds)}/${linkInject.url.replace(/^\/+/, '')}`;
+						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${linkInject.url.replace(/^\/+/, '')}`;
 
 					slices.push({
 						start: linkInject.index,
