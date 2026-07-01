@@ -215,12 +215,17 @@ function serverHandler(request, info) {
 				}
 
 				// Build slices for each link on the page
-				const linkFlagIds = flagIds.replace(/[di]/g, '');
+				const linkFlagIds = flagIds.replace('i', '');
 				const embedFlagIds = !linkFlagIds.includes('n') ? cleanFlags(linkFlagIds + 'n') : linkFlagIds;
 				for (const linkInject of inject.links) {
-					let sliceValue = linkInject.url;
-					if (linkInject.url.startsWith('#')) {
-						// Force iframe anchor links to always trigger inside the iframe instead of reloading the parent page
+					// For iframes, if the link exists in the archive and includes an anchor, encode the hash character so the anchor can be seen by the server
+					let injectUrl = linkInject.url;
+					if (flagIds.includes('i') && linkInject.source !== null && !injectUrl.includes('%23') && injectUrl.indexOf('#') > 0)
+						injectUrl = injectUrl.replaceAll('#', '%23');
+
+					let sliceValue = injectUrl;
+					if (injectUrl.startsWith('#')) {
+						// Also for iframes, force in-page anchor links to always trigger inside the iframe instead of reloading the parent page
 						if (flagIds.includes('i'))
 							sliceValue += '" target="_self';
 					}
@@ -229,19 +234,19 @@ function serverHandler(request, info) {
 						sliceValue = sliceValue.replace(/%23.*?(?=$|#)/, '');
 					else if (linkInject.source !== null)
 						// If the link is accompanied by a source, point it within the archive
-						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkInject.embed ? embedFlagIds : linkFlagIds)}/${linkInject.url}`;
-					else if (/^https?:/i.test(linkInject.url)) {
+						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkInject.embed ? embedFlagIds : linkFlagIds)}/${injectUrl}`;
+					else if (/^https?:/i.test(injectUrl)) {
 						if (linkInject.embed || flagIds.includes('w'))
 							// Do the same as above if the 'w' flag is supplied or if the link is for embedded content
 							// It's fine if the link goes nowhere - it's better than potentially loading off-site resources
-							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${linkInject.url}`;
+							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${injectUrl}`;
 						else
 							// Otherwise, point the link to the Wayback Machine
-							sliceValue = buildWaybackLink(linkInject.url, archiveInfo);
+							sliceValue = buildWaybackLink(injectUrl, archiveInfo);
 					}
-					else if (!/^[a-z]+:/i.test(linkInject.url))
+					else if (!/^[a-z]+:/i.test(injectUrl))
 						// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
-						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${linkInject.url.replace(/^\/+/, '')}`;
+						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${injectUrl.replace(/^\/+/, '')}`;
 
 					slices.push({
 						start: linkInject.index,
@@ -256,8 +261,12 @@ function serverHandler(request, info) {
 			}
 			else if (!flagIds.includes('n')) {
 				// Embed files using the most appropriate template if the navbar is enabled
+				// For iframes with anchors, we take encoded hash characters and carefully convert them into proper anchors
+				const anchorIndex = urlStr.indexOf('#');
+				const anchor = anchorIndex != -1 ? '#' + encodeURIComponent(urlStr.substring(anchorIndex + 1)) : '';
+				const archiveUrl = archiveInfo.url.replaceAll('#', '%23') + anchor;
 				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : 'n');
-				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, fileFlags)}/${archiveInfo.url}`;
+				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, fileFlags)}/${archiveUrl}`;
 				let embed, indent = 'all';
 				if (utils.isTextType(fileType)) {
 					embed = buildHtml(templates.compat.embed.text, {
@@ -287,7 +296,7 @@ function serverHandler(request, info) {
 				const downloadsArr = [];
 				if (fileType != 'text/html') {
 					if (archiveInfo.types.length > 1 && !flagIds.includes('p')) {
-						const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, 'np')}/${archiveInfo.url}`;
+						const originalFileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, 'np')}/${archiveUrl}`;
 						downloadsArr.push(
 							`<a href="${originalFileUrl}">Download (original)</a>`,
 							`<a href="${fileUrl}">Download (converted)</a>`,
