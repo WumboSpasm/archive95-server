@@ -569,8 +569,10 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				index: index - offset + tagStart.length + 1,
 				source: null,
 				url: rawUrl,
-				embed: false,
 				offset: null,
+				iframe: false,
+				wayback: false,
+				embed: false,
 			};
 			inject.links.push(linkInject);
 
@@ -675,8 +677,10 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				index: index - offset + tagStart.length + 1 + urlPrefix.length,
 				source: resolvedSource,
 				url: (resolvedUrl ?? absoluteUrl).replaceAll('#', '%23') + anchor,
-				embed: !/^(?:href|http-equiv)/i.test(tagStart),
 				offset: resolvedOffset,
+				iframe: /^http-equiv/i.test(tagStart),
+				wayback: /^href/i.test(tagStart),
+				navbar: /^(?:href|http-equiv)/i.test(tagStart),
 			};
 			inject.links.push(linkInject);
 

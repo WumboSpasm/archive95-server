@@ -215,9 +215,18 @@ function serverHandler(request, info) {
 				}
 
 				// Build slices for each link on the page
-				const linkFlagIds = flagIds.replace('i', '');
-				const embedFlagIds = !linkFlagIds.includes('n') ? cleanFlags(linkFlagIds + 'n') : linkFlagIds;
+				const defaultFlagIds = flagIds.replace('i', '');
+				const iframeFlagIds = cleanFlags(defaultFlagIds + 'i');
+				const noNavbarFlagIds = cleanFlags(defaultFlagIds + 'n');
+				const bothFlagIds = cleanFlags(defaultFlagIds + 'ni');
 				for (const linkInject of inject.links) {
+					// Determine which set of flag IDs to use for the current link
+					let linkFlagIds = defaultFlagIds;
+					if (flagIds.includes('i') && linkInject.iframe)
+						linkFlagIds = !linkInject.navbar ? bothFlagIds : iframeFlagIds;
+					else if (!linkInject.navbar)
+						linkFlagIds = noNavbarFlagIds;
+
 					// For iframes, if the link exists in the archive and includes an anchor, encode the hash character so the anchor can be seen by the server
 					let injectUrl = linkInject.url;
 					if (flagIds.includes('i') && linkInject.source !== null && !injectUrl.includes('%23') && injectUrl.indexOf('#') > 0)
@@ -234,19 +243,19 @@ function serverHandler(request, info) {
 						sliceValue = sliceValue.replace(/%23.*?(?=$|#)/, '');
 					else if (linkInject.source !== null)
 						// If the link is accompanied by a source, point it within the archive
-						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkInject.embed ? embedFlagIds : linkFlagIds)}/${injectUrl}`;
+						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkFlagIds)}/${injectUrl}`;
 					else if (/^https?:/i.test(injectUrl)) {
-						if (linkInject.embed || flagIds.includes('w'))
-							// Do the same as above if the 'w' flag is supplied or if the link is for embedded content
+						if (!linkInject.wayback || flagIds.includes('w'))
+							// Do the same as above if the 'w' flag is supplied or if the link itself specifies it
 							// It's fine if the link goes nowhere - it's better than potentially loading off-site resources
-							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${injectUrl}`;
+							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkFlagIds)}/${injectUrl}`;
 						else
 							// Otherwise, point the link to the Wayback Machine
 							sliceValue = buildWaybackLink(injectUrl, archiveInfo);
 					}
 					else if (!/^[a-z]+:/i.test(injectUrl))
 						// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
-						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkInject.embed ? embedFlagIds : linkFlagIds)}/${injectUrl.replace(/^\/+/, '')}`;
+						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkFlagIds)}/${injectUrl.replace(/^\/+/, '')}`;
 
 					slices.push({
 						start: linkInject.index,
