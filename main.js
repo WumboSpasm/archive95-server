@@ -152,7 +152,7 @@ function serverHandler(request, info) {
 		case 'view': {
 			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSpread === null)
-				throw new UnarchivedError(urlStr);
+				throw new UnarchivedError(urlStr, flagIds);
 
 			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
@@ -367,11 +367,11 @@ function serverHandler(request, info) {
 			let isOrphan = false;
 			if (!utils.getPathInfo(browseFilePath)?.isFile) {
 				if (sourceId === undefined)
-					throw new NotFoundError();
+					throw new NotFoundError(flagIds);
 				else {
 					browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans'), browseFileName);
 					if (!utils.getPathInfo(browseFilePath)?.isFile)
-						throw new NotFoundError();
+						throw new NotFoundError(flagIds);
 					isOrphan = true;
 				}
 			}
@@ -545,7 +545,7 @@ function serverHandler(request, info) {
 		case 'options': {
 			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSpread === null)
-				throw new NotFoundError();
+				throw new NotFoundError(flagIds);
 
 			const [archiveInfoSet, archiveInfoIndex] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
@@ -762,12 +762,18 @@ function serverError(error) {
 	const statusText = error.statusText || 'Internal Server Error';
 	const message = error.name == 'ArchiveError' ? error.message : 'The server had trouble processing your request.';
 
+	let links = '';
+	if (error.options instanceof Array)
+		links = buildHtml(templates.compat.error.links, {
+			'OPTIONS': error.options.join('\n'),
+			'RANDOM': `/${buildRoute('random', null, null, error.flagIds.replace('i', ''))}`,
+		});
+
 	const errorPage = buildHtml(templates.compat.error.main, {
 		'STATUSTEXT': statusText,
+		'METADATA': error.flagIds.includes('i') ? '<base target="_parent">' : '',
 		'MESSAGE': message,
-		'LINKS': error.options instanceof Array
-			? buildHtml(templates.compat.error.links, { 'OPTIONS': error.options.join('\n') })
-			: '',
+		'LINKS': links,
 	});
 
 	// The server did not purposefully invoke this error, so dump the stack
@@ -1502,13 +1508,14 @@ function buildSourcesPage() {
 }
 
 class ArchiveError extends Error {
-	constructor(status, statusText, message, options = null) {
+	constructor(status, statusText, message, options = null, flagIds = '') {
 		super(message);
 		this.name = 'ArchiveError';
 
 		this.status = status;
 		this.statusText = statusText;
 		this.options = options;
+		this.flagIds = flagIds;
 	}
 }
 
@@ -1543,24 +1550,26 @@ class BadHostError extends ArchiveError {
 }
 
 class NotFoundError extends ArchiveError {
-	constructor() {
+	constructor(flagIds = '') {
 		super(
 			404,
 			'Not Found',
 			'The requested URL does not exist.',
 			[],
+			flagIds,
 		);
 	}
 }
 
 class UnarchivedError extends ArchiveError {
-	constructor(url) {
+	constructor(url, flagIds = '') {
 		const safeUrl = sanitizeInject(url, true);
 		super(
 			404,
 			'Unarchived URL',
 			`The URL <b>${safeUrl}</b> does not exist in the archive.`,
 			[`<li><a href="https://web.archive.org/web/0/${safeUrl}">Go to the Wayback Machine</a></li>`],
+			flagIds,
 		);
 	}
 }
