@@ -218,12 +218,11 @@ function serverHandler(request, info) {
 				const defaultFlagIds = flagIds.replace('i', '');
 				const iframeFlagIds = cleanFlags(defaultFlagIds + 'i');
 				const noNavbarFlagIds = cleanFlags(defaultFlagIds + 'n');
-				const bothFlagIds = cleanFlags(defaultFlagIds + 'ni');
 				for (const linkInject of inject.links) {
 					// Determine which set of flag IDs to use for the current link
 					let linkFlagIds = defaultFlagIds;
 					if (flagIds.includes('i') && linkInject.iframe)
-						linkFlagIds = !linkInject.navbar ? bothFlagIds : iframeFlagIds;
+						linkFlagIds = iframeFlagIds;
 					else if (!linkInject.navbar)
 						linkFlagIds = noNavbarFlagIds;
 
