@@ -16,7 +16,6 @@
 			"screenshot"
 		],
 		"embed": [
-			"frame",
 			"text",
 			"image",
 			"audio",
@@ -46,6 +45,8 @@
 			"archive",
 			"screenshot"
 		],
-		"embed": []
+		"embed": [
+			"frame"
+		]
 	}
 }

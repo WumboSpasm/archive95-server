@@ -23,7 +23,21 @@
 	{
 		"id": "i",
 		"description": "Render iframe-ready page content",
-		"invert": true,
+		"invert": false,
+		"hidden": true,
+		"modern": false
+	},
+	{
+		"id": "j",
+		"description": "Render iframe-ready frame content",
+		"invert": false,
+		"hidden": true,
+		"modern": false
+	},
+	{
+		"id": "k",
+		"description": "Render frame content for inline navigation bar",
+		"invert": false,
 		"hidden": true,
 		"modern": false
 	},

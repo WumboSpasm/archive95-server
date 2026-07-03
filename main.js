@@ -105,70 +105,45 @@ function serverHandler(request, info) {
 		return new Response(Deno.openSync(staticFilePath).readable, { headers: headers });
 	}
 
-	// Separate route and URL components, and clean up slashes
-	let routeStr, urlStr;
-	const pathSeparator = requestPath.indexOf('/');
-	if (pathSeparator > 0) {
-		routeStr = requestPath.substring(0, pathSeparator);
-		urlStr = requestPath.substring(pathSeparator + 1).replace(/^\/+/, '').replaceAll('%23', '#');
-		if (requestUrl.search == '' && request.url.endsWith('?'))
-			urlStr += '?';
-		else
-			urlStr += requestUrl.search;
-	}
-	else {
-		routeStr = requestPath.replace(/\/+$/, '');
-		urlStr = '';
-	}
-
-	// Parse the route
-	const routeMatch = routeStr.match(/^([a-z0-9]+)(?:-([a-z0-9]+)(\+\d+)?)?(?:_([a-z0-9]+))?$/);
-	if (routeMatch === null)
+	// Extract info from URL
+	const [urlStr, modeId, sourceId, offset, flagIds] = buildUrlSegments(requestUrl, requestPath);
+	if (urlStr === undefined)
 		throw new NotFoundError();
 
-	// Extract route segments and check their validity
-	let [_, modeId, sourceId, offset, flagIds] = routeMatch;
-	const mode = modes.find(mode => modeId == mode.id);
-	if (mode === undefined
-	|| (!mode.hasSource && sourceId !== undefined)
-	|| (!mode.hasOffset && offset !== undefined)
-	|| (!mode.hasFlags && flagIds !== undefined)
-	|| (mode.hasUrl == (urlStr == '')))
-		throw new NotFoundError();
-
-	// If the supplied source doesn't exist, clear it so we don't have to worry about it later
-	if (sourceId !== undefined && sources[sourceId] === undefined)
-		sourceId = undefined;
-
-	// Parse offset as an integer
-	offset = parseInt(offset, 10);
-	if (isNaN(offset))
-		offset = undefined;
-
-	// Clean up and sort flag IDs
-	flagIds = flagIds !== undefined ? cleanFlags(flagIds) : '';
-
-	switch (mode.id) {
+	switch (modeId) {
 		case 'view': {
-			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
-			if (archiveInfoSpread === null)
+			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = getArchiveInfo(urlStr, sourceId, offset);
+			if (archiveInfoSet === undefined)
 				throw new UnarchivedError(urlStr, flagIds);
-
-			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
+
+			// Try to prevent links inside frames inside iframes from displaying navbars inside frames by checking the Sec-Fetch-Dest header
+			// But since Safari doesn't seem to always send this header (despite MDN saying it's supported), we use the referer as a (slightly less good) fallback
+			if (modernMode && !/[nijk]/.test(flagIds)) {
+				const destIsFrame = request.headers.get('Sec-Fetch-Dest') == 'frame';
+				const refererFlagIds = buildUrlSegments(URL.parse(request.headers.get('Referer')))[4];
+				if (destIsFrame || (userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)[1] == 'Safari' && /[jk]/.test(refererFlagIds))) {
+					const redirectFlagIds = cleanFlags(flagIds + (refererFlagIds.includes('k') ? 'k' : 'j'));
+					const redirectUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, redirectFlagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
+					return Response.redirect(requestUrl.origin + redirectUrl);
+				}
+			}
+
 			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
-			if (fileType == 'text/html' && (!modernMode || /[ndi]/.test(flagIds))) {
+			if (fileType == 'text/html' && (!modernMode || /[ndijk]/.test(flagIds))) {
 				// For HTML files, we build a list of slices from the injection list and pass it to replaceSlices
 				const inject = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
 				const framesetInject = inject.frames.find(frameInject => frameInject.type == 'frameset');
-				const doNavbar = !flagIds.includes('n') && !flagIds.includes('i') && (framesetInject === undefined || flagIds.includes('f'));
+				const doNavbar = !/[nijk]/.test(flagIds) && (framesetInject === undefined || flagIds.includes('f'));
 				const slices = [];
 
 				// Build metadata slices
 				const metadata = [];
 				if (flagIds.includes('i'))
 					metadata.push('<base target="_parent">');
+				else if (flagIds.includes('j'))
+					metadata.push('<script src="/scripts/frames.js"></script>');
 				if (modernMode) {
 					if (doNavbar)
 						metadata.push(
@@ -214,10 +189,17 @@ function serverHandler(request, info) {
 					}
 				}
 
+				// Determine the most appropriate way to hide the navbar
+				let noNavbarFlagId = 'n';
+				if (flagIds.includes('i'))
+					noNavbarFlagId = 'j';
+				else if (flagIds.includes('d'))
+					noNavbarFlagId = 'k';
+
 				// Build slices for each link on the page
-				const defaultFlagIds = flagIds.replace('i', '');
+				const defaultFlagIds = flagIds.replace(/[ijk]/g, '');
 				const iframeFlagIds = cleanFlags(defaultFlagIds + 'i');
-				const noNavbarFlagIds = cleanFlags(defaultFlagIds + 'n');
+				const noNavbarFlagIds = cleanFlags(defaultFlagIds + noNavbarFlagId);
 				for (const linkInject of inject.links) {
 					// Determine which set of flag IDs to use for the current link
 					let linkFlagIds = defaultFlagIds;
@@ -228,7 +210,7 @@ function serverHandler(request, info) {
 
 					// For iframes, if the link exists in the archive and includes an anchor, encode the hash character so the anchor can be seen by the server
 					let injectUrl = linkInject.url;
-					if (flagIds.includes('i') && linkInject.source !== null && !injectUrl.includes('%23') && injectUrl.indexOf('#') > 0)
+					if (/[ij]/.test(flagIds) && linkInject.source !== null && !injectUrl.includes('%23') && injectUrl.indexOf('#') > 0)
 						injectUrl = injectUrl.replaceAll('#', '%23');
 
 					let sliceValue = injectUrl;
@@ -267,7 +249,7 @@ function serverHandler(request, info) {
 				const html = utils.replaceSlices(Deno.readTextFileSync(archivePathInfo.filePath), slices);
 				return new Response(html, { headers: headers });
 			}
-			else if (!flagIds.includes('n')) {
+			else if (!/[nijk]/.test(flagIds)) {
 				// Embed files using the most appropriate template if the navbar is enabled
 				// For iframes with anchors, we take encoded hash characters and carefully convert them into proper anchors
 				const anchorIndex = urlStr.indexOf('#');
@@ -284,7 +266,7 @@ function serverHandler(request, info) {
 				}
 				else {
 					if (fileType == 'text/html')
-						embed = templates.compat.embed.frame;
+						embed = templates.modern.embed.frame;
 					else if (fileType.startsWith('image/'))
 						embed = templates.compat.embed.image;
 					else if (fileType.startsWith('audio/'))
@@ -322,18 +304,14 @@ function serverHandler(request, info) {
 						title = archiveSearchInfo.title;
 				}
 
-				// Build navbar
-				const doNavbar = !flagIds.includes('i');
-				const navbar = doNavbar ? buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) : '';
-
 				// We don't need to do any fancy injection here
 				const html = buildHtml(templates[modernMode ? 'modern' : 'compat'].embed.main, {
 					'TITLE': sanitizeInject(title),
-					'METADATA': doNavbar && modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
+					'METADATA': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
 					'TYPE': fileType,
 					'EMBED': { value: embed, indent: indent },
 					'DOWNLOADS': downloadsArr.length > 0 ? '<hr>\n' + downloadsArr.join(' - ') : '',
-					'NAVBAR': doNavbar ? navbar : '',
+					'NAVBAR': buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
 				});
 
 				return new Response(html, { headers: headers });
@@ -345,11 +323,9 @@ function serverHandler(request, info) {
 			}
 		}
 		case 'raw': {
-			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
-			if (archiveInfoSpread === null)
+			const [archiveInfoSet, archiveInfoIndex, archiveDir] = getArchiveInfo(urlStr, sourceId, offset);
+			if (archiveInfoSet === undefined)
 				throw new NotFoundError();
-
-			const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
 			let archiveRawPath = pathUtils.join(archiveDir, 'raw');
@@ -542,11 +518,9 @@ function serverHandler(request, info) {
 			return new Response(inlinksPage, { headers: headers });
 		}
 		case 'options': {
-			const archiveInfoSpread = getArchiveInfo(urlStr, sourceId, offset);
-			if (archiveInfoSpread === null)
+			const [archiveInfoSet, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
+			if (archiveInfoSet === undefined)
 				throw new NotFoundError(flagIds);
-
-			const [archiveInfoSet, archiveInfoIndex] = archiveInfoSpread;
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
 			// Since query strings are off-limits, links masquerading as checkboxes are used to alter flags
@@ -599,7 +573,7 @@ function serverHandler(request, info) {
 			// Determine the screenshot's path and serve it
 			const screenshotInfo = screenshotInfoSet[screenshotInfoIndex];
 			const screenshotDir = pathUtils.join(screenshotRootDir, screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
-			const screenshotPath = pathUtils.join(screenshotDir, mode.id);
+			const screenshotPath = pathUtils.join(screenshotDir, modeId);
 			headers.set('Content-Type', screenshotInfo.type);
 			return new Response(Deno.openSync(screenshotPath).readable, { headers: headers });
 		}
@@ -663,9 +637,9 @@ function serverHandler(request, info) {
 					const urlParam = params.get('url');
 					if (urlParam) {
 						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
-						const archiveInfoSpread = getArchiveInfo(urlParam, sourceParam);
-						if (archiveInfoSpread !== null)
-							return new Response(JSON.stringify(archiveInfoSpread[0]), { headers: headers });
+						const [archiveInfoSet] = getArchiveInfo(urlParam, sourceParam);
+						if (archiveInfoSet !== undefined)
+							return new Response(JSON.stringify(archiveInfoSet), { headers: headers });
 					}
 
 					return new Response('[]', { headers: headers });
@@ -676,11 +650,9 @@ function serverHandler(request, info) {
 					if (urlParam) {
 						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
 						const offsetParam = parseInt(params.get('offset'), 10) || undefined;
-						const archiveInfoSpread = getArchiveInfo(urlParam, sourceParam, offsetParam);
-						if (archiveInfoSpread !== null) {
-							const [archiveInfoSet, archiveInfoIndex, archiveDir] = archiveInfoSpread;
+						const [archiveInfoSet, archiveInfoIndex, archiveDir] = getArchiveInfo(urlParam, sourceParam, offsetParam);
+						if (archiveInfoSet !== undefined) {
 							const archiveInfo = archiveInfoSet[archiveInfoIndex];
-
 							const archivePathInfo = getArchivePathInfo(archiveDir, params.get('p') == 'true' ? 'p' : '');
 							archiveInfo.inject = utils.getPathInfo(archivePathInfo.injectPath)?.isFile
 								? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
@@ -742,8 +714,9 @@ function serverHandler(request, info) {
 		case 'deadend': {
 			const deadendPage = buildHtml(templates.compat.error.main, {
 				'STATUSTEXT': 'Dead End',
+				'METADATA': '',
 				'MESSAGE': 'If you reached this page, it means the original destination of the link you followed has been lost.',
-				'LINKS': buildHtml(templates.compat.error.links, { 'OPTIONS': '' }),
+				'LINKS': buildHtml(templates.compat.error.links, { 'OPTIONS': '', 'RANDOM': '/random' }),
 			});
 			return new Response(deadendPage, { status: 404, headers: headers });
 		}
@@ -770,7 +743,7 @@ function serverError(error) {
 
 	const errorPage = buildHtml(templates.compat.error.main, {
 		'STATUSTEXT': statusText,
-		'METADATA': error.flagIds.includes('i') ? '<base target="_parent">' : '',
+		'METADATA': error.flagIds?.includes('i') ? '<base target="_parent">' : '',
 		'MESSAGE': message,
 		'LINKS': links,
 	});
@@ -885,9 +858,8 @@ function performSearch(params) {
 	const searchResults = [];
 	let searchOffset = 0;
 	if (searchFilters.inUrl && !/[ "]/.test(query)) {
-		const archiveInfoSpread = getArchiveInfo(query, searchFilters.source || undefined);
-		if (archiveInfoSpread !== null) {
-			const [archiveInfoSet, _, archiveDir, isOrphan] = archiveInfoSpread;
+		const [archiveInfoSet, _, archiveDir, isOrphan] = getArchiveInfo(query, searchFilters.source || undefined);
+		if (archiveInfoSet !== undefined) {
 			for (let i = 0; i < archiveInfoSet.length; i++) {
 				const archiveInfo = archiveInfoSet[i];
 
@@ -989,7 +961,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 		archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans');
 		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
 		if (!utils.getPathInfo(archiveInfoSetPath)?.isFile)
-			return null;
+			return [undefined, undefined, undefined, undefined];
 
 		const archiveInfo = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
 		archiveInfoSet = [archiveInfo];
@@ -998,7 +970,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 		isOrphan = true;
 	}
 	else
-		return null;
+		return [undefined, undefined, undefined, undefined];
 
 	return [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan];
 }
@@ -1345,6 +1317,61 @@ function isAncientBrowser(userAgent) {
 
 	// Any browser not pretending to be Mozilla is definitely prehistoric
 	return true;
+}
+
+// Split and parse important information from a URL
+function buildUrlSegments(requestUrl, requestPath = null) {
+	if (!requestUrl)
+		return [undefined, undefined, undefined, undefined, undefined];
+
+	// Build request path if not provided
+	if (requestPath === null)
+		requestPath = utils.safeDecode(requestUrl.pathname.replace(/^\/+/, ''));
+
+	// Separate route and URL components, and clean up slashes
+	let routeStr, urlStr;
+	const pathSeparator = requestPath.indexOf('/');
+	if (pathSeparator > 0) {
+		routeStr = requestPath.substring(0, pathSeparator);
+		urlStr = requestPath.substring(pathSeparator + 1).replace(/^\/+/, '').replaceAll('%23', '#');
+		if (requestUrl.search == '' && requestUrl.href.endsWith('?'))
+			urlStr += '?';
+		else
+			urlStr += requestUrl.search;
+	}
+	else {
+		routeStr = requestPath.replace(/\/+$/, '');
+		urlStr = '';
+	}
+
+	// Parse the route
+	const routeMatch = routeStr.match(/^([a-z0-9]+)(?:-([a-z0-9]+)(\+\d+)?)?(?:_([a-z0-9]+))?$/);
+	if (routeMatch === null)
+		return [undefined, undefined, undefined, undefined, undefined];
+
+	// Extract route segments and check their validity
+	let [_, modeId, sourceId, offset, flagIds] = routeMatch;
+	const mode = modes.find(mode => modeId == mode.id);
+	if (mode === undefined
+	|| (!mode.hasSource && sourceId !== undefined)
+	|| (!mode.hasOffset && offset !== undefined)
+	|| (!mode.hasFlags && flagIds !== undefined)
+	|| (mode.hasUrl == (urlStr == '')))
+		return [undefined, undefined, undefined, undefined, undefined];
+
+	// If the supplied source doesn't exist, clear it so we don't have to worry about it later
+	if (sourceId !== undefined && sources[sourceId] === undefined)
+		sourceId = undefined;
+
+	// Parse offset as an integer
+	offset = parseInt(offset, 10);
+	if (isNaN(offset))
+		offset = undefined;
+
+	// Clean up and sort flag IDs
+	flagIds = flagIds !== undefined ? cleanFlags(flagIds) : '';
+
+	return [urlStr, modeId, sourceId, offset, flagIds];
 }
 
 // Join route segments back into a string, ie. mode[-source][_flags]
