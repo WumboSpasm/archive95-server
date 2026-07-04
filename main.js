@@ -121,7 +121,7 @@ function serverHandler(request, info) {
 			// But since Safari doesn't seem to always send this header (despite MDN saying it's supported), we use the referer as a (slightly less good) fallback
 			if (modernMode && !/[nijk]/.test(flagIds)) {
 				const destIsFrame = request.headers.get('Sec-Fetch-Dest') == 'frame';
-				const refererFlagIds = buildUrlSegments(URL.parse(request.headers.get('Referer')))[4];
+				const refererFlagIds = buildUrlSegments(URL.parse(request.headers.get('Referer')))[4] ?? '';
 				if (destIsFrame || (userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)[1] == 'Safari' && /[jk]/.test(refererFlagIds))) {
 					const redirectFlagIds = cleanFlags(flagIds + (refererFlagIds.includes('k') ? 'k' : 'j'));
 					const redirectUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, redirectFlagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
