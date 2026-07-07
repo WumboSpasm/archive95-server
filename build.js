@@ -1084,10 +1084,42 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 		}
 		case 'wwcatalog': {
 			html = html
-				// Remove header
-				.replace(/\n?WWC snapshot of .*\n\n<HR>/, '')
-				// Fix mailto links
-				.replace(/(mailto:)\/\/[^@]+\//gi, '$1');
+				.replace(
+					// Remove header
+					/\n?WWC snapshot of .*\n\n<HR>/,
+					'',
+				).replace(
+					// Fix broken image elements (variation 1)
+					/<(?:A|IMG|(?=\/))([^> ]+\.[a-zA-Z]+)"/g,
+					(_, path) => '<IMG SRC="' + (!path.startsWith('/') ? '../../' : '') + path + '"',
+				).replace(
+					// Fix broken image elements (variation 2)
+					/<A HREF="([^">]+\.gif)"([^>]*)><\/A>/g,
+					(_, url, attrs) => {
+						if (url.startsWith('http://')) {
+							const trimmedUrl = url.substring(7);
+							const domain = trimmedUrl.substring(0, trimmedUrl.indexOf('/'));
+							if (!domain.includes('.') || domain.endsWith('.gif'))
+								url = '/' + trimmedUrl;
+							else
+								url = new URL(url.replace(/([^/]+\/[^/]+$)/, '../../$1')).href;
+						}
+						return `<IMG SRC="${url}"${attrs}>`;
+					},
+				).replace(
+					// Fix mailto links
+					/(mailto:)\/\/[^@]+\//gi,
+					'$1',
+				);
+			// Remove stray comment closing sequences
+			const closeMatch = html.match(/>\.?(\s*(?:-->)+)/);
+			if (closeMatch !== null) {
+				const openMatch = html.match(/<!--/);
+				if (openMatch === null || openMatch.index > closeMatch.index) {
+					const closeIndex = closeMatch.index + (closeMatch[0].length - closeMatch[1].length);
+					html = html.substring(0, closeIndex) + html.substring(closeIndex + closeMatch[1].length);
+				}
+			}
 			break;
 		}
 		case 'einblicke': {

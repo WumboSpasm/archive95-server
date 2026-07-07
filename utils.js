@@ -42,12 +42,19 @@ export function sanitizeUrl(url, doLowerCase = true) {
 // Strip a path down to its bare components, for comparison purposes
 export function sanitizePath(path, keepAnchor = false, doLowerCase = true) {
 	let sanitizedPath = safeDecode(path);
-	if (!keepAnchor)
-		sanitizedPath = sanitizedPath.replace(/(?<=^[^#]+)#[^#]+$/, '');
+	const anchorMatch = sanitizedPath.match(/(?<=^[^#]+)#[^#]+$/);
+	if (anchorMatch !== null)
+		sanitizedPath = sanitizedPath.substring(0, anchorMatch.index);
+
+	sanitizedPath = sanitizedPath
+		.replace(/\/{2,}/g, '/')
+		.replace(/\/$/, '');
+	if (anchorMatch !== null && keepAnchor)
+		sanitizedPath += anchorMatch[0];
 	if (doLowerCase)
 		sanitizedPath = sanitizedPath.toLowerCase();
 
-	return sanitizedPath.replace(/(?<!#.*)\/{2,}/g, '/');
+	return sanitizedPath;
 }
 
 // Split a URL into segments for use by the directory browser
