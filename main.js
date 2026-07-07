@@ -1503,6 +1503,13 @@ function buildSourcesPage() {
 			'SCREENSHOTTOTAL': stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots),
 		});
 
+		let integrity = '<dd>N/A</dd>';
+		if (source.integrity.length > 0)
+			integrity = buildHtml(templates.compat.sources.list, { 'BULLETS': source.integrity.map(bullet => '<li>' + bullet + '</li>').join('\n') });
+		let remediations = '<dd>N/A</dd>';
+		if (source.remediations.length > 0)
+			remediations = buildHtml(templates.compat.sources.list, { 'BULLETS': source.remediations.map(bullet => '<li>' + bullet + '</li>').join('\n') });
+
 		sourceRows.push(buildHtml(templates.compat.sources.source, {
 			'ID': sourceId,
 			'TITLE': source.title,
@@ -1511,8 +1518,8 @@ function buildSourcesPage() {
 			'PUBLISHDATE': source.publishDate,
 			'LINKS': source.links.map(link => buildHtml(templates.compat.sources.link, { 'LINK': link })).join('\n'),
 			'DESCRIPTION': source.description,
-			'INTEGRITY': source.integrity,
-			'REMEDIATIONS': source.remediations,
+			'INTEGRITY': integrity,
+			'REMEDIATIONS': remediations,
 			'STATS': { value: sourceStats, indent: 'first' },
 			'PERCENT': Math.round((sourceGrandTotal / grandTotal) * 1000) / 10,
 		}));

@@ -8,6 +8,7 @@
 		"sources": [
 			"source",
 			"link",
+			"list",
 			"stats"
 		],
 		"navbar": [
