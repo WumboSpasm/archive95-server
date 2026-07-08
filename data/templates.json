@@ -1,5 +1,6 @@
 {
 	"compat": {
+		"shell": [],
 		"search": [
 			"home",
 			"result"
@@ -36,6 +37,7 @@
 		]
 	},
 	"modern": {
+		"shell": [],
 		"search": [
 			"home",
 			"highlights",

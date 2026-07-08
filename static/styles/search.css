@@ -1,34 +1,14 @@
-body {
-	margin: 0 auto;
-
-	color: black;
-	font-family: 'Times New Roman', Times, serif;
-	background-color: white;
-
-	-webkit-text-size-adjust: none;
-}
 fieldset {
 	margin-bottom: 4px;
 }
 
 .upper {
 	width: 384px;
-	margin: 0 auto;
+	margin: 16px auto 8px;
 	text-align: center;
 }
 .search {
 	display: flex;
-}
-.links {
-	margin: 6px 0;
-	display: flex;
-	justify-content: center;
-}
-.links > :not(:last-child)::after {
-	margin: 0 0.5rem;
-
-	color: gray;
-	content: '|';
 }
 #query {
 	margin-right: 4px;

@@ -22,7 +22,7 @@ const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath
 const stats = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'stats.json')));
 
 const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
-const sourcesPage = buildSourcesPage();
+const sourcesContent = buildSourcesContent();
 
 // Load the database
 utils.logMessage('opening database...');
@@ -108,13 +108,13 @@ function serverHandler(request, info) {
 	// Extract info from URL
 	const [urlStr, modeId, sourceId, offset, flagIds] = buildUrlSegments(requestUrl, requestPath);
 	if (urlStr === undefined)
-		throw new NotFoundError();
+		throw new NotFoundError(modernMode);
 
 	switch (modeId) {
 		case 'view': {
 			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
-				throw new UnarchivedError(urlStr, flagIds);
+				throw new UnarchivedError(urlStr, modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
 			// Try to prevent links inside frames inside iframes from displaying navbars inside frames by checking the Sec-Fetch-Dest header
@@ -141,7 +141,7 @@ function serverHandler(request, info) {
 				// Build metadata slices
 				const metadata = [];
 				if (flagIds.includes('i'))
-					metadata.push('<base target="_parent">');
+					metadata.push('<base target="_top">');
 				else if (flagIds.includes('j'))
 					metadata.push('<script src="/scripts/frames.js"></script>');
 				if (modernMode) {
@@ -325,7 +325,7 @@ function serverHandler(request, info) {
 		case 'raw': {
 			const [archiveInfoSet, archiveInfoIndex, archiveDir] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
-				throw new NotFoundError();
+				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
 			let archiveRawPath = pathUtils.join(archiveDir, 'raw');
@@ -342,11 +342,11 @@ function serverHandler(request, info) {
 			let isOrphan = false;
 			if (!utils.getPathInfo(browseFilePath)?.isFile) {
 				if (sourceId === undefined)
-					throw new NotFoundError(flagIds);
+					throw new NotFoundError(modernMode);
 				else {
 					browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans'), browseFileName);
 					if (!utils.getPathInfo(browseFilePath)?.isFile)
-						throw new NotFoundError(flagIds);
+						throw new NotFoundError(modernMode);
 					isOrphan = true;
 				}
 			}
@@ -465,11 +465,15 @@ function serverHandler(request, info) {
 			if (isOrphan)
 				encodedBrowsePath.unshift(sourceId);
 
-			const browsePage = buildHtml(templates.compat.browse.main, {
-				'DIR': sanitizedBrowsePath.join('/'),
+			const browseContent = buildHtml(templates.compat.browse.main, {
 				'NAVIGATION': browseNavigationArr.join(' / ') + ' /',
 				'COLUMNS': browseEntryLines[0],
 				'ENTRIES': browseEntryLines.slice(1).join('\n'),
+			});
+			const browsePage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				'TITLE': 'Index of ' + sanitizedBrowsePath.join('/'),
+				'METADATA': '',
+				'CONTENT': { value: browseContent, indent: 'first' },
 			});
 			return new Response(browsePage, { headers: headers });
 		}
@@ -511,16 +515,21 @@ function serverHandler(request, info) {
 				displayUrl = sanitizeInject(sanitizedUrl, true);
 			}
 
-			const inlinksPage = buildHtml(templates.compat.inlinks.main, {
+			const inlinksContent = buildHtml(templates.compat.inlinks.main, {
 				'URL': displayUrl,
 				'CONTENT': content,
+			});
+			const inlinksPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				'TITLE': 'Inlinks to ' + displayUrl,
+				'METADATA': '',
+				'CONTENT': inlinksContent,
 			});
 			return new Response(inlinksPage, { headers: headers });
 		}
 		case 'options': {
 			const [archiveInfoSet, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
-				throw new NotFoundError(flagIds);
+				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
 			// Since query strings are off-limits, links masquerading as checkboxes are used to alter flags
@@ -539,11 +548,16 @@ function serverHandler(request, info) {
 				}));
 			}
 
-			const options = buildHtml(templates.compat.options.main, {
+			const optionsContent = buildHtml(templates.compat.options.main, {
 				'OPTIONS': optionsList.join('\n'),
 				'ARCHIVEURL': `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			});
-			return new Response(options, { headers: headers });
+			const optionsPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				'TITLE': 'Options',
+				'METADATA': '',
+				'CONTENT': optionsContent,
+			});
+			return new Response(optionsPage, { headers: headers });
 		}
 		case 'screenshot':
 		case 'thumbnail': {
@@ -551,7 +565,7 @@ function serverHandler(request, info) {
 			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (!utils.getPathInfo(screenshotInfoSetPath)?.isFile)
-				throw new NotFoundError();
+				throw new NotFoundError(modernMode);
 
 			// Identify the desired screenshot from the set (mostly lifted from getArchiveInfo)
 			const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
@@ -703,22 +717,26 @@ function serverHandler(request, info) {
 				}
 			}
 
-			throw new NotFoundError();
+			throw new NotFoundError(modernMode);
 		}
 		case 'about': {
-			return new Response(templates.compat.about.main, { headers: headers });
+			const aboutPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				'TITLE': 'About Archive95',
+				'METADATA': '',
+				'CONTENT': templates.compat.about.main,
+			});
+			return new Response(aboutPage, { headers: headers });
 		}
 		case 'sources': {
+			const sourcesPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				'TITLE': 'Data Sources',
+				'METADATA': '',
+				'CONTENT': { value: sourcesContent, indent: 'none' },
+			});
 			return new Response(sourcesPage, { headers: headers });
 		}
 		case 'deadend': {
-			const deadendPage = buildHtml(templates.compat.error.main, {
-				'STATUSTEXT': 'Dead End',
-				'METADATA': '',
-				'MESSAGE': 'If you reached this page, it means the original destination of the link you followed has been lost.',
-				'LINKS': buildHtml(templates.compat.error.links, { 'OPTIONS': '', 'RANDOM': '/random' }),
-			});
-			return new Response(deadendPage, { status: 404, headers: headers });
+			throw new DeadEndError(modernMode);
 		}
 	}
 }
@@ -736,16 +754,17 @@ function serverError(error) {
 
 	let links = '';
 	if (error.options instanceof Array)
-		links = buildHtml(templates.compat.error.links, {
-			'OPTIONS': error.options.join('\n'),
-			'RANDOM': `/${buildRoute('random', null, null, error.flagIds.replace('i', ''))}`,
-		});
+		links = buildHtml(templates.compat.error.links, { 'OPTIONS': error.options.join('\n') });
 
-	const errorPage = buildHtml(templates.compat.error.main, {
+	const errorContent = buildHtml(templates.compat.error.main, {
 		'STATUSTEXT': statusText,
-		'METADATA': error.flagIds?.includes('i') ? '<base target="_parent">' : '',
 		'MESSAGE': message,
 		'LINKS': links,
+	});
+	const errorPage = buildHtml(templates[error.modernMode ? 'modern' : 'compat'].shell.main, {
+		'TITLE': statusText,
+		'METADATA': '<base target="_top">',
+		'CONTENT': errorContent,
 	});
 
 	// The server did not purposefully invoke this error, so dump the stack
@@ -1002,7 +1021,11 @@ function buildSearch(params, modernMode) {
 	const [searchResults, searchFilters, page] = performSearch(params);
 	params.delete('page');
 
-	// Initialize template definitions based on search filters
+	// Initialize template definitions
+	const shellDefs = {
+		'TITLE': 'Archive95',
+		'METADATA': modernMode ? '<link rel="stylesheet" type="text/css" href="/styles/search.css">' : '',
+	};
 	const searchDefs = {
 		'QUERY': '',
 		'INTITLE': searchFilters.inTitle ? ' checked' : '',
@@ -1011,12 +1034,11 @@ function buildSearch(params, modernMode) {
 		'FORMATSALL': searchFilters.formatsAll ? ' checked' : '',
 		'FORMATSTEXT': searchFilters.formatsText ? ' checked' : '',
 		'FORMATSMEDIA': searchFilters.formatsMedia ? ' checked' : '',
+		'HEADER': 'Welcome to Archive95',
 	};
 
 	// Render the homepage if no search query was supplied
 	if (!params.has('query')) {
-		searchDefs['TITLE'] = 'Archive95';
-		searchDefs['HEADER'] = 'Welcome to Archive95';
 		if (modernMode) {
 			searchDefs['TOTAL'] = (stats.total.urls + stats.total.orphans).toLocaleString('en-US');
 			searchDefs['CONTENT'] = templates.modern.search.home;
@@ -1090,7 +1112,7 @@ function buildSearch(params, modernMode) {
 			resultSegments.push(noResults);
 		}
 
-		searchDefs['TITLE'] = `Search results for ${sanitizedQuery}`;
+		shellDefs['TITLE'] = `Search results for ${sanitizedQuery}`;
 		searchDefs['QUERY'] = sanitizedQuery;
 		searchDefs['HEADER'] = 'Search results';
 		searchDefs['CONTENT'] = resultSegments.join('\n');
@@ -1103,7 +1125,8 @@ function buildSearch(params, modernMode) {
 		sourceOptions.push(`<option value="${sourceId}"${sourceId == searchFilters.source ? ' selected' : ''}>${sourceId}</option>`);
 	searchDefs['SOURCES'] = sourceOptions.join('\n');
 
-	return buildHtml(modernMode ? templates.modern.search.main : templates.compat.search.main, searchDefs);
+	shellDefs['CONTENT'] = buildHtml(templates[modernMode ? 'modern' : 'compat'].search.main, searchDefs);
+	return buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, shellDefs);
 }
 
 // Build navigation bar
@@ -1134,8 +1157,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'URL': displayUrl,
 			'MESSAGE': messages.map(message => `<div class="archive95-navbar-message">${message}</div>`).join('\n'),
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
-			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">wayback</a>` : '',
-			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">live</a>` : '',
+			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">Wayback</a>` : '',
+			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">Live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
 			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${splitUrl.join('/')}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
@@ -1467,8 +1490,8 @@ function buildHomeContent() {
 	];
 }
 
-// Build Sources page with statistics
-function buildSourcesPage() {
+// Build Sources page content with statistics
+function buildSourcesContent() {
 	const getPercentString = (part, whole) => {
 		if (part == 0)
 			return '';
@@ -1541,68 +1564,83 @@ function buildSourcesPage() {
 }
 
 class ArchiveError extends Error {
-	constructor(status, statusText, message, options = null, flagIds = '') {
+	constructor(status, statusText, message, modernMode = false, options = null) {
 		super(message);
 		this.name = 'ArchiveError';
 
 		this.status = status;
 		this.statusText = statusText;
+		this.modernMode = modernMode;
 		this.options = options;
-		this.flagIds = flagIds;
 	}
 }
 
 class BadRequestError extends ArchiveError {
-	constructor() {
+	constructor(modernMode = false) {
 		super(
 			400,
 			'Bad Request',
 			'The requested URL is invalid.',
+			modernMode,
 		);
 	}
 }
 
 class BlockedError extends ArchiveError {
-	constructor() {
+	constructor(modernMode = false) {
 		super(
 			403,
 			'Forbidden',
 			'You are not allowed to access this server.',
+			modernMode,
 		);
 	}
 }
 
 class BadHostError extends ArchiveError {
-	constructor() {
+	constructor(modernMode = false) {
 		super(
 			403,
 			'Forbidden',
 			'Connections through this host are not allowed.',
+			modernMode,
 		);
 	}
 }
 
 class NotFoundError extends ArchiveError {
-	constructor(flagIds = '') {
+	constructor(modernMode = false) {
 		super(
 			404,
 			'Not Found',
 			'The requested URL does not exist.',
+			modernMode,
 			[],
-			flagIds,
 		);
 	}
 }
 
 class UnarchivedError extends ArchiveError {
-	constructor(url, flagIds = '') {
+	constructor(url, modernMode = false) {
 		const safeUrl = sanitizeInject(url, true);
 		super(
 			404,
 			'Unarchived URL',
 			`The URL <b>${safeUrl}</b> does not exist in the archive.`,
+			modernMode,
 			[`<li><a href="https://web.archive.org/web/0/${safeUrl}">Go to the Wayback Machine</a></li>`],
-			flagIds,
 		);
+	}
+}
+
+class DeadEndError extends ArchiveError {
+	constructor(modernMode = false) {
+		super(
+			404,
+			'Dead End',
+			'If you reached this page, it means the original destination of the link you followed has been lost.',
+			modernMode,
+			[],
+		)
 	}
 }

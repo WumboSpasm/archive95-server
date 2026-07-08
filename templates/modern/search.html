@@ -1,73 +1,52 @@
-<!DOCTYPE html>
-<html>
-	<head>
-		<title>{TITLE}</title>
-		<meta name="description" content="An independent web archive focused on material that predates or has otherwise evaded more mainstream archives.">
-		<meta name="keywords" content="internet, world wide web, archive, wayback machine, cd, 1995">
-		<meta name="author" content="WumboSpasm">
-		<link rel="icon" type="image/x-icon" href="/images/favicon.ico">
-		<link rel="stylesheet" type="text/css" href="/styles/search.css">
-		<link rel="search" type="application/opensearchdescription+xml" title="Archive95" href="/opensearch.xml">
-	</head>
-	<body>
-		<form action="/" method="get">
-			<div class="upper">
-				<a href="/" title="Go home"><img src="/images/modern/logo.gif"></a>
-				<div class="search">
-					<input type="text" id="query" name="query" value="{QUERY}" placeholder="Search {TOTAL} archived web pages and media...">
-					<button type="submit">Search</button>
-				</div>
-				<div class="links">
-					<span><a href="/">Home</a></span>
-					<span><a href="/about">About</a></span>
-					<span><a href="/sources">Sources</a></span>
-					<span><a href="http://github.com/WumboSpasm/archive95-server" target="_blank">GitHub</a></span>
-					<span><a href="http://archive.org/details/archive95-dataset" target="_blank">Dataset</a></span>
-				</div>
+<form action="/" method="get">
+	<div class="upper">
+		<a href="/" title="Go home"><img src="/images/modern/logo.gif"></a>
+		<div class="search">
+			<input type="text" id="query" name="query" value="{QUERY}" placeholder="Search {TOTAL} archived web pages and media...">
+			<button type="submit">Search</button>
+		</div>
+	</div>
+	<div class="lower">
+		<div class="options">
+			<fieldset>
+				<legend>Search in</legend>
+				<input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}>
+				<label for="inTitle">Title</label>
+				<br>
+				<input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}>
+				<label for="inContent">Content</label>
+				<br>
+				<input type="checkbox" id="inUrl" name="in" value="url"{INURL}>
+				<label for="inUrl">URL</label>
+			</fieldset>
+			<fieldset>
+				<legend>Search formats</legend>
+				<input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}>
+				<label for="formatsAll">All formats</label>
+				<br>
+				<input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}>
+				<label for="formatsText">Text only</label>
+				<br>
+				<input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}>
+				<label for="formatsMedia">Media only</label>
+			</fieldset>
+			<fieldset>
+				<legend>Search source</legend>
+				<select id="source" name="source">
+					<option value="">All sources</option>
+					{SOURCES}
+				</select>
+			</fieldset>
+			<div>
+				<a href="/random"><img src="/images/modern/dice.gif" title="Take me to a random page"></a>
 			</div>
-			<div class="lower">
-				<div class="options">
-					<fieldset>
-						<legend>Search in</legend>
-						<input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}>
-						<label for="inTitle">Title</label>
-						<br>
-						<input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}>
-						<label for="inContent">Content</label>
-						<br>
-						<input type="checkbox" id="inUrl" name="in" value="url"{INURL}>
-						<label for="inUrl">URL</label>
-					</fieldset>
-					<fieldset>
-						<legend>Search formats</legend>
-						<input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}>
-						<label for="formatsAll">All formats</label>
-						<br>
-						<input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}>
-						<label for="formatsText">Text only</label>
-						<br>
-						<input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}>
-						<label for="formatsMedia">Media only</label>
-					</fieldset>
-					<fieldset>
-						<legend>Search source</legend>
-						<select id="source" name="source">
-							<option value="">All sources</option>
-							{SOURCES}
-						</select>
-					</fieldset>
-					<div>
-						<a href="/random"><img src="/images/modern/dice.gif" title="Take me to a random page"></a>
-					</div>
-				</div>
-				<div class="content">
-					<fieldset>
-						<legend>{HEADER}</legend>
-						{CONTENT}
-					</fieldset>
-					{HIGHLIGHTS}
-				</div>
-			</div>
-		</form>
-	</body>
-</html>
+		</div>
+		<div class="content">
+			<fieldset>
+				<legend>{HEADER}</legend>
+				{CONTENT}
+			</fieldset>
+			{HIGHLIGHTS}
+		</div>
+	</div>
+</form>
