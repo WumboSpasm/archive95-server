@@ -472,7 +472,7 @@ function serverHandler(request, info) {
 			});
 			const browsePage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
 				'TITLE': 'Index of ' + sanitizedBrowsePath.join('/'),
-				'METADATA': '',
+				'METADATA': modernMode ? '<link rel="stylesheet" type="text/css" href="/styles/browse.css">' : '',
 				'CONTENT': { value: browseContent, indent: 'first' },
 			});
 			return new Response(browsePage, { headers: headers });

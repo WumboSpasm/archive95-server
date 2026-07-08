@@ -1,13 +1,9 @@
-fieldset {
-	margin-bottom: 4px;
-}
-
-.upper {
+.archive95-search-upper {
 	width: 384px;
-	margin: 16px auto 8px;
+	margin: 0 auto;
 	text-align: center;
 }
-.search {
+.archive95-search-box {
 	display: flex;
 }
 #query {
@@ -15,20 +11,25 @@ fieldset {
 	flex-grow: 1;
 }
 
-.lower {
+.archive95-search-lower {
 	max-width: 640px;
-	margin: 0 auto 16px;
+	margin: 12px auto 4px;
 	display: flex;
 
 	gap: 12px;
 }
+.archive95-search-lower fieldset {
+	margin-bottom: 4px;
 
-.options {
+	border: 2px solid lightgray;
+}
+
+.archive95-search-options {
 	width: 144px;
 
 	flex-shrink: 0;
 }
-.options > div {
+.archive95-search-options > div {
 	padding-top: 4px;
 	text-align: center;
 }
@@ -36,62 +37,62 @@ fieldset {
 	max-width: 100%;
 }
 
-.content {
+.archive95-search-content {
 	flex-grow: 1;
 }
-.home-break {
+.archive95-search-break {
 	height: 8px;
 }
-.home-highlights {
+.archive95-search-highlights {
 	margin: 2px 0;
 
 	font-size: 90%;
 }
-.home-highlights dd {
+.archive95-search-highlights dd {
 	margin-left: 24px;
 }
-.home-highlights dd:not(:last-of-type) {
+.archive95-search-highlights dd:not(:last-of-type) {
 	margin-bottom: 4px;
 }
 
-.navigate {
+.archive95-search-navigate {
 	display: flex;
 	gap: 6px;
 }
-.navigate:first-of-type {
+.archive95-search-navigate:first-of-type {
 	margin-bottom: 8px;
 	padding-bottom: 6px;
 
 	border-bottom: 1px solid lightgray;
 }
-.navigate-total {
+.archive95-search-navigate-total {
 	flex-grow: 1;
 }
-.navigate-button {
+.archive95-search-navigate-button {
 	flex-shrink: 0;
 }
 
-.result {
+.archive95-search-result {
 	display: flex;
 	flex-direction: column;
 	word-wrap: anywhere;
 }
-.result:not(:last-of-type) {
+.archive95-search-result:not(:last-of-type) {
 	margin-bottom: 8px;
 	padding-bottom: 6px;
 
 	border-bottom: 1px solid lightgray;
 }
-.result-url {
+.archive95-search-result-url {
 	margin-bottom: 4px;
 
 	font-size: 80%;
 }
-.result-source {
+.archive95-search-result-source {
 	margin-left: 6px;
 
 	color: #555555;
 }
-.result-text {
+.archive95-search-result-text {
 	font-size: 90%;
 }

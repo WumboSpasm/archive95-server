@@ -1,4 +1,9 @@
 body {
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+
 	color: black;
 	font-family: 'Times New Roman', Times, serif;
 	background-color: white;
@@ -6,14 +11,23 @@ body {
 	-webkit-text-size-adjust: none;
 }
 
-.titlebar {
-	margin: -8px -8px;
+.archive95-titlebar {
 	padding: 4px 8px;
 	display: flex;
 	gap: 12px;
 
-	border-bottom: 1px solid black;
+	border-bottom: 2px solid lightgray;
 }
-.titlebar-spacer {
+.archive95-titlebar-spacer {
 	flex-grow: 1;
+}
+
+.archive95-content {
+	padding: 8px;
+}
+.archive95-content h1:first-child {
+	margin-top: 4px;
+}
+.archive95-content :last-child {
+	margin-bottom: 0;
 }

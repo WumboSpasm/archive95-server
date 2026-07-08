@@ -1,0 +1,5 @@
+/* Align icons with text */
+img {
+    margin-top: 4px;
+    vertical-align: bottom;
+}
