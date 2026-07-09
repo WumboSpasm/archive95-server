@@ -1194,10 +1194,6 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	}
 	else {
 		const navbarDefs = {
-			'URL': displayUrl,
-			'SOURCE': sources[archiveInfo.source].title,
-			'DATE': archiveInfo.date,
-			'MESSAGE': messages.join(' '),
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
@@ -1206,6 +1202,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
+			'URL': displayUrl,
+			'SOURCE': sources[archiveInfo.source].title,
+			'DATE': archiveInfo.date,
+			'MESSAGE': messages.join(' '),
 		};
 
 		const archiveButtons = [];
