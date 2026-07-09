@@ -394,8 +394,8 @@ function serverHandler(request, info) {
 
 			// Add files to entry list
 			for (const browseFile of browse.files) {
-				const fromLink = `/${buildRoute('view', browseFile.from.source, browseFile.from.offset, flagIds)}/${browseFile.from.url}`;
-				const toLink = `/${buildRoute('view', browseFile.to.source, browseFile.to.offset, flagIds)}/${browseFile.to.url}`;
+				const fromLink = `/${buildRoute('view', browseFile.from.source, browseFile.from.offset, flagIds)}/${browseFile.from.url.replaceAll('#', '%23')}`;
+				const toLink = `/${buildRoute('view', browseFile.to.source, browseFile.to.offset, flagIds)}/${browseFile.to.url.replaceAll('#', '%23')}`;
 				const isIndex = browseFile.name == '[__ARCHIVE95_INDEX__]';
 
 				// Determine which icon to use based on the file's MIME type
