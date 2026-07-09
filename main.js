@@ -499,7 +499,7 @@ function serverHandler(request, info) {
 				content = buildHtml(templates.compat.inlinks.list, { 'LINKS': links.join('\n') });
 			}
 			else {
-				content = 'There are no links to this URL.';
+				content = '<p>There are no links to this URL.</p>';
 				displayUrl = sanitizeInject(sanitizedUrl, true);
 			}
 
