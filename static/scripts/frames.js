@@ -3,13 +3,15 @@
 // - In the latter's case, it's because embedding content from the Wayback Machine is generally not a good idea
 // The "j" flag ID also needs to be removed from in-site links so the page doesn't display without a navigation bar
 function updateLinks() {
-	for (const link of document.querySelectorAll('[href^="/view-"][target], [href^="http://"]')) {
+	for (const link of document.querySelectorAll('[href^="/view-"][target],[href="/deadend"][target],[href^="http://"]')) {
 		const href = link.getAttribute('href');
-		if (href.startsWith('/view-')) {
+		const isViewer = href.startsWith('/view-');
+		if (isViewer || href == '/deadend') {
 			if (link.target != '_parent' && link.target != '_top' && link.target != '_blank')
 				continue;
 
-			link.setAttribute('href', href.replace(/(?<=^\/.*?)(_.*?)(?=\/)/, flagIds => flagIds == '_j' ? '' : flagIds.replace('j', '')));
+			if (isViewer)
+				link.setAttribute('href', href.replace(/(?<=^\/.*?)(_.*?)(?=\/)/, flagIds => flagIds == '_j' ? '' : flagIds.replace('j', '')));
 		}
 
 		if (link.target != '_blank')
