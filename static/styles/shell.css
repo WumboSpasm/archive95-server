@@ -28,6 +28,6 @@ body {
 .archive95-content h1:first-child {
 	margin-top: 4px;
 }
-.archive95-content :last-child {
+.archive95-content :not(div):last-child {
 	margin-bottom: 0;
 }
