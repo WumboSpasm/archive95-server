@@ -117,18 +117,6 @@ function serverHandler(request, info) {
 				throw new UnarchivedError(urlStr, modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
-			// Try to prevent links inside frames inside iframes from displaying navbars inside frames by checking the Sec-Fetch-Dest header
-			// But since Safari doesn't seem to always send this header (despite MDN saying it's supported), we use the referer as a (slightly less good) fallback
-			if (modernMode && !/[nijk]/.test(flagIds)) {
-				const destIsFrame = request.headers.get('Sec-Fetch-Dest') == 'frame';
-				const refererFlagIds = buildUrlSegments(URL.parse(request.headers.get('Referer')))[4] ?? '';
-				if (destIsFrame || (userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)[1] == 'Safari' && /[jk]/.test(refererFlagIds))) {
-					const redirectFlagIds = cleanFlags(flagIds + (refererFlagIds.includes('k') ? 'k' : 'j'));
-					const redirectUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, redirectFlagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
-					return Response.redirect(requestUrl.origin + redirectUrl);
-				}
-			}
-
 			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
 			if (fileType == 'text/html' && (!modernMode || /[ndijk]/.test(flagIds))) {
@@ -191,13 +179,13 @@ function serverHandler(request, info) {
 
 				// Determine the most appropriate way to hide the navbar
 				let noNavbarFlagId = 'n';
-				if (flagIds.includes('i'))
+				if (/[ij]/.test(flagIds))
 					noNavbarFlagId = 'j';
 				else if (flagIds.includes('d'))
 					noNavbarFlagId = 'k';
 
 				// Build slices for each link on the page
-				const defaultFlagIds = flagIds.replace(/[ijk]/g, '');
+				const defaultFlagIds = flagIds.replace(/[ik]/g, '');
 				const iframeFlagIds = cleanFlags(defaultFlagIds + 'i');
 				const noNavbarFlagIds = cleanFlags(defaultFlagIds + noNavbarFlagId);
 				for (const linkInject of inject.links) {
