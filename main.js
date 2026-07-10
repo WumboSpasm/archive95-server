@@ -386,7 +386,8 @@ function serverHandler(request, info) {
 					[`<a href="/${browseRoute}/${encodedBrowsePath.concat(encodeURI(browseDir.name)).join('/')}">${sanitizeInject(browseDirName)}</a>`, browseDirName],
 					[browseDir.from, browseDir.from],
 					[browseDir.to, browseDir.to],
-					['-', '-'], ['-', '-'],
+					['-', '-'],
+					[browseDir.size, browseDir.size],
 					[browseDirCount, browseDirCount],
 					'dir.gif',
 				]);

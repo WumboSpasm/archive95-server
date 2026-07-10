@@ -248,15 +248,16 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 	// Sort and format size field of browse.json files
 	utils.logMessage('sorting directory browser entries...');
+	const formatSize = size => format(size, { maximumFractionDigits: 1 }).replace(/ (.).*$/, (_, c) => c == 'B' ? '' : c.toUpperCase());
 	for (const browsePath of browseIndex) {
 		const browse = JSON.parse(Deno.readTextFileSync(browsePath));
-		if (browse.files.length > 0 || browse.dirs.length > 1) {
-			browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
-			browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
-			for (const browseFile of browse.files)
-				browseFile.size = format(browseFile.size, { maximumFractionDigits: 1 }).replace(/ (.).*$/, (_, c) => c == 'B' ? '' : c.toUpperCase());
-			Deno.writeTextFileSync(browsePath, JSON.stringify(browse, null, '\t'));
-		}
+		browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+		browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+		for (const browseFile of browse.files)
+			browseFile.size = formatSize(browseFile.size);
+		for (const browseDir of browse.dirs)
+			browseDir.size = formatSize(browseDir.size);
+		Deno.writeTextFileSync(browsePath, JSON.stringify(browse, null, '\t'));
 	}
 
 	// Save type index to file
@@ -874,6 +875,7 @@ function buildBrowse(archive, browseIndex) {
 	// Traverse up the directory tree and build listings
 	let splitUrlIndex = splitUrl.length - 1;
 	let fileDone = false;
+	const fileSizeDeltas = {};
 	while (currentDir != endDir) {
 		const segmentName = splitUrl[splitUrlIndex];
 		const segmentNameLower = segmentName.toLowerCase();
@@ -920,8 +922,11 @@ function buildBrowse(archive, browseIndex) {
 					if (archiveTime < utils.dateStringToNum(browseFile.from.date)) {
 						browseFile.from = browseFileArchive;
 						browseFile.type = archive.types[0];
+						fileSizeDeltas[browseName] = archive.size - browseFile.size;
 						browseFile.size = archive.size;
 					}
+					else
+						fileSizeDeltas[browseName] = 0;
 					if (archiveTime > utils.dateStringToNum(browseFile.to.date))
 						browseFile.to = browseFileArchive;
 					browseFile.count++;
@@ -931,7 +936,7 @@ function buildBrowse(archive, browseIndex) {
 				}
 
 				// If a file entry doesn't exist, add it and sort
-				if (fileNotAddedYet)
+				if (fileNotAddedYet) {
 					browse.files.push({
 						name: segmentName,
 						from: browseFileArchive,
@@ -940,6 +945,8 @@ function buildBrowse(archive, browseIndex) {
 						size: archive.size,
 						count: 1,
 					});
+					fileSizeDeltas[browseName] = archive.size;
+				}
 			}
 			else {
 				// Check if a directory entry already exists and update it if applicable
@@ -953,6 +960,7 @@ function buildBrowse(archive, browseIndex) {
 						browseDir.from = archive.date;
 					if (archiveTime > utils.dateStringToNum(browseDir.to))
 						browseDir.to = archive.date;
+					browseDir.size += fileSizeDeltas[browseName];
 					browseDir.count++;
 
 					dirNotAddedYet = false;
@@ -965,6 +973,7 @@ function buildBrowse(archive, browseIndex) {
 						name: segmentName,
 						from: archive.date,
 						to: archive.date,
+						size: fileSizeDeltas[browseName],
 						count: 1,
 					});
 			}
