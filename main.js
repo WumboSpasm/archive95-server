@@ -1607,13 +1607,26 @@ class NotFoundError extends ArchiveError {
 
 class UnarchivedError extends ArchiveError {
 	constructor(url, modernMode = false) {
-		const safeUrl = sanitizeInject(url, true);
+		const encodedUrl = encodeURI(url);
+		const splitUrl = utils.splitUrl(url);
+		if (splitUrl.length > 1 && splitUrl[splitUrl.length - 1].includes('.'))
+			splitUrl.pop();
+		const urlDir = splitUrl.join('/');
+
+		const options = [];
+		if (getBrowseInfo(urlDir) !== null)
+			options.push(`<li><a href="/browse/${encodeURI(urlDir)}">Browse files in this directory</a></li>`);
+		if (getInlinksInfo(url)[0].length > 0)
+			options.push(`<li><a href="/inlinks/${encodedUrl}">See which pages link here</a></li>`);
+		if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(url))
+			options.push(`<li><a href="http://web.archive.org/web/0/${encodedUrl}">Go to the Wayback Machine</a></li>`);
+
 		super(
 			404,
 			'Unarchived URL',
-			`The URL <b>${safeUrl}</b> does not exist in the archive.`,
+			`The URL <b>${sanitizeInject(url, true)}</b> does not exist in the archive.`,
 			modernMode,
-			[`<li><a href="https://web.archive.org/web/0/${safeUrl}">Go to the Wayback Machine</a></li>`],
+			options,
 		);
 	}
 }
