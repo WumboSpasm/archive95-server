@@ -919,14 +919,13 @@ function buildBrowse(archive, browseIndex) {
 						continue;
 
 					browseFile.name = getBetterString(browseFile.name, segmentName);
+					fileSizeDeltas[browseName] = 0;
 					if (archiveTime < utils.dateStringToNum(browseFile.from.date)) {
 						browseFile.from = browseFileArchive;
 						browseFile.type = archive.types[0];
 						fileSizeDeltas[browseName] = archive.size - browseFile.size;
 						browseFile.size = archive.size;
 					}
-					else
-						fileSizeDeltas[browseName] = 0;
 					if (archiveTime > utils.dateStringToNum(browseFile.to.date))
 						browseFile.to = browseFileArchive;
 					browseFile.count++;
