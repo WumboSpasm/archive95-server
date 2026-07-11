@@ -325,30 +325,20 @@ function serverHandler(request, info) {
 		}
 		case 'browse': {
 			// Look for the directory listing file and load it
-			const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
-			let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'urls'), browseFileName);
-			let isOrphan = false;
-			if (!utils.getPathInfo(browseFilePath)?.isFile) {
-				if (sourceId === undefined)
-					throw new NotFoundError(modernMode);
-				else {
-					browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(urlStr)), 'orphans'), browseFileName);
-					if (!utils.getPathInfo(browseFilePath)?.isFile)
-						throw new NotFoundError(modernMode);
-					isOrphan = true;
-				}
-			}
-			const browse = JSON.parse(Deno.readTextFileSync(browseFilePath));
+			const browseInfoSpread = getBrowseInfo(urlStr, sourceId);
+			if (browseInfoSpread === null)
+				throw new NotFoundError(modernMode);
+			const [browseInfo, isOrphan] = browseInfoSpread;
 
 			// Build path header
 			const browseRoute = buildRoute('browse', sourceId, null, flagIds);
 			const browseNavigationArr = [];
 			const sanitizedBrowsePath = [];
 			const encodedBrowsePath = [];
-			for (let i = 0; i < browse.path.length; i++) {
-				sanitizedBrowsePath.push(sanitizeInject(browse.path[i]));
-				encodedBrowsePath.push(encodeURI(browse.path[i]));
-				if (i < browse.path.length - 1)
+			for (let i = 0; i < browseInfo.path.length; i++) {
+				sanitizedBrowsePath.push(sanitizeInject(browseInfo.path[i]));
+				encodedBrowsePath.push(encodeURI(browseInfo.path[i]));
+				if (i < browseInfo.path.length - 1)
 					browseNavigationArr.push(`<a href="/${browseRoute}/${encodedBrowsePath.slice(isOrphan ? 1 : 0).join('/')}">${encodedBrowsePath[i]}</a>`);
 				else
 					browseNavigationArr.push(sanitizedBrowsePath[i]);
@@ -371,7 +361,7 @@ function serverHandler(request, info) {
 
 			// Add column headers and (if applicable) parent directory button to entry list
 			addBrowseEntry([['Name', 'Name'], ['From', 'From'], ['To', 'To'], ['Type', 'Type'], ['Size', 'Size'], ['#', '#'], 'blank.gif']);
-			if (browse.path.length > 1)
+			if (browseInfo.path.length > 1)
 				addBrowseEntry([
 					[`<a href="/${browseRoute}/${encodedBrowsePath.slice(0, -1).join('/')}">Parent Directory</a>`, 'Parent Directory'],
 					['-', '-'], ['-', '-'], ['-', '-'], ['-', '-'], ['-', '-'],
@@ -379,7 +369,7 @@ function serverHandler(request, info) {
 				]);
 
 			// Add directories to entry list
-			for (const browseDir of browse.dirs) {
+			for (const browseDir of browseInfo.dirs) {
 				const browseDirName = (browseDir.name.length > 40 ? browseDir.name.substring(0, 37) + '...' : browseDir.name) + '/';
 				const browseDirCount = browseDir.count.toString();
 				addBrowseEntry([
@@ -394,7 +384,7 @@ function serverHandler(request, info) {
 			}
 
 			// Add files to entry list
-			for (const browseFile of browse.files) {
+			for (const browseFile of browseInfo.files) {
 				const fromLink = `/${buildRoute('view', browseFile.from.source, browseFile.from.offset, flagIds)}/${browseFile.from.url.replaceAll('#', '%23')}`;
 				const toLink = `/${buildRoute('view', browseFile.to.source, browseFile.to.offset, flagIds)}/${browseFile.to.url.replaceAll('#', '%23')}`;
 				const isIndex = browseFile.name == '[__ARCHIVE95_INDEX__]';
@@ -467,30 +457,12 @@ function serverHandler(request, info) {
 			return new Response(browsePage, { headers: headers });
 		}
 		case 'inlinks': {
-			let inlinks, displayUrl;
-
-			// Check inlinks_urls and inlinks_orphans directories for list of inlinks
-			const sanitizedUrl = utils.sanitizeUrl(urlStr);
-			let inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_urls');
-			let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-			if (utils.getPathInfo(inlinksPath)?.isFile) {
-				inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
-				displayUrl = sanitizedUrl;
-			}
-			else if (sourceId !== null) {
-				const sanitizedPath = utils.sanitizePath(urlStr);
-				inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'inlinks_orphans');
-				inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-				if (utils.getPathInfo(inlinksPath)?.isFile) {
-					inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
-					displayUrl = sanitizedPath;
-				}
-			}
+			const [inlinksInfo, displayUrl] = getInlinksInfo(urlStr, sourceId);
 
 			let content;
-			if (inlinks !== undefined && inlinks.length > 0) {
+			if (inlinksInfo.length > 0) {
 				const links = [];
-				for (const inlink of inlinks)
+				for (const inlink of inlinksInfo)
 					links.push(buildHtml(templates.compat.inlinks.link, {
 						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url}`,
 						'ORIGINAL': inlink.url,
@@ -499,10 +471,8 @@ function serverHandler(request, info) {
 
 				content = buildHtml(templates.compat.inlinks.list, { 'LINKS': links.join('\n') });
 			}
-			else {
+			else
 				content = '<p>There are no links to this URL.</p>';
-				displayUrl = sanitizeInject(sanitizedUrl, true);
-			}
 
 			const inlinksContent = buildHtml(templates.compat.inlinks.main, {
 				'URL': displayUrl,
@@ -672,37 +642,18 @@ function serverHandler(request, info) {
 				}
 				case 'browse': {
 					// Return the contents of the given directory
-					const urlParam = params.get('url');
-					const sourceParam = params.get('source') || undefined;
-					if (urlParam && (sourceParam === undefined || sources[sourceParam] !== undefined)) {
-						const browseFileName = sourceParam !== undefined ? `browse_${sourceParam}.json` : 'browse.json';
-						let browseFileDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'urls');
-						let browseFilePath = pathUtils.join(browseFileDir, browseFileName);
-						if (!utils.getPathInfo(browseFilePath)?.isFile && sourceParam !== undefined) {
-							browseFileDir = utils.getArchiveRootDir(pathUtils.join(sourceParam, utils.sanitizePath(urlParam)), 'orphans');
-							browseFilePath = pathUtils.join(browseFileDir, browseFileName);
-						}
-						if (utils.getPathInfo(browseFilePath)?.isFile)
-							return new Response(Deno.readTextFileSync(browseFilePath), { headers: headers });
+					const browseInfoSpread = getBrowseInfo(params.get('url') || '', params.get('source') || undefined);
+					if (browseInfoSpread !== null) {
+						const [browseInfo] = browseInfoSpread;
+						return new Response(JSON.stringify(browseInfo), { headers: headers });
 					}
 
 					return new Response('{}', { headers: headers });
 				}
 				case 'inlinks': {
 					// Return all archived pages which link to the given URL
-					const urlParam = params.get('url');
-					if (urlParam) {
-						let inlinksDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlParam), 'inlinks_urls');
-						let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-						if (!utils.getPathInfo(inlinksPath)?.isFile && sources[params.get('source')] !== undefined) {
-							inlinksDir = utils.getArchiveRootDir(pathUtils.join(params.get('source'), utils.sanitizePath(urlParam)), 'inlinks_orphans');
-							inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-						}
-						if (utils.getPathInfo(inlinksPath)?.isFile)
-							return new Response(Deno.readTextFileSync(inlinksPath), { headers: headers });
-					}
-
-					return new Response('[]', { headers: headers });
+					const [inlinksInfo] = getInlinksInfo(params.get('url') || '', params.get('source') || undefined);
+					return new Response(JSON.stringify(inlinksInfo), { headers: headers });
 				}
 			}
 
@@ -1003,6 +954,51 @@ function getArchivePathInfo(archiveDir, flagIds = '') {
 	}
 
 	return archivePathInfo;
+}
+
+// Gather directory listing information for a URL
+function getBrowseInfo(url, sourceId = undefined) {
+	// Look for the directory listing file and load it
+	const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
+	let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(url), 'urls'), browseFileName);
+	let isOrphan = false;
+	if (!utils.getPathInfo(browseFilePath)?.isFile) {
+		if (sourceId === undefined)
+			return null;
+		else {
+			browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans'), browseFileName);
+			if (!utils.getPathInfo(browseFilePath)?.isFile)
+				return null;
+			isOrphan = true;
+		}
+	}
+
+	const browseInfo = JSON.parse(Deno.readTextFileSync(browseFilePath));
+	return [browseInfo, isOrphan];
+}
+
+// Gather inlinks information for a URL
+function getInlinksInfo(url, sourceId = undefined) {
+	let inlinksInfo = [];
+	let displayUrl = utils.sanitizeUrl(url);
+
+	// Check inlinks_urls and inlinks_orphans directories for list of inlinks
+	let inlinksDir = utils.getArchiveRootDir(displayUrl, 'inlinks_urls');
+	let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
+	if (utils.getPathInfo(inlinksPath)?.isFile)
+		inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
+	else if (sourceId !== undefined) {
+		const sanitizedPath = utils.sanitizePath(url);
+		inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'inlinks_orphans');
+		inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
+		if (utils.getPathInfo(inlinksPath)?.isFile) {
+			inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
+			displayUrl = sanitizedPath;
+		}
+	}
+
+	displayUrl = sanitizeInject(displayUrl, true);
+	return [inlinksInfo, displayUrl];
 }
 
 // Build home/search pages based on query strings
