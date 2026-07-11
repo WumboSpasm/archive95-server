@@ -29,8 +29,8 @@ export function sanitizeUrl(url, doLowerCase = true) {
 		sanitizedUrl = sanitizedUrl.toLowerCase();
 
 	return sanitizedUrl
-		.replace(/^https?:\/\//, '')
-		.replace(/^www\d{0,2}\./, '')
+		.replace(/^https?:\/*/i, '')
+		.replace(/^www\d{0,2}\./i, '')
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
 		.replace(/(?<=^[^#]+)#[^#]+$/, '')
 		.replace(/\?\d+,\d+$/, '')
