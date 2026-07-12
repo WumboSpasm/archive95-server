@@ -21,8 +21,8 @@
 			"url": "http://www.ibm.com/"
 		},
 		"Digital": {
-			"source": "roteiro",
-			"url": "http://www.digital.com:80/"
+			"source": "atlas",
+			"url": "http://www.digital.com/"
 		},
 		"Intel": {
 			"source": "einblicke",
