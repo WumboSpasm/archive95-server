@@ -15,7 +15,7 @@
 	},
 	{
 		"id": "d",
-		"description": "Render page content inline",
+		"description": "Render navigation bar inline",
 		"invert": false,
 		"hidden": false,
 		"modern": true

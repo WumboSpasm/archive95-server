@@ -48,14 +48,20 @@
 ## Flags
 - `n`: Hide navigation bar
 - `p`: Disable presentation improvements
-- `d`: Render page content inline
-- `i`: Render iframe-ready page content (overrides `d` flag)
-- `f`: Force frameless version of pages
+- `d`: Render navigation bar inline
+- `f`: Render page content without frames
 - `w`: Don't point unarchived URLs to Wayback Machine
-- `e`: Point all URLs to live internet (overrides `w` flag)
 - `r`: Display error pages in navigation bar
 - `m`: Random button includes non-HTML files
 - `o`: Random button excludes orphans
+
+### Technical Flags
+- `i`: Render iframe-ready page content
+- `j`: Render iframe-ready frame content
+- `k`: Render frame content for inline navigation bar
+
+### Commodity Flags
+- `e`: Point all URLs to live internet
 
 ## API Endpoints
 - `api/search` - Return search results
@@ -73,8 +79,8 @@
    - `offset` - If there are multiple archives with the same `url` and `source` value, then this is a number denoting the archive's offset
    - `p` - If this has a value of `true`, then the returned search/inject info reflects the presentation improvements flag
 - `api/browse` - Return contents of a directory
-   - `url` (required) - A URL or orphan path denoting a directory
-   - `source` - If `url` is an orphan path, then this is the source ID that it belongs to
+   - `url` - A URL or orphan path denoting a directory; required if no source ID is specified
+   - `source` - A source ID by which to filter directory contents; required if `url` is an orphan path or not specified
 - `api/inlinks` - Return all archives which link to a URL
    - `url` (required) - A URL or orphan file path
    - `source` - If `url` is an orphan file path, then this is the source ID that it belongs to
