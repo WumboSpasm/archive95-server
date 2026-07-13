@@ -409,7 +409,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 	let search;
 	if (archive.types[0] == 'text/html') {
 		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
-		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
+		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url, urlIndex, pathIndex);
 		const [newHtml, inject, inlinksDirs] = buildInject(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
@@ -1045,7 +1045,7 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 }
 
 // Attempt to revert source-specific markup alterations
-function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
+function genericizeMarkup(html, sourceId, path, baseUrl = undefined, urlIndex, pathIndex) {
 	switch (sourceId) {
 		case 'cdwin': {
 			// Replace error links
@@ -1128,6 +1128,25 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 					html = html.substring(0, closeIndex) + html.substring(closeIndex + closeMatch[1].length);
 				}
 			}
+			// Replace inline paths with proper URLs
+			// TODO: Adapt this for general use since there will probably be more sources with this issue in the future
+			const blankedHtml = blankHtml(html);
+			const inlinePathExp = new RegExp(`(?:\\.\\./)+(${path.substring(0, path.indexOf('/')).toLowerCase()}.*?)(?=\\s)`, 'g');
+			const inlinePathSlices = [];
+			for (let inlinePathMatch; (inlinePathMatch = inlinePathExp.exec(blankedHtml)) !== null;) {
+				const inlinePathEntry = pathIndex[sourceId][utils.sanitizePath(inlinePathMatch[1])];
+				if (inlinePathEntry === undefined)
+					continue;
+				const inlineUrlEntry = urlIndex[inlinePathEntry.sanitizedUrl].find(findEntry => findEntry.source == sourceId);
+				if (inlineUrlEntry !== undefined)
+					inlinePathSlices.push({
+						start: inlinePathMatch.index,
+						end: inlinePathMatch.index + inlinePathMatch[0].length,
+						value: inlineUrlEntry.url,
+					});
+			}
+			if (inlinePathSlices.length > 0)
+				html = utils.replaceSlices(html, inlinePathSlices);
 			break;
 		}
 		case 'einblicke': {
