@@ -1,7 +1,7 @@
 # Archive95
  Archive95 is an independent web archive focused on material that predates or has otherwise evaded more mainstream archives.
 
-![screenshot](https://github.com/user-attachments/assets/ecb38c89-ce39-40ec-a08b-1a527d7b41ec)
+![screenshot](https://github.com/user-attachments/assets/b3a6ae33-b135-4506-b933-4c262527cd20)
 
 ## Dependencies
 - A Linux environment
