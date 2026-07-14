@@ -43,7 +43,7 @@
 - `api`: Get information about the archive in JSON format
    - See the "API Endpoints" section for more information
 - `about`: Learn about Archive95
-- `sources`: View information about sources
+- `sources`: View information about data sources
 
 ## Flags
 - `n`: Hide navigation bar
