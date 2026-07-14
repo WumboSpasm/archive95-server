@@ -246,7 +246,7 @@ function serverHandler(request, info) {
 				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : 'n');
 				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, fileFlags)}/${archiveUrl}`;
 				let embed, indent = 'all';
-				if (utils.isTextType(fileType)) {
+				if (utils.isTextType(fileType, true)) {
 					embed = buildHtml(templates.compat.embed.text, {
 						'TEXT': Deno.readTextFileSync(archivePathInfo.filePath).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
 					});
@@ -306,7 +306,7 @@ function serverHandler(request, info) {
 			}
 			else {
 				// Serve the unprocessed file if the navbar is disabled
-				headers.set('Content-Type', fileType + (doUnicode && fileType.startsWith('text/') ? ';charset=UTF-8' : ''));
+				headers.set('Content-Type', fileType + (doUnicode && utils.isTextType(fileType) ? ';charset=UTF-8' : ''));
 				return new Response(Deno.openSync(archivePathInfo.filePath).readable, { headers: headers });
 			}
 		}
@@ -391,7 +391,7 @@ function serverHandler(request, info) {
 
 				// Determine which icon to use based on the file's MIME type
 				let icon = 'generic.gif';
-				if (browseFile.type.startsWith('text/'))
+				if (utils.isTextType(browseFile.type))
 					icon = 'text.gif';
 				else if (browseFile.type.startsWith('image/'))
 					icon = 'image.gif';
@@ -825,8 +825,8 @@ function performSearch(params) {
 				// Apply search filters
 				if (archiveInfo.error
 				|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source)
-				|| (archiveInfo.types[0].startsWith('text/') && searchFilters.formatsMedia)
-				|| (!archiveInfo.types[0].startsWith('text/') && searchFilters.formatsText))
+				|| (utils.isTextType(archiveInfo.types[0]) && searchFilters.formatsMedia)
+				|| (!utils.isTextType(archiveInfo.types[0]) && searchFilters.formatsText))
 					continue;
 
 				// Update offset but only add to result array if we're on the first page

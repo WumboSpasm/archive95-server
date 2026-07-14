@@ -117,8 +117,9 @@ export function dateStringToNum(dateStr) {
 }
 
 // Determine if a given MIME type indicates that a file can be rendered in plaintext
-export function isTextType(type) {
-	return textTypes.include.some(includeType => type.startsWith(includeType)) && !textTypes.exclude.some(excludeType => type.startsWith(excludeType));
+export function isTextType(type, excludeHtml = false) {
+	return textTypes.include.some(includeType => type.startsWith(includeType))
+		&& !textTypes.exclude.some(excludeType => type.startsWith(excludeType) && (excludeType != 'text/html' || excludeHtml));
 }
 
 // Log to the appropriate places based on the configuration

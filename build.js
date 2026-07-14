@@ -432,7 +432,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 		archive.size = new TextEncoder().encode(html).byteLength;
 	}
 	else {
-		if (archive.types[0].startsWith('text/'))
+		if (utils.isTextType(archive.types[0]))
 			// Build content text
 			search = buildSearch(decoder.decode(file), archive.types[0]);
 		else {
@@ -1576,7 +1576,7 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 		changed = true;
 	}
 
-	if (type.startsWith('text/')) {
+	if (utils.isTextType(type)) {
 		// World Wide Web Directory files are double-encoded
 		if (archive.source == 'wwwdir')
 			file = (await inputAndExecute(file, 'iconv', ['-cf', 'UTF-8', '-t', 'WINDOWS-1252'])).stdout;
@@ -1711,7 +1711,7 @@ async function mimeType(file, filePath, url = null) {
 		else if (rawText.match(/^\s*!\s*XPM2/i) !== null)
 			chosenType = 'image/x-xpixmap';
 		// Otherwise, use the file extension's type if it is text-based
-		else if (utils.isTextType(extType))
+		else if (utils.isTextType(extType, true))
 			chosenType = extType;
 		// If the file extension's type is not text-based, assume it cannot be trusted
 		else
@@ -1719,12 +1719,18 @@ async function mimeType(file, filePath, url = null) {
 	}
 	// Any binary file will have a magic type of application/octet-stream
 	// So if the file extension also indicates a binary file, then it can probably be trusted
-	else if (magicType == 'application/octet-stream' && !extType.startsWith('text/'))
+	else if (magicType == 'application/octet-stream' && !utils.isTextType(extType))
 		chosenType = extType;
 
 	// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
 	if (chosenType == 'audio/vnd.wave')
 		chosenType = 'audio/wav';
+
+	// Band-aid fixes for certain types until I improve the type detection code
+	if (chosenType == 'application/typescript' || chosenType == 'text/x-devicetree-source')
+		chosenType = 'text/x-csrc';
+	if (chosenType != 'application/pdf' && /\.pdf$/i.test(filePath))
+		chosenType = 'application/pdf';
 
 	return chosenType;
 }
