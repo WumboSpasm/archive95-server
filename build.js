@@ -392,7 +392,7 @@ function buildIndexes() {
 
 // Parse an entry's file data, then add to database and file tree
 async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement) {
-	const [file, type, changed] = await getFile(archive, typeIndex);
+	const [file, type, changed] = await getFile(archive, urlIndex, pathIndex, typeIndex);
 	if (file === null)
 		return;
 	archive.size = file.byteLength;
@@ -409,7 +409,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 	let search;
 	if (archive.types[0] == 'text/html') {
 		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
-		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url, urlIndex, pathIndex);
+		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
 		const [newHtml, inject, inlinksDirs] = buildInject(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
@@ -1045,7 +1045,7 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 }
 
 // Attempt to revert source-specific markup alterations
-function genericizeMarkup(html, sourceId, path, baseUrl = undefined, urlIndex, pathIndex) {
+function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 	switch (sourceId) {
 		case 'cdwin': {
 			// Replace error links
@@ -1128,25 +1128,6 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined, urlIndex, p
 					html = html.substring(0, closeIndex) + html.substring(closeIndex + closeMatch[1].length);
 				}
 			}
-			// Replace inline paths with proper URLs
-			// TODO: Adapt this for general use since there will probably be more sources with this issue in the future
-			const blankedHtml = blankHtml(html);
-			const inlinePathExp = new RegExp(`(?:\\.\\./)+(${path.substring(0, path.indexOf('/')).toLowerCase()}.*?)(?=\\s)`, 'g');
-			const inlinePathSlices = [];
-			for (let inlinePathMatch; (inlinePathMatch = inlinePathExp.exec(blankedHtml)) !== null;) {
-				const inlinePathEntry = pathIndex[sourceId][utils.sanitizePath(inlinePathMatch[1])];
-				if (inlinePathEntry === undefined)
-					continue;
-				const inlineUrlEntry = urlIndex[inlinePathEntry.sanitizedUrl].find(findEntry => findEntry.source == sourceId);
-				if (inlineUrlEntry !== undefined)
-					inlinePathSlices.push({
-						start: inlinePathMatch.index,
-						end: inlinePathMatch.index + inlinePathMatch[0].length,
-						value: inlineUrlEntry.url,
-					});
-			}
-			if (inlinePathSlices.length > 0)
-				html = utils.replaceSlices(html, inlinePathSlices);
 			break;
 		}
 		case 'einblicke': {
@@ -1511,7 +1492,7 @@ function getLinks(html, baseUrl = undefined) {
 }
 
 // Retrieve a file's data and parse it
-async function getFile(archive, typeIndex = {}) {
+async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {}) {
 	// Make sure the file exists, otherwise return an empty byte array
 	const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, archive.path);
 	const fileInfo = utils.getPathInfo(filePath);
@@ -1661,6 +1642,30 @@ async function getFile(archive, typeIndex = {}) {
 
 				text = newText + text;
 			}
+		}
+
+		// Text files in World Wide Catalog Summer 1995 have all locally-available URLs converted into paths, even in non-HTML files
+		// So we need to resolve them and convert them back into URLs
+		if (archive.source == 'wwcatalog' && urlIndex !== null && pathIndex !== null) {
+			const blankedHtml = type == 'text/html' ? blankHtml(text) : text;
+			const inlinePathExp = new RegExp(`(?:\\.\\./)+(${archive.path.substring(0, archive.path.indexOf('/')).toLowerCase()}.*?)(?=\\s)`, 'g');
+			const inlinePathSlices = [];
+			for (let inlinePathMatch; (inlinePathMatch = inlinePathExp.exec(blankedHtml)) !== null;) {
+				const inlinePathEntry = pathIndex[archive.source][utils.sanitizePath(inlinePathMatch[1])];
+				if (inlinePathEntry === undefined)
+					continue;
+
+				const inlineUrlEntry = urlIndex[inlinePathEntry.sanitizedUrl].find(findEntry => findEntry.source == archive.source);
+				if (inlineUrlEntry !== undefined)
+					inlinePathSlices.push({
+						start: inlinePathMatch.index,
+						end: inlinePathMatch.index + inlinePathMatch[0].length,
+						value: inlineUrlEntry.url,
+					});
+			}
+
+			if (inlinePathSlices.length > 0)
+				text = utils.replaceSlices(text, inlinePathSlices);
 		}
 
 		// Standardize newlines and re-encode text
