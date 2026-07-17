@@ -1,5 +1,5 @@
+import * as Comlink from 'comlink';
 import { contentType } from '@std/media-types';
-import { Database } from '@db/sqlite';
 import { parseArgs } from '@std/cli/parse-args';
 import * as pathUtils from '@std/path';
 
@@ -24,14 +24,18 @@ const stats = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 
 const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
 const sourcesContent = buildSourcesContent();
 
-// Load the database
+// Load the database worker
 utils.logMessage('opening database...');
-const searchDatabase = new Database(pathUtils.join(config.buildPath, 'search.sqlite'), { strict: true, readonly: true });
-searchDatabase.exec('PRAGMA shrink_memory');
+let searchDatabase;
+const searchDatabaseWorker = new Worker(new URL('./db.js', import.meta.url), { type: 'module' });
+searchDatabaseWorker.addEventListener('message', () => {
+	searchDatabase = Comlink.wrap(searchDatabaseWorker);
+	searchDatabase.open(pathUtils.join(config.buildPath, 'search.sqlite')).then(startServer);
+}, { once: true });
 
 // Start the server
 let httpServer, httpsServer;
-(function startServer() {
+function startServer() {
 	// ...over HTTP
 	httpServer = Deno.serve({
 		port: config.httpPort,
@@ -50,10 +54,10 @@ let httpServer, httpsServer;
 			onListen: serverListen,
 			onError: serverError,
 		}, serverHandler);
-})();
+};
 
 // Handle incoming requests
-function serverHandler(request, info) {
+async function serverHandler(request, info) {
 	const ipAddress = info.remoteAddr.hostname;
 	const userAgent = request.headers.get('User-Agent') ?? '';
 
@@ -96,7 +100,7 @@ function serverHandler(request, info) {
 
 	// Serve homepage/search results
 	if (requestPath == '')
-		return new Response(buildSearch(requestUrl.searchParams, modernMode), { headers: headers });
+		return new Response(await buildSearch(requestUrl.searchParams, modernMode), { headers: headers });
 
 	// Try serving from static file directory
 	const staticFilePath = 'static/' + requestPath;
@@ -564,11 +568,11 @@ function serverHandler(request, info) {
 			}
 
 			// Query for a random archive
-			const archiveInfo = searchDatabase.prepare(`
+			const archiveInfo = await searchDatabase.get(`
 				SELECT source, url FROM search
 				${whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : ''}
 				ORDER BY random() LIMIT 1
-			`).get(...whereParameters);
+			`, ...whereParameters);
 
 			const randomUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
 			if (modernMode)
@@ -589,7 +593,7 @@ function serverHandler(request, info) {
 			switch (subRoute) {
 				case 'search': {
 					// Perform a search and return the results
-					const [searchResults, _, page] = performSearch(params);
+					const [searchResults, _, page] = await performSearch(params);
 					const json = {
 						total: 0,
 						page: page,
@@ -714,8 +718,13 @@ function serverError(error) {
 	return new Response(errorPage, { status: status, headers: { 'Content-Type': 'text/html' } });
 }
 
-// Shut down the server gracefully when a SIGINT signal is received
+// Shut down the server gracefully when a SIGINT or SIGTERM signal is received
+let shuttingDown = false;
 async function serverShutdown() {
+	if (shuttingDown)
+		return;
+	shuttingDown = true;
+
 	if (httpServer) {
 		utils.logMessage('shutting down server on HTTP...');
 		await httpServer.shutdown();
@@ -726,7 +735,7 @@ async function serverShutdown() {
 	}
 
 	utils.logMessage('closing database...');
-	searchDatabase.close();
+	await searchDatabase.close();
 
 	Deno.exit();
 }
@@ -734,7 +743,7 @@ Deno.addSignalListener('SIGINT', serverShutdown);
 Deno.addSignalListener('SIGTERM', serverShutdown);
 
 // Search the database based on a set of query string parameters and return the results
-function performSearch(params) {
+async function performSearch(params) {
 	// Build search filters
 	const searchFilters = {
 		inTitle: !params.has('in') || params.has('in', 'title'),
@@ -867,14 +876,14 @@ function performSearch(params) {
 		// If there's an error, we just pretend there were no results
 		const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
 		const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
-		searchResults.push(...searchDatabase.prepare(`
+		searchResults.push(...await searchDatabase.all(`
 			SELECT source, url, orphan, offset,
 				highlight(search, 1, '<b>', '</b>') displayUrl,
 				highlight(search, 2, '<b>', '</b>') title,
 				snippet(search, 3, '<b>', '</b>', '...', 24) content
 			FROM search WHERE ${whereString}
 			ORDER BY rank LIMIT ?2 OFFSET ?3
-		`).all(parsedQuery, limit, offset));
+		`, parsedQuery, limit, offset));
 	}
 	catch {}
 
@@ -1002,8 +1011,8 @@ function getInlinksInfo(url, sourceId = undefined) {
 }
 
 // Build home/search pages based on query strings
-function buildSearch(params, modernMode) {
-	const [searchResults, searchFilters, page] = performSearch(params);
+async function buildSearch(params, modernMode) {
+	const [searchResults, searchFilters, page] = await performSearch(params);
 	params.delete('page');
 
 	// Initialize template definitions

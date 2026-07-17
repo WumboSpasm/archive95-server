@@ -3,17 +3,18 @@
   "specifiers": {
     "jsr:@db/sqlite@0.13.0": "0.13.0",
     "jsr:@denosaurs/plug@1": "1.1.0",
-    "jsr:@std/cli@1.0.30": "1.0.30",
+    "jsr:@std/cli@1.0.32": "1.0.32",
     "jsr:@std/encoding@1": "1.0.10",
     "jsr:@std/fmt@1": "1.0.10",
     "jsr:@std/fmt@1.0.10": "1.0.10",
     "jsr:@std/fs@1": "1.0.24",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/media-types@1.1.0": "1.1.0",
-    "jsr:@std/path@1": "1.1.5",
+    "jsr:@std/path@1": "1.1.6",
     "jsr:@std/path@1.0": "1.0.9",
-    "jsr:@std/path@1.1.5": "1.1.5",
-    "jsr:@std/path@^1.1.5": "1.1.5"
+    "jsr:@std/path@1.1.6": "1.1.6",
+    "jsr:@std/path@^1.1.5": "1.1.6",
+    "npm:comlink@4.4.2": "4.4.2"
   },
   "jsr": {
     "@db/sqlite@0.13.0": {
@@ -32,8 +33,8 @@
         "jsr:@std/path@1"
       ]
     },
-    "@std/cli@1.0.30": {
-      "integrity": "769446536522d0417d7127ebcabcafac1ab0ce6766d0eb3fca1d36326fe98d13"
+    "@std/cli@1.0.32": {
+      "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66"
     },
     "@std/encoding@1.0.10": {
       "integrity": "8783c6384a2d13abd5e9e87a7ae0520a30e9f56aeeaa3bdf910a3eaaf5c811a1"
@@ -57,20 +58,29 @@
     "@std/path@1.0.9": {
       "integrity": "260a49f11edd3db93dd38350bf9cd1b4d1366afa98e81b86167b4e3dd750129e"
     },
-    "@std/path@1.1.5": {
-      "integrity": "ccea00982ea28c36becaf6e62f855406c76a8c32d462f66f415bbb7d83a271bc",
+    "@std/path@1.1.6": {
+      "integrity": "c68485c2a4dfbb5ae3cc74fae4e8c4e5d874cf8a8ed12927917235c758b46cbe",
       "dependencies": [
         "jsr:@std/internal"
       ]
     }
   },
+  "npm": {
+    "comlink@4.4.2": {
+      "integrity": "sha512-OxGdvBmJuNKSCMO4NTl1L47VRp6xn2wG4F/2hYzB6tiCb709otOxtEYCSvK80PtjODfXXZu8ds+Nw5kVCjqd2g=="
+    }
+  },
+  "remote": {
+    "https://unpkg.com/comlink@4.4.2/dist/esm/comlink.mjs": "ba9d0de49a44aa9f42c70d6e98e2f00ef3836ca11b785dccd707917d6a4c719b"
+  },
   "workspace": {
     "dependencies": [
       "jsr:@db/sqlite@0.13.0",
-      "jsr:@std/cli@1.0.30",
+      "jsr:@std/cli@1.0.32",
       "jsr:@std/fmt@1.0.10",
       "jsr:@std/media-types@1.1.0",
-      "jsr:@std/path@1.1.5"
+      "jsr:@std/path@1.1.6",
+      "npm:comlink@4.4.2"
     ]
   }
 }
