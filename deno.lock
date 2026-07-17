@@ -70,9 +70,6 @@
       "integrity": "sha512-OxGdvBmJuNKSCMO4NTl1L47VRp6xn2wG4F/2hYzB6tiCb709otOxtEYCSvK80PtjODfXXZu8ds+Nw5kVCjqd2g=="
     }
   },
-  "remote": {
-    "https://unpkg.com/comlink@4.4.2/dist/esm/comlink.mjs": "ba9d0de49a44aa9f42c70d6e98e2f00ef3836ca11b785dccd707917d6a4c719b"
-  },
   "workspace": {
     "dependencies": [
       "jsr:@db/sqlite@0.13.0",
