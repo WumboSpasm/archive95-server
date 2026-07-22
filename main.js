@@ -1465,7 +1465,7 @@ function buildHomeContent() {
 		const entries = highlights[category];
 		for (const name in entries) {
 			const entry = entries[name];
-			categoryHtmlArr.push(`<a href="/view-${entry.source}/${entry.url}">${name}</a>`);
+			categoryHtmlArr.push(`<a href="/${buildRoute('view', entry.source, entry.offset, null)}/${entry.url}">${name}</a>`);
 		}
 
 		highlightsHtmlArr.push(`<dd>${categoryHtmlArr.join(' - ')}</dd>`);
