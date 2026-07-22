@@ -534,11 +534,13 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 
 	// Update date range stats
 	const sourceStats = stats[archive.source];
-	const time = utils.dateStringToNum(archive.date);
-	if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
-		sourceStats.from = archive.date;
-	if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
-		sourceStats.to = archive.date;
+	if (archive.date.length == 10) {
+		const time = utils.dateStringToNum(archive.date);
+		if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
+			sourceStats.from = archive.date;
+		if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
+			sourceStats.to = archive.date;
+	}
 }
 
 // Extract links from HTML, resolve them, and use to build injection list
