@@ -14,6 +14,7 @@
 	"permissions": {
 		"server": {
 			"read": true,
+			"write": true,
 			"net": true,
 			"env": true,
 			"ffi": true

@@ -4,14 +4,14 @@
 	"httpsCert": null,
 	"httpsKey": null,
 	"accessHosts": [],
-	"blockedIPs": [],
-	"blockedUAs": [],
 	"inputPath": "data/input",
 	"buildPath": "data/build",
 	"logFile": "server.log",
 	"logToConsole": true,
 	"logBlockedRequests": true,
 	"doModernMode": true,
+	"doHoneypot": true,
+	"honeypotBlockTime": 86400000,
 	"resultsPerPage": 50,
 	"maxPage": 20
 }

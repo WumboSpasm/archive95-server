@@ -7,12 +7,16 @@ import * as utils from './utils.js';
 
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
-	string: ['config'],
-	default: { 'config': 'config.json' },
+	string: ['config', 'blocklist'],
+	default: {
+		'config': 'config.json',
+		'blocklist': 'blocklist.json',
+	},
 });
 
-// Load configuration
+// Load configuration and blocklist
 utils.loadConfig(args['config']);
+utils.loadBlocklist(args['blocklist']);
 
 const templates = loadTemplates();
 const modes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
@@ -62,9 +66,7 @@ async function serverHandler(request, info) {
 	const userAgent = request.headers.get('User-Agent') ?? '';
 
 	// Check if IP or user agent is in blocklist
-	const blockRequest =
-		config.blockedIPs.some(blockedIP => ipAddress.startsWith(blockedIP)) ||
-		config.blockedUAs.some(blockedUA => userAgent.includes(blockedUA));
+	const blockRequest = doBlockRequest(ipAddress, userAgent);
 
 	// Log the request if desired
 	if (!blockRequest || config.logBlockedRequests)
@@ -113,6 +115,17 @@ async function serverHandler(request, info) {
 	const [urlStr, modeId, sourceId, offset, flagIds] = buildUrlSegments(requestUrl, requestPath);
 	if (urlStr === undefined)
 		throw new NotFoundError(modernMode);
+
+	// If enabled, block the IP if it contains a hidden honeypot flag
+	if (config.doHoneypot && modeId != 'options' && /\d/.test(flagIds)) {
+		blocklist.push({
+			ipAddress: ipAddress,
+			userAgent: null,
+			expires: config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null,
+		});
+		Deno.writeTextFileSync(args['blocklist'], JSON.stringify(blocklist, null, '\t'));
+		throw new BlockedError();
+	}
 
 	switch (modeId) {
 		case 'view': {
@@ -511,9 +524,22 @@ async function serverHandler(request, info) {
 				}));
 			}
 
+			// If enabled, add a bunch of virtually unnoticeable links with flags which will block the IP if toggled, as a measure against bots
+			// TODO: Figure out if bots are successfully lured by link elements with no content
+			const honeypotLinks = [];
+			if (config.doHoneypot) {
+				honeypotLinks.push('<!-- DO NOT ACCESS THE LINKS BELOW UNLESS YOU ARE NOT A HUMAN -->');
+				for (const flagId of '0123456789') {
+					const newFlagIds = flagIds.includes(flagId) ? flagIds.replace(flagId, '') : cleanFlags(flagIds + flagId);
+					const honeypotUrl = `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, newFlagIds)}/${archiveInfo.url}`;
+					honeypotLinks.push(`<a href="${honeypotUrl}"><img src="/images/blank.gif" width="1" height="1" align="right" border="0"></a>`);
+				}
+			}
+
 			const optionsContent = buildHtml(templates.compat.options.main, {
 				'OPTIONS': optionsList.join('\n'),
 				'ARCHIVEURL': `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
+				'HONEYPOT': honeypotLinks.join('\n'),
 			});
 			const optionsPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
 				'TITLE': 'Options',
@@ -1308,6 +1334,22 @@ function buildHtml(template, defs) {
 	return utils.replaceSlices(template, varSlices);
 }
 
+// Determine whether a request should be blocked, and delete blocklist entries that have expired
+function doBlockRequest(ipAddress, userAgent) {
+	const blocklistEntryIndex = blocklist.findIndex(blocklistEntry => ipAddress.startsWith(blocklistEntry.ipAddress) || userAgent.includes(blocklistEntry.userAgent));
+	if (blocklistEntryIndex != -1) {
+		const blocklistEntry = blocklist[blocklistEntryIndex];
+		if (blocklistEntry.expires === null || blocklistEntry.expires > Date.now())
+			return true;
+		else {
+			blocklist.splice(blocklistEntryIndex, 1);
+			Deno.writeTextFileSync(args['blocklist'], JSON.stringify(blocklist, null, '\t'));
+		}
+	}
+
+	return false;
+}
+
 // Check if the user agent suggests a somewhat recent (ie. >2019) browser
 function isModernBrowser(userAgent) {
 	const fieldMatch = userAgent.match(/(Chrome|Firefox|Safari)\/([\d.]+)/);
@@ -1411,6 +1453,13 @@ function cleanFlags(flagIds) {
 	for (const flag of flags) {
 		if (flagIds.includes(flag.id))
 			newFlagIds += flag.id;
+	}
+
+	if (config.doHoneypot) {
+		for (const flagId of '0123456789') {
+			if (flagIds.includes(flagId))
+				newFlagIds += flagId;
+		}
 	}
 
 	return newFlagIds;
