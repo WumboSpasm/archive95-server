@@ -12,6 +12,7 @@
 	"doModernMode": true,
 	"doHoneypot": true,
 	"honeypotBlockTime": 86400000,
+	"randomCacheSize": 100,
 	"resultsPerPage": 50,
 	"maxPage": 20
 }

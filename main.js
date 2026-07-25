@@ -581,24 +581,10 @@ async function serverHandler(request, info) {
 			return new Response(Deno.openSync(screenshotPath).readable, { headers: headers });
 		}
 		case 'random': {
-			// Modify the query based on the provided flags and source
-			const whereConditions = [];
-			const whereParameters = [];
-			if (!flagIds.includes('m'))
-				whereConditions.push("type = 'text/html'");
-			if (flagIds.includes('o'))
-				whereConditions.push('orphan = 0');
-			if (sourceId !== undefined) {
-				whereConditions.push(`source = ?`);
-				whereParameters.push(sourceId);
-			}
-
 			// Query for a random archive
-			const archiveInfo = await searchDatabase.get(`
-				SELECT source, url FROM search
-				${whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : ''}
-				ORDER BY random() LIMIT 1
-			`, ...whereParameters);
+			const archiveInfo = await searchDatabase.random(!flagIds.includes('m'), flagIds.includes('o'), sourceId, config.randomCacheSize);
+			if (archiveInfo === null)
+				throw new NotFoundError(modernMode);
 
 			const randomUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
 			if (modernMode)
@@ -902,7 +888,7 @@ async function performSearch(params) {
 		// If there's an error, we just pretend there were no results
 		const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
 		const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
-		searchResults.push(...await searchDatabase.all(`
+		searchResults.push(...await searchDatabase.query(`
 			SELECT source, url, orphan, offset,
 				highlight(search, 1, '<b>', '</b>') displayUrl,
 				highlight(search, 2, '<b>', '</b>') title,
