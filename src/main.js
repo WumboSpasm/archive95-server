@@ -1,5 +1,6 @@
 import * as Comlink from 'comlink';
 import { contentType } from '@std/media-types';
+import { delay } from '@std/async/delay';
 import { parseArgs } from '@std/cli/parse-args';
 import * as pathUtils from '@std/path';
 
@@ -730,24 +731,35 @@ function serverError(error) {
 	return new Response(errorPage, { status: status, headers: { 'Content-Type': 'text/html' } });
 }
 
-// Shut down the server gracefully when a SIGINT or SIGTERM signal is received
+// Try to shut down the server gracefully when a SIGINT or SIGTERM signal is received
 let shuttingDown = false;
 async function serverShutdown() {
 	if (shuttingDown)
 		return;
 	shuttingDown = true;
 
-	if (httpServer) {
-		utils.logMessage('shutting down server on HTTP...');
-		await httpServer.shutdown();
-	}
-	if (httpsServer) {
-		utils.logMessage('shutting down server on HTTPS...');
-		await httpsServer.shutdown();
-	}
+	const serverPromises = [];
+	if (httpServer)
+		serverPromises.push(new Promise(resolve => {
+			utils.logMessage('shutting down server on HTTP...');
+			httpServer.shutdown().then(resolve);
+		}));
+	if (httpsServer)
+		serverPromises.push(new Promise(resolve => {
+			utils.logMessage('shutting down server on HTTPS...');
+			httpsServer.shutdown().then(resolve);
+		}));
 
-	utils.logMessage('closing database...');
-	await searchDatabase.close();
+	// Try to shut everything down gracefully within the set timeout, otherwise kill the process
+	await Promise.race([
+		Promise.all(serverPromises).then(() => {
+			utils.logMessage('closing database...');
+			return searchDatabase.close();
+		}),
+		delay(config.shutdownTimeout).then(() =>
+			utils.logMessage('shutdown is taking too long, exiting forcefully...')
+		),
+	]);
 
 	Deno.exit();
 }

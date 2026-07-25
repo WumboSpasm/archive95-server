@@ -3,7 +3,9 @@
   "specifiers": {
     "jsr:@db/sqlite@0.13.0": "0.13.0",
     "jsr:@denosaurs/plug@1": "1.1.0",
+    "jsr:@std/async@^1.5.0": "1.5.0",
     "jsr:@std/cli@1.0.32": "1.0.32",
+    "jsr:@std/data-structures@^1.1.1": "1.1.1",
     "jsr:@std/encoding@1": "1.0.10",
     "jsr:@std/fmt@1": "1.0.10",
     "jsr:@std/fmt@1.0.10": "1.0.10",
@@ -33,8 +35,17 @@
         "jsr:@std/path@1"
       ]
     },
+    "@std/async@1.5.0": {
+      "integrity": "4c1f22d287a17ad7d8643b1952bc5a4d21e5d8b68dc8c20d8268eecc69096e82",
+      "dependencies": [
+        "jsr:@std/data-structures"
+      ]
+    },
     "@std/cli@1.0.32": {
       "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66"
+    },
+    "@std/data-structures@1.1.1": {
+      "integrity": "7e1fcf19771fb9c6dbcd7f65039d6d42ef8dc023cfbc0c4cdc74b24e09229380"
     },
     "@std/encoding@1.0.10": {
       "integrity": "8783c6384a2d13abd5e9e87a7ae0520a30e9f56aeeaa3bdf910a3eaaf5c811a1"
@@ -73,6 +84,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@db/sqlite@0.13.0",
+      "jsr:@std/async@^1.5.0",
       "jsr:@std/cli@1.0.32",
       "jsr:@std/fmt@1.0.10",
       "jsr:@std/media-types@1.1.0",

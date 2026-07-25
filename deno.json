@@ -4,12 +4,13 @@
 		"build": "deno run --permission-set=build src/build.js"
 	},
 	"imports": {
-		"comlink": "npm:comlink@4.4.2",
-		"@std/media-types": "jsr:@std/media-types@1.1.0",
 		"@db/sqlite": "jsr:@db/sqlite@0.13.0",
-		"@std/fmt/bytes": "jsr:@std/fmt@1.0.10/bytes",
+		"@std/async": "jsr:@std/async@^1.5.0",
 		"@std/cli/parse-args": "jsr:@std/cli@1.0.32/parse-args",
-		"@std/path": "jsr:@std/path@1.1.6"
+		"@std/fmt/bytes": "jsr:@std/fmt@1.0.10/bytes",
+		"@std/media-types": "jsr:@std/media-types@1.1.0",
+		"@std/path": "jsr:@std/path@1.1.6",
+		"comlink": "npm:comlink@4.4.2"
 	},
 	"permissions": {
 		"server": {
