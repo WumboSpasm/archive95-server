@@ -1,7 +1,7 @@
 {
 	"tasks": {
-		"start": "deno run --permission-set=server main.js",
-		"build": "deno run --permission-set=build build.js"
+		"start": "deno run --permission-set=server src/main.js",
+		"build": "deno run --permission-set=build src/build.js"
 	},
 	"imports": {
 		"comlink": "npm:comlink@4.4.2",
