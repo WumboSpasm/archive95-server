@@ -911,7 +911,7 @@ function buildBrowse(archive, browseIndex) {
 				const browseFileArchive = {
 					date: archive.date,
 					source: archive.source,
-					url: archive.url ?? archive.path,
+					url: (archive.url ?? archive.path).replaceAll('#', '%23'),
 					offset: archive.offset,
 				};
 

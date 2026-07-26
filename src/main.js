@@ -414,8 +414,8 @@ async function serverHandler(request, info) {
 
 			// Add files to entry list
 			for (const browseFile of browseInfo.files) {
-				const fromLink = `/${buildRoute('view', browseFile.from.source, browseFile.from.offset, flagIds)}/${browseFile.from.url.replaceAll('#', '%23')}`;
-				const toLink = `/${buildRoute('view', browseFile.to.source, browseFile.to.offset, flagIds)}/${browseFile.to.url.replaceAll('#', '%23')}`;
+				const fromLink = `/${buildRoute('view', browseFile.from.source, browseFile.from.offset, flagIds)}/${browseFile.from.url}`;
+				const toLink = `/${buildRoute('view', browseFile.to.source, browseFile.to.offset, flagIds)}/${browseFile.to.url}`;
 				const isIndex = browseFile.name == '[__ARCHIVE95_INDEX__]';
 
 				// Determine which icon to use based on the file's MIME type
@@ -493,7 +493,7 @@ async function serverHandler(request, info) {
 				const links = [];
 				for (const inlink of inlinksInfo)
 					links.push(buildHtml(templates.compat.inlinks.link, {
-						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url}`,
+						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url.replaceAll('#', '%23')}`,
 						'ORIGINAL': inlink.url,
 						'SOURCE': inlink.source,
 					}));
@@ -519,6 +519,7 @@ async function serverHandler(request, info) {
 			if (archiveInfoSet === undefined)
 				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
+			const archiveUrl = archiveInfo.url.replaceAll('#', '%23');
 
 			// Since query strings are off-limits, links masquerading as checkboxes are used to alter flags
 			// The "Apply changes" link simply returns you to the viewer with the flags from the current URL
@@ -530,7 +531,7 @@ async function serverHandler(request, info) {
 				const checked = flagIds.includes(flag.id);
 				const newFlagIds = checked ? flagIds.replace(flag.id, '') : cleanFlags(flagIds + flag.id);
 				optionsList.push(buildHtml(templates.compat.options.option, {
-					'OPTIONURL': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, newFlagIds)}/${archiveInfo.url}`,
+					'OPTIONURL': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, newFlagIds)}/${archiveUrl}`,
 					'FILL': checked != flag.invert ? 'X' : ' ',
 					'DESCRIPTION': flag.description,
 				}));
@@ -543,14 +544,14 @@ async function serverHandler(request, info) {
 				honeypotLinks.push('<!-- DO NOT ACCESS THE LINKS BELOW UNLESS YOU ARE NOT A HUMAN -->');
 				for (const flagId of '0123456789') {
 					const newFlagIds = flagIds.includes(flagId) ? flagIds.replace(flagId, '') : cleanFlags(flagIds + flagId);
-					const honeypotUrl = `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, newFlagIds)}/${archiveInfo.url}`;
+					const honeypotUrl = `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, newFlagIds)}/${archiveUrl}`;
 					honeypotLinks.push(`<a href="${honeypotUrl}"><img src="/images/blank.gif" width="1" height="1" align="right" border="0"></a>`);
 				}
 			}
 
 			const optionsContent = buildHtml(templates.compat.options.main, {
 				'OPTIONS': optionsList.join('\n'),
-				'ARCHIVEURL': `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
+				'ARCHIVEURL': `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
 				'HONEYPOT': honeypotLinks.join('\n'),
 			});
 			const optionsPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
