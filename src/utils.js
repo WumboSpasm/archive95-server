@@ -7,7 +7,7 @@ export function loadConfig(configPath) {
 	globalThis.config = JSON.parse(Deno.readTextFileSync('data/config_template.json'));
 	if (getPathInfo(configPath)?.isFile) {
 		Object.assign(config, JSON.parse(Deno.readTextFileSync(configPath)));
-		logMessage(`loaded config file: ${Deno.realPathSync(configPath)}`);
+		logMessage(`loaded config file at ${Deno.realPathSync(configPath)}`);
 	}
 	else
 		logMessage('no config file found, using default config');
@@ -20,7 +20,7 @@ export function loadBlocklist(blocklistPath) {
 		globalThis.blocklist = JSON.parse(Deno.readTextFileSync(blocklistPath))
 			.filter(blocklistEntry => blocklistEntry.expires === null || blocklistEntry.expires > Date.now());
 		Deno.writeTextFileSync(blocklistPath, JSON.stringify(blocklist, null, '\t'));
-		logMessage(`loaded blocklist file: ${Deno.realPathSync(blocklistPath)}`);
+		logMessage(`loaded blocklist file at ${Deno.realPathSync(blocklistPath)}`);
 	}
 }
 

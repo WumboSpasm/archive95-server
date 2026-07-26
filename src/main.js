@@ -29,14 +29,25 @@ const stats = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 
 const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
 const sourcesContent = buildSourcesContent();
 
-// Load the database worker
-utils.logMessage('opening database...');
-let searchDatabase;
-const searchDatabaseWorker = new Worker(new URL('./db.js', import.meta.url), { type: 'module' });
-searchDatabaseWorker.addEventListener('message', () => {
-	searchDatabase = Comlink.wrap(searchDatabaseWorker);
-	searchDatabase.open(pathUtils.join(config.buildPath, 'search.sqlite')).then(startServer);
-}, { once: true });
+// Load the database workers
+let searchDatabase, randomDatabase;
+const searchDatabaseWorker = new Worker(new URL('./db/search.js', import.meta.url), { type: 'module' });
+const randomDatabaseWorker = new Worker(new URL('./db/random.js', import.meta.url), { type: 'module' });
+const databasePath = pathUtils.join(config.buildPath, 'archive95.sqlite');
+
+Promise.all([
+	new Promise(resolve => searchDatabaseWorker.addEventListener('message', () => {
+		searchDatabase = Comlink.wrap(searchDatabaseWorker);
+		searchDatabase.open(databasePath).then(resolve);
+	}, { once: true })),
+	new Promise(resolve => randomDatabaseWorker.addEventListener('message', () => {
+		randomDatabase = Comlink.wrap(randomDatabaseWorker);
+		randomDatabase.open(databasePath, config.randomCacheSize).then(resolve);
+	}, { once: true })),
+]).then(() => {
+	utils.logMessage('loaded database workers');
+	startServer();
+});
 
 // Start the server
 let httpServer, httpsServer;
@@ -583,7 +594,7 @@ async function serverHandler(request, info) {
 		}
 		case 'random': {
 			// Query for a random archive
-			const archiveInfo = await searchDatabase.random(!flagIds.includes('m'), flagIds.includes('o'), sourceId, config.randomCacheSize);
+			const archiveInfo = await randomDatabase.query(!flagIds.includes('m'), flagIds.includes('o'), sourceId);
 			if (archiveInfo === null)
 				throw new NotFoundError(modernMode);
 
@@ -731,34 +742,26 @@ function serverError(error) {
 	return new Response(errorPage, { status: status, headers: { 'Content-Type': 'text/html' } });
 }
 
-// Try to shut down the server gracefully when a SIGINT or SIGTERM signal is received
+// Try to shut down the server and database workers gracefully when a SIGINT or SIGTERM signal is received
 let shuttingDown = false;
 async function serverShutdown() {
 	if (shuttingDown)
 		return;
+
+	utils.logMessage('shutting down server...');
 	shuttingDown = true;
 
 	const serverPromises = [];
 	if (httpServer)
-		serverPromises.push(new Promise(resolve => {
-			utils.logMessage('shutting down server on HTTP...');
-			httpServer.shutdown().then(resolve);
-		}));
+		serverPromises.push(httpServer.shutdown());
 	if (httpsServer)
-		serverPromises.push(new Promise(resolve => {
-			utils.logMessage('shutting down server on HTTPS...');
-			httpsServer.shutdown().then(resolve);
-		}));
+		serverPromises.push(httpsServer.shutdown());
+	const databasePromises = [searchDatabase.close(), randomDatabase.close()];
 
 	// Try to shut everything down gracefully within the set timeout, otherwise kill the process
 	await Promise.race([
-		Promise.all(serverPromises).then(() => {
-			utils.logMessage('closing database...');
-			return searchDatabase.close();
-		}),
-		delay(config.shutdownTimeout).then(() =>
-			utils.logMessage('shutdown is taking too long, exiting forcefully...')
-		),
+		Promise.all(serverPromises).then(() => Promise.all(databasePromises)),
+		delay(config.shutdownTimeout).then(() => utils.logMessage('shutdown is taking too long, exiting forcefully...')),
 	]);
 
 	Deno.exit();

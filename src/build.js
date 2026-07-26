@@ -66,12 +66,12 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 	// Initialize the new database
 	utils.logMessage('creating new database...');
-	const searchDatabase = new Database(pathUtils.join(tempBuildPath, 'search.sqlite'), { create: true });
-	searchDatabase.exec('PRAGMA journal_mode = WAL');
-	searchDatabase.exec('PRAGMA shrink_memory');
-	searchDatabase.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
-	searchDatabase.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 1, 1000, 1000, 0, 0, 0)')");
-	const insertStatement = searchDatabase.prepare('INSERT INTO search (source, url, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?)');
+	const database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
+	database.exec('PRAGMA journal_mode = WAL');
+	database.exec('PRAGMA shrink_memory');
+	database.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
+	database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 1, 1000, 1000, 0, 0, 0)')");
+	const insertStatement = database.prepare('INSERT INTO search (source, url, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
 	// Initialize total entry statistics
 	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
@@ -194,8 +194,8 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	}
 
 	// Close the database and disable journaling since we won't be performing write operations ever again
-	searchDatabase.exec('PRAGMA journal_mode = OFF');
-	searchDatabase.close();
+	database.exec('PRAGMA journal_mode = OFF');
+	database.close();
 
 	// Build the screenshot file tree
 	for (const sanitizedUrl in screenshotIndex) {
@@ -277,7 +277,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	// Move old files to deletion directory and move new files out of temporary directory
 	utils.logMessage('moving files out of temp directory...');
 	const buildEntries = [
-		'search.sqlite',
+		'archive95.sqlite',
 		'sources.json',
 		'stats.json',
 		'types.json',
