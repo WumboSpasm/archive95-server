@@ -7,6 +7,7 @@ const randomCache = {};
 Comlink.expose({
 	open: (path) => {
 		searchDatabase = new Database(path, { readonly: true });
+		searchDatabase.exec('PRAGMA journal_mode = OFF');
 		searchDatabase.exec('PRAGMA shrink_memory');
 		searchDatabase.exec('PRAGMA synchronous = off');
 	},

@@ -193,7 +193,8 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		}
 	}
 
-	// Close the database since we don't need to add to it anymore
+	// Close the database and disable journaling since we won't be performing write operations ever again
+	searchDatabase.exec('PRAGMA journal_mode = OFF');
 	searchDatabase.close();
 
 	// Build the screenshot file tree
