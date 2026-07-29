@@ -236,9 +236,12 @@ async function serverHandler(request, info) {
 						if (flagIds.includes('i'))
 							sliceValue += '" target="_self';
 					}
-					else if (flagIds.includes('e'))
-						// If the 'e' flag is supplied, don't process the link except to remove unnecessary anchors
+					else if (flagIds.includes('e')) {
+						// If the 'e' flag is supplied, don't process the link except to remove unnecessary anchors and prepend orphan paths with slashes
+						if (!/^[a-z]+:/i.test(sliceValue))
+							sliceValue = '/' + sliceValue;
 						sliceValue = sliceValue.replace(/%23.*?(?=$|#)/, '');
+					}
 					else if (linkInject.source !== null)
 						// If the link is accompanied by a source, point it within the archive
 						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkFlagIds)}/${injectUrl}`;

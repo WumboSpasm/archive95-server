@@ -567,8 +567,16 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			return match;
 
 		let rawUrl = trimQuotes(url);
-		if (rawUrl.startsWith('#')) {
-			// Fast-track anchor URLs
+		if (rawUrl == '/deadend') {
+			// The link was already converted into a missing link during the genericization process and will not require any further processing
+			// As such, they don't need to be added to the injection list, so just make sure they're surrounded by quotes and move on
+			const newStr = tagStart + '"' + rawUrl + '"';
+			offset += match.length - newStr.length;
+			return newStr;
+		}
+		else if (rawUrl.startsWith('#')) {
+			// We need to add anchor links to the injection list so they can be re-targeted to the correct browsing context when used inside iframes
+			// However, we can at least fast-track them during the build process since they don't need to be resolved
 			const linkInject = {
 				index: index - offset + tagStart.length + 1,
 				source: null,
@@ -581,12 +589,6 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			inject.links.push(linkInject);
 
 			const newStr = tagStart + '""';
-			offset += match.length - newStr.length;
-			return newStr;
-		}
-		else if (rawUrl == '/deadend') {
-			// Leave missing URLs unchanged but make sure they're surrounded by quotes
-			const newStr = tagStart + '"' + rawUrl + '"';
 			offset += match.length - newStr.length;
 			return newStr;
 		}
@@ -605,66 +607,62 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		let resolvedSource = null;
 		let resolvedUrl = null;
 		let resolvedOffset = null;
-		let absoluteUrl = rawUrl;
+		let unresolvedUrl = rawUrl;
 		let anchor = '';
 		let isOrphan = false;
 		let forceMissing = false;
-		// Non-zero URL modes assume the link has been modified to point within the source's filesystem
+		// Relative links under sources with non-zero URL modes are assumed to have been modified to point within the source's filesystem
 		if (source.urlMode > 0 && !isAbsolute) {
-			// Get absolute path and separate anchor if it exists
+			// Extract full path and anchor from the link
 			const parsedPath = URL.parse(rawUrl, 'http://ignoreme/' + archive.path);
-			let absolutePath = absoluteUrl;
 			if (parsedPath !== null) {
-				absolutePath = parsedPath.pathname.substring(1);
+				unresolvedUrl = parsedPath.pathname.substring(1);
 				anchor = parsedPath.hash;
 			}
 
+			// Sanitize the full path and try to retrieve its entry in the path index
 			const pathEntries = pathIndex[archive.source];
-			if (pathEntries !== undefined) {
-				// Check if sanitized path exists in path index
-				let sanitizedPath = utils.sanitizePath(absolutePath);
-				let pathEntry = pathEntries[sanitizedPath];
-				// If it doesn't, try again with the anchor included
-				if (pathEntry === undefined && anchor != '') {
-					sanitizedPath = utils.sanitizePath(absolutePath + anchor, true);
-					pathEntry = pathEntries[sanitizedPath];
-				}
-
-				if (pathEntry !== undefined) {
-					// We need to do this for Internet on a CD specifically, since its placeholder links rely on anchors
-					if (pathEntry.skip)
-						anchor = '';
-					if (pathEntry.sanitizedUrl !== null) {
-						// This entry has a valid URL, so fetch info from nearest source
-						const urlEntries = urlIndex[pathEntry.sanitizedUrl];
-						[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, sanitizedPath);
-					}
-					else {
-						// This entry is an orphan
-						resolvedSource = archive.source;
-						resolvedUrl = pathEntry.path;
-						isOrphan = true;
-						forceMissing = source.urlMode == 1 && pathEntry.skip;
-					}
-				}
+			let sanitizedPath = utils.sanitizePath(unresolvedUrl);
+			let pathEntry = pathEntries[sanitizedPath];
+			if (pathEntry === undefined && anchor != '') {
+				// If the entry could not be retrieved, but an anchor exists, append the anchor to the path and try again
+				sanitizedPath = utils.sanitizePath(unresolvedUrl + anchor, true);
+				pathEntry = pathEntries[sanitizedPath];
+				anchor = '';
 			}
 
-			absoluteUrl = (rawUrl.startsWith('/') ? '/' : '') + absolutePath;
+			// Check if an entry was found in the path index
+			if (pathEntry !== undefined) {
+				if (pathEntry.sanitizedUrl !== null) {
+					// If the entry has an associated URL, resolve it to the nearest valid archive and fetch relevant info
+					const urlEntries = urlIndex[pathEntry.sanitizedUrl];
+					[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, sanitizedPath);
+				}
+				else {
+					// If the entry does not have an associated URL, then it is an orphan
+					resolvedSource = archive.source;
+					resolvedUrl = pathEntry.path;
+					isOrphan = true;
+					// If the entry is invalid and the URL mode is 1, then the link needs to be marked as missing
+					forceMissing = source.urlMode == 1 && pathEntry.skip;
+				}
+			}
 		}
 
 		if (resolvedUrl === null) {
-			// Get absolute URL and separate anchor if it exists
+			// If the URL could not be resolved as a path within the source's filesystem, interpret it as a URL proper
 			const parsedUrl = URL.parse(rawUrl, archive.url);
 			if (parsedUrl !== null) {
 				anchor = parsedUrl.hash;
 				parsedUrl.hash = '';
-				absoluteUrl = parsedUrl.href;
+				unresolvedUrl = parsedUrl.href;
 			}
 
-			// Check if URL exists in the archive, and fetch info from nearest source if so
-			const sanitizedUrl = utils.sanitizeUrl(absoluteUrl);
+			// Check if the entry can be found in the URL index
+			const sanitizedUrl = utils.sanitizeUrl(unresolvedUrl);
 			const urlEntries = urlIndex[sanitizedUrl];
 			if (urlEntries !== undefined)
+				// If the entry was found, resolve it to the nearest valid archive and fetch relevant info
 				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
 		}
 
@@ -680,7 +678,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			const linkInject = {
 				index: index - offset + tagStart.length + 1 + urlPrefix.length,
 				source: resolvedSource,
-				url: (resolvedUrl ?? absoluteUrl).replaceAll('#', '%23') + anchor,
+				url: (resolvedUrl ?? unresolvedUrl).replaceAll('#', '%23') + anchor,
 				offset: resolvedOffset,
 				iframe: /^http-equiv/i.test(tagStart),
 				wayback: /^href/i.test(tagStart),
@@ -689,7 +687,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			inject.links.push(linkInject);
 
 			// If the link is valid and of a reasonable length, add it to the inlinks directory list
-			const inlinkUrl = (resolvedUrl ?? absoluteUrl).replace(/(?<=^[^#]+)#[^#]+$/, '');
+			const inlinkUrl = (resolvedUrl ?? unresolvedUrl).replace(/(?<=^[^#]+)#[^#]+$/, '');
 			if (resolvedSource !== null || (/^https?:/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 				const sanitizedUrl = !isOrphan
 					? utils.sanitizeUrl(inlinkUrl)
