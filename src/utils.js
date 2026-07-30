@@ -80,6 +80,7 @@ export function splitUrl(url, orphanSource = null) {
 	return splittedUrl;
 }
 
+// Extract the anchor from a URL
 export function splitAnchor(url) {
 	let anchor = '';
 	const anchorMatch = url.match(/#.*$/);

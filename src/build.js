@@ -602,25 +602,25 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			return newStr;
 		}
 
-		// Re-encode the URL string
+		// Extract the anchor from the URL string if it exists, and re-encode both
+		let anchor = '';
+		[rawUrl, anchor] = utils.splitAnchor(rawUrl);
 		rawUrl = encodeURI(utils.safeDecode(rawUrl));
+		anchor = encodeURI(utils.safeDecode(anchor));
 
 		const isAbsolute = /^[a-z]+:/i.test(rawUrl);
 		let resolvedSource = null;
 		let resolvedUrl = null;
 		let resolvedOffset = null;
 		let unresolvedUrl = rawUrl;
-		let anchor = '';
 		let isOrphan = false;
 		let forceMissing = false;
 		// Relative links under sources with non-zero URL modes are assumed to have been modified to point within the source's filesystem
 		if (source.urlMode > 0 && !isAbsolute) {
-			// Extract full path and anchor from the link
+			// Extract full path from the link
 			const parsedPath = URL.parse(rawUrl, 'http://ignoreme/' + archive.path);
-			if (parsedPath !== null) {
+			if (parsedPath !== null)
 				unresolvedUrl = parsedPath.pathname.substring(1);
-				anchor = parsedPath.hash;
-			}
 
 			// Sanitize the full path and try to retrieve its entry in the path index
 			const pathEntries = pathIndex[archive.source];
@@ -630,7 +630,8 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				// If the entry could not be retrieved, but an anchor exists, append the anchor to the path and try again
 				sanitizedPath = utils.sanitizePath(unresolvedUrl + anchor, true);
 				pathEntry = pathEntries[sanitizedPath];
-				anchor = '';
+				if (pathEntry !== undefined)
+					anchor = '';
 			}
 
 			// Check if an entry was found in the path index
@@ -647,7 +648,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 					// Otherwise, resolve the URL to the nearest valid archive and fetch relevant info
 					const urlEntries = urlIndex[pathEntry.sanitizedUrl];
 					[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, sanitizedPath);
-					if (anchor == '')
+					if (anchor == '' && pathEntry.url.includes('#'))
 						anchor = utils.splitAnchor(pathEntry.url)[1];
 				}
 				else {
@@ -664,11 +665,8 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		if (resolvedUrl === null) {
 			// If the URL could not be resolved as a path within the source's filesystem, interpret it as a URL proper
 			const parsedUrl = URL.parse(rawUrl, archive.url);
-			if (parsedUrl !== null) {
-				anchor = parsedUrl.hash;
-				parsedUrl.hash = '';
+			if (parsedUrl !== null)
 				unresolvedUrl = parsedUrl.href;
-			}
 
 			// Check if the entry can be found in the URL index
 			const sanitizedUrl = utils.sanitizeUrl(unresolvedUrl);
