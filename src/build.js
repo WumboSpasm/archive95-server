@@ -327,12 +327,13 @@ function buildIndexes() {
 				? new Date(entry.archived).toISOString().substring(0, 10)
 				: sources[sourceId].archiveDate;
 
-			// Build entry to insert into indexes
-			const sanitizedUrl = entry.url !== null ? utils.sanitizeUrl(entry.url) : null;
+			const sanitizedUrl = entry.url !== null ? (!entry.url.startsWith('#') ? utils.sanitizeUrl(entry.url) : entry.url) : null;
 			const sanitizedPath = utils.sanitizePath(entry.path, entry.skip);
 			const offset = (urlIndex[sanitizedUrl] ?? []).filter(urlEntry =>
 				!urlEntry.skip && sourceId == urlEntry.source && entry.url == urlEntry.url
 			).length || null;
+
+			// Build entry to insert into indexes
 			const indexEntry = {
 				source: sourceId,
 				url: entry.url,
@@ -347,7 +348,7 @@ function buildIndexes() {
 			};
 
 			// Add entry to URL index
-			if (sanitizedUrl !== null) {
+			if (sanitizedUrl !== null && !sanitizedUrl.startsWith('#')) {
 				if (urlIndex[sanitizedUrl] === undefined)
 					urlIndex[sanitizedUrl] = [];
 
@@ -566,42 +567,43 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		if (excludeIndexes.includes(index))
 			return match;
 
+		// Trim quotes from URL string and extract any excess data
 		let rawUrl = trimQuotes(url);
-		if (rawUrl == '/deadend') {
-			// The link was already converted into a missing link during the genericization process and will not require any further processing
-			// As such, they don't need to be added to the injection list, so just make sure they're surrounded by quotes and move on
-			const newStr = tagStart + '"' + rawUrl + '"';
-			offset += match.length - newStr.length;
-			return newStr;
-		}
-		else if (rawUrl.startsWith('#')) {
-			// We need to add anchor links to the injection list so they can be re-targeted to the correct browsing context when used inside iframes
-			// However, we can at least fast-track them during the build process since they don't need to be resolved
-			const linkInject = {
-				index: index - offset + tagStart.length + 1,
-				source: null,
-				url: rawUrl,
-				offset: null,
-				iframe: false,
-				wayback: false,
-				embed: false,
-			};
-			inject.links.push(linkInject);
-
-			const newStr = tagStart + '""';
-			offset += match.length - newStr.length;
-			return newStr;
-		}
-
-		// Check for excess data in the URL string
 		let urlPrefix = '';
 		if (/^http-equiv/i.test(tagStart))
 			urlPrefix = rawUrl.match(/^\d*;? *(?:URL=)?/i)[0];
 		else if (/^rectangle/i.test(tagStart))
 			urlPrefix = rawUrl.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
+		rawUrl = rawUrl.substring(urlPrefix.length);
 
-		// Remove excess data from the URL string and re-encode it
-		rawUrl = encodeURI(utils.safeDecode(rawUrl.substring(urlPrefix.length)));
+		// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
+		if (rawUrl == '/deadend') {
+			const newStr = tagStart + '"' + urlPrefix + rawUrl + '"';
+			offset += match.length - newStr.length;
+			return newStr;
+		}
+
+		// Initialize the injection list entry
+		const linkInject = {
+			index: index - offset + tagStart.length + 1 + urlPrefix.length,
+			source: null,
+			url: rawUrl,
+			offset: null,
+			iframe: /^http-equiv/i.test(tagStart),
+			wayback: /^href/i.test(tagStart),
+			navbar: /^(?:href|http-equiv)/i.test(tagStart),
+		};
+
+		// Fast-track anchor links to the injection list since they need to be re-targeted to the correct browsing context when present inside iframes
+		if (rawUrl.startsWith('#')) {
+			inject.links.push(linkInject);
+			const newStr = tagStart + '"' + urlPrefix + '"';
+			offset += match.length - newStr.length;
+			return newStr;
+		}
+
+		// Re-encode the URL string
+		rawUrl = encodeURI(utils.safeDecode(rawUrl));
 
 		const isAbsolute = /^[a-z]+:/i.test(rawUrl);
 		let resolvedSource = null;
@@ -633,8 +635,16 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 
 			// Check if an entry was found in the path index
 			if (pathEntry !== undefined) {
-				if (pathEntry.sanitizedUrl !== null) {
-					// If the entry has an associated URL, resolve it to the nearest valid archive and fetch relevant info
+				if (pathEntry.url !== null) {
+					// If the entry's associated URL is an anchor, fast-track it to the injection list
+					if (pathEntry.url.startsWith('#')) {
+						linkInject.url = pathEntry.url;
+						inject.links.push(linkInject);
+						const newStr = tagStart + '"' + urlPrefix + '"';
+						offset += match.length - newStr.length;
+						return newStr;
+					}
+					// Otherwise, resolve the URL to the nearest valid archive and fetch relevant info
 					const urlEntries = urlIndex[pathEntry.sanitizedUrl];
 					[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, sanitizedPath);
 					if (anchor == '')
@@ -676,16 +686,10 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		else {
 			newStr += '"' + urlPrefix + '"';
 
-			// Push resolved link info to injection list
-			const linkInject = {
-				index: index - offset + tagStart.length + 1 + urlPrefix.length,
-				source: resolvedSource,
-				url: (resolvedUrl ?? unresolvedUrl).replaceAll('#', '%23') + anchor,
-				offset: resolvedOffset,
-				iframe: /^http-equiv/i.test(tagStart),
-				wayback: /^href/i.test(tagStart),
-				navbar: /^(?:href|http-equiv)/i.test(tagStart),
-			};
+			// Update link info and push to injection list
+			linkInject.source = resolvedSource;
+			linkInject.url = (resolvedUrl ?? unresolvedUrl).replaceAll('#', '%23') + anchor;
+			linkInject.offset = resolvedOffset;
 			inject.links.push(linkInject);
 
 			// If the link is valid and of a reasonable length, add it to the inlinks directory list
