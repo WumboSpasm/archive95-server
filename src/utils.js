@@ -80,6 +80,17 @@ export function splitUrl(url, orphanSource = null) {
 	return splittedUrl;
 }
 
+export function splitAnchor(url) {
+	let anchor = '';
+	const anchorMatch = url.match(/#.*$/);
+	if (anchorMatch !== null) {
+		anchor = safeDecode(anchorMatch[0]);
+		url = url.substring(0, anchorMatch.index);
+	}
+
+	return [url, anchor];
+}
+
 // Decode string without throwing an error if a single encoded character is invalid
 export function safeDecode(str) {
 	let decodedStr;

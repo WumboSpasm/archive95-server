@@ -327,38 +327,38 @@ function buildIndexes() {
 				? new Date(entry.archived).toISOString().substring(0, 10)
 				: sources[sourceId].archiveDate;
 
-			// Get sanitized URL and add entry to URL index
-			let sanitizedUrl = null;
-			if (entry.url !== null) {
-				sanitizedUrl = utils.sanitizeUrl(entry.url);
+			// Build entry to insert into indexes
+			const sanitizedUrl = entry.url !== null ? utils.sanitizeUrl(entry.url) : null;
+			const sanitizedPath = utils.sanitizePath(entry.path, entry.skip);
+			const offset = (urlIndex[sanitizedUrl] ?? []).filter(urlEntry =>
+				!urlEntry.skip && sourceId == urlEntry.source && entry.url == urlEntry.url
+			).length || null;
+			const indexEntry = {
+				source: sourceId,
+				url: entry.url,
+				path: entry.path,
+				sanitizedUrl: sanitizedUrl,
+				sanitizedPath: sanitizedPath,
+				date: date,
+				warn: entry.warn,
+				error: entry.error,
+				skip: entry.skip,
+				offset: offset,
+			};
+
+			// Add entry to URL index
+			if (sanitizedUrl !== null) {
 				if (urlIndex[sanitizedUrl] === undefined)
 					urlIndex[sanitizedUrl] = [];
 
-				urlIndex[sanitizedUrl].push({
-					source: sourceId,
-					url: entry.url,
-					path: entry.path,
-					date: date,
-					warn: entry.warn,
-					error: entry.error,
-					skip: entry.skip,
-					offset: urlIndex[sanitizedUrl].filter(urlEntry =>
-						!urlEntry.skip && sourceId == urlEntry.source && entry.url == urlEntry.url
-					).length || null,
-				});
+				urlIndex[sanitizedUrl].push(indexEntry);
 			}
 
-			// Get sanitized path and add entry to path index
+			// Add entry to path index
 			// If it needs to be skipped but doesn't have a valid URL, then it's useless to us
 			// (Unless the URL mode is 1, otherwise we need to know its path so we can mark it as invalid)
 			if (!entry.skip || sanitizedUrl !== null || sources[sourceId].urlMode == 1)
-				pathIndex[sourceId][utils.sanitizePath(entry.path, entry.skip)] = {
-					sanitizedUrl: sanitizedUrl,
-					path: entry.path,
-					date: date,
-					error: entry.error,
-					skip: entry.skip,
-				};
+				pathIndex[sourceId][sanitizedPath] = indexEntry;
 		}
 	}
 
@@ -637,6 +637,8 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 					// If the entry has an associated URL, resolve it to the nearest valid archive and fetch relevant info
 					const urlEntries = urlIndex[pathEntry.sanitizedUrl];
 					[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, sanitizedPath);
+					if (anchor == '')
+						anchor = utils.splitAnchor(pathEntry.url)[1];
 				}
 				else {
 					// If the entry does not have an associated URL, then it is an orphan
@@ -1656,13 +1658,11 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 				if (inlinePathEntry === undefined)
 					continue;
 
-				const inlineUrlEntry = urlIndex[inlinePathEntry.sanitizedUrl].find(findEntry => findEntry.source == archive.source);
-				if (inlineUrlEntry !== undefined)
-					inlinePathSlices.push({
-						start: inlinePathMatch.index,
-						end: inlinePathMatch.index + inlinePathMatch[0].length,
-						value: inlineUrlEntry.url,
-					});
+				inlinePathSlices.push({
+					start: inlinePathMatch.index,
+					end: inlinePathMatch.index + inlinePathMatch[0].length,
+					value: inlinePathEntry.url,
+				});
 			}
 
 			if (inlinePathSlices.length > 0)
