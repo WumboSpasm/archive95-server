@@ -105,7 +105,7 @@ async function serverHandler(request, info) {
 	const doUnicode = modernMode || !isAncientBrowser(userAgent);
 
 	// Get body of request URL
-	const requestPath = utils.safeDecode(requestUrl.pathname.replace(/^\/+/, ''));
+	const requestPath = requestUrl.pathname.replace(/^\/+/, '');
 
 	// Initialize response headers
 	const headers = new Headers();
@@ -272,9 +272,12 @@ async function serverHandler(request, info) {
 			else if (!/[nijk]/.test(flagIds)) {
 				// Embed files using the most appropriate template if the navbar is enabled
 				// For iframes with anchors, we take encoded hash characters and carefully convert them into proper anchors
-				const anchorIndex = urlStr.indexOf('#');
-				const anchor = anchorIndex != -1 ? '#' + encodeURIComponent(urlStr.substring(anchorIndex + 1)) : '';
-				const archiveUrl = archiveInfo.url.replaceAll('#', '%23') + anchor;
+				let archiveUrl = archiveInfo.url;
+				if (!archiveInfo.url.includes('%23')) {
+					const anchorIndex = urlStr.indexOf('%23');
+					if (anchorIndex != -1)
+						archiveUrl += '#' + urlStr.substring(anchorIndex + 3);
+				}
 				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : 'n');
 				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, fileFlags)}/${archiveUrl}`;
 				let embed, indent = 'all';
@@ -317,7 +320,7 @@ async function serverHandler(request, info) {
 				}
 
 				// Build page title
-				let title = (isOrphan ? archiveInfo.source + '/' : '') + decodeURI(archiveInfo.url);
+				let title = (isOrphan ? archiveInfo.source + '/' : '') + utils.safeDecode(archiveInfo.url);
 				if (fileType == 'text/html' && utils.getPathInfo(archivePathInfo.searchPath)?.isFile) {
 					const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
 					if (archiveSearchInfo.title)
@@ -496,7 +499,7 @@ async function serverHandler(request, info) {
 				const links = [];
 				for (const inlink of inlinksInfo)
 					links.push(buildHtml(templates.compat.inlinks.link, {
-						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url.replaceAll('#', '%23')}`,
+						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url}`,
 						'ORIGINAL': inlink.url,
 						'SOURCE': inlink.source,
 					}));
@@ -522,7 +525,7 @@ async function serverHandler(request, info) {
 			if (archiveInfoSet === undefined)
 				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
-			const archiveUrl = archiveInfo.url.replaceAll('#', '%23');
+			const archiveUrl = archiveInfo.url;
 
 			// Since query strings are off-limits, links masquerading as checkboxes are used to alter flags
 			// The "Apply changes" link simply returns you to the viewer with the flags from the current URL
@@ -602,7 +605,7 @@ async function serverHandler(request, info) {
 			if (archiveInfo === null)
 				throw new NotFoundError(modernMode);
 
-			const randomUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url.replaceAll('#', '%23')}`;
+			const randomUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`;
 			if (modernMode)
 				// Perform an HTTP redirect if modern mode is active
 				return Response.redirect(requestUrl.origin + randomUrl);
@@ -1083,9 +1086,9 @@ async function buildSearch(params, modernMode) {
 			// Build HTML for each result
 			const resultTemplate = modernMode ? templates.modern.search.result : templates.compat.search.result;
 			for (const result of searchResults.slice(0, config.resultsPerPage)) {
-				const displayUrl = decodeURI(result.displayUrl);
+				const displayUrl = utils.safeDecode(result.displayUrl);
 				resultSegments.push(buildHtml(resultTemplate, {
-					'LINK': `/${buildRoute('view', result.source, result.offset, null)}/${result.url.replaceAll('#', '%23')}`,
+					'LINK': `/${buildRoute('view', result.source, result.offset, null)}/${result.url}`,
 					'TITLE': result.title ?? displayUrl,
 					'URL': displayUrl,
 					'SOURCE': result.source + (result.orphan ? ' (orphan file)' : ''),
@@ -1157,8 +1160,7 @@ async function buildSearch(params, modernMode) {
 // Build navigation bar
 function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) {
 	const archiveInfo = archiveInfoSet[archiveInfoIndex];
-	const archiveUrl = archiveInfo.url.replaceAll('#', '%23');
-	const displayUrl = decodeURI(archiveInfo.url);
+	const displayUrl = sanitizeInject(utils.safeDecode(archiveInfo.url));
 
 	const messages = [];
 	if (isOrphan)
@@ -1184,10 +1186,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">Wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">Live</a>` : '',
-			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
+			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
 			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${splitUrl.join('/')}`,
-			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
-			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
+			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}`,
+			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 		};
 
@@ -1196,10 +1198,9 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			if (i != archiveInfoIndex && archiveInfoSet[i].error && !flagIds.includes('r'))
 				continue;
 
-			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
 			archiveButtons.push(buildHtml(templates.modern.navbar.archive, {
 				'ACTIVE': i == archiveInfoIndex ? ' class="archive95-navbar-active"' : '',
-				'URL': `/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${url}`,
+				'URL': `/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${archiveInfoSet[i].url}`,
 				'ICON': `/images/sources/${archiveInfoSet[i].source}.gif`,
 				'SOURCE': sources[archiveInfoSet[i].source].title,
 				'DATE': archiveInfoSet[i].date,
@@ -1232,10 +1233,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	else {
 		const navbarDefs = {
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
-			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveUrl}`,
-			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveUrl}`,
+			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
+			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}`,
 			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${splitUrl.join('/')}`,
-			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveUrl}`,
+			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',
 			'SOURCEINFO': `/sources#${archiveInfo.source}`,
@@ -1250,8 +1251,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			if (i != archiveInfoIndex && archiveInfoSet[i].error && !flagIds.includes('r'))
 				continue;
 
-			const url = (archiveInfoSet[i].url).replaceAll('#', '%23');
-			let archiveButton = `<a href="/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${url}">${archiveInfoSet[i].source}</a>`;
+			let archiveButton = `<a href="/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${archiveInfoSet[i].url}">${archiveInfoSet[i].source}</a>`;
 			if (i == archiveInfoIndex)
 				archiveButton = '<b>' + archiveButton + '</b>';
 			archiveButtons.push(archiveButton);
@@ -1384,20 +1384,16 @@ function isAncientBrowser(userAgent) {
 }
 
 // Split and parse important information from a URL
-function buildUrlSegments(requestUrl, requestPath = null) {
+function buildUrlSegments(requestUrl, requestPath) {
 	if (!requestUrl)
 		return [undefined, undefined, undefined, undefined, undefined];
-
-	// Build request path if not provided
-	if (requestPath === null)
-		requestPath = utils.safeDecode(requestUrl.pathname.replace(/^\/+/, ''));
 
 	// Separate route and URL components, and clean up slashes
 	let routeStr, urlStr;
 	const pathSeparator = requestPath.indexOf('/');
 	if (pathSeparator > 0) {
 		routeStr = requestPath.substring(0, pathSeparator);
-		urlStr = requestPath.substring(pathSeparator + 1).replace(/^\/+/, '').replaceAll('%23', '#');
+		urlStr = requestPath.substring(pathSeparator + 1).replace(/^\/+/, '');
 		if (requestUrl.search == '' && requestUrl.href.endsWith('?'))
 			urlStr += '?';
 		else
@@ -1670,7 +1666,6 @@ class NotFoundError extends ArchiveError {
 
 class UnarchivedError extends ArchiveError {
 	constructor(url, modernMode = false) {
-		const encodedUrl = encodeURI(url);
 		const splitUrl = utils.splitUrl(url);
 		if (splitUrl.length > 1 && splitUrl[splitUrl.length - 1].includes('.'))
 			splitUrl.pop();
@@ -1680,14 +1675,14 @@ class UnarchivedError extends ArchiveError {
 		if (getBrowseInfo(urlDir) !== null)
 			options.push(`<li><a href="/browse/${encodeURI(urlDir)}">Browse files in this directory</a></li>`);
 		if (getInlinksInfo(url)[0].length > 0)
-			options.push(`<li><a href="/inlinks/${encodedUrl}">See which pages link here</a></li>`);
+			options.push(`<li><a href="/inlinks/${url}">See which pages link here</a></li>`);
 		if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(url))
-			options.push(`<li><a href="http://web.archive.org/web/0/${encodedUrl}">Go to the Wayback Machine</a></li>`);
+			options.push(`<li><a href="http://web.archive.org/web/0/${url}">Go to the Wayback Machine</a></li>`);
 
 		super(
 			404,
 			'Unarchived URL',
-			`The URL <b>${sanitizeInject(url, true)}</b> does not exist in the archive.`,
+			`The URL <b>${sanitizeInject(utils.safeDecode(url), true)}</b> does not exist in the archive.`,
 			modernMode,
 			options,
 		);
