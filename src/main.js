@@ -806,7 +806,7 @@ async function performSearch(params) {
 		if (searchFilters.inContent)
 			inConditions.push('content MATCH ?1');
 		if (searchFilters.inUrl)
-			inConditions.push('url MATCH ?1');
+			inConditions.push('decodedUrl MATCH ?1');
 	}
 
 	// "Search formats" filter
@@ -831,7 +831,7 @@ async function performSearch(params) {
 		whereString += ' AND ' + sourceCondition;
 
 	// Parse the search query
-	const query = params.get('query');
+	const query = params.get('query').replaceAll('#', '%23');
 	const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
 		// FTS5 is used for database searches, and it's very easy to make invalid queries
 		// An easy fix would be to surround every word in quotation marks, but that would prevent most advanced features from being used
@@ -881,6 +881,7 @@ async function performSearch(params) {
 				const searchResult = {
 					source: archiveInfo.source,
 					url: archiveInfo.url,
+					decodedUrl: utils.safeDecode(archiveInfo.url),
 					orphan: isOrphan ? 1 : 0,
 					offset: archiveInfo.offset,
 					displayUrl: '<b>' + archiveInfo.url + '</b>',
@@ -912,9 +913,9 @@ async function performSearch(params) {
 		const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
 		searchResults.push(...await searchDatabase.query(`
 			SELECT source, url, orphan, offset,
-				highlight(search, 1, '<b>', '</b>') displayUrl,
-				highlight(search, 2, '<b>', '</b>') title,
-				snippet(search, 3, '<b>', '</b>', '...', 24) content
+				highlight(search, 2, '<b>', '</b>') displayUrl,
+				highlight(search, 3, '<b>', '</b>') title,
+				snippet(search, 4, '<b>', '</b>', '...', 24) content
 			FROM search WHERE ${whereString}
 			ORDER BY rank LIMIT ?2 OFFSET ?3
 		`, parsedQuery, limit, offset));
@@ -934,7 +935,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 		archiveRootDir = utils.getArchiveRootDir(sanitizedUrl, 'urls');
 		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
 		archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
-		if (archiveFound)
+		if (archiveFound || !/#|%23/.test(url))
 			break;
 	}
 
@@ -971,7 +972,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 			archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'orphans');
 			archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
 			archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
-			if (archiveFound)
+			if (archiveFound || !/#|%23/.test(url))
 				break;
 		}
 

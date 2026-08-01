@@ -69,9 +69,9 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	const database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
 	database.exec('PRAGMA journal_mode = WAL');
 	database.exec('PRAGMA shrink_memory');
-	database.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
-	database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 1, 1000, 1000, 0, 0, 0)')");
-	const insertStatement = database.prepare('INSERT INTO search (source, url, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?)');
+	database.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url UNINDEXED, decodedUrl, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
+	database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 0, 1, 1000, 1000, 0, 0, 0)')");
+	const insertStatement = database.prepare('INSERT INTO search (source, url, decodedUrl, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
 	// Initialize total entry statistics
 	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
@@ -522,6 +522,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 		insertStatement.run(
 			archive.source,
 			archive.url ?? archive.path,
+			utils.safeDecode(archive.url ?? archive.path),
 			search?.title || null,
 			search?.content || null,
 			archive.types[0],
