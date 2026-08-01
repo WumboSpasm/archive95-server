@@ -35,7 +35,7 @@ export function getArchiveRootDir(sanitizedUrl, namespace, buildPath = config.bu
 
 // Strip a URL down to its bare components, for comparison purposes
 export function sanitizeUrl(url, doLowerCase = true) {
-	let sanitizedUrl = safeDecode(url);
+	let sanitizedUrl = safeDecode(url.replace(/#.*$/, ''));
 	if (doLowerCase)
 		sanitizedUrl = sanitizedUrl.toLowerCase();
 
@@ -43,7 +43,6 @@ export function sanitizeUrl(url, doLowerCase = true) {
 		.replace(/^https?:\/*/i, '')
 		.replace(/^www\d{0,2}\./i, '')
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
-		.replace(/(?<=^[^#]+)#[^#]+$/, '')
 		.replace(/\?\d+,\d+$/, '')
 		.replace(/(?<!\?.*)\/(?:index\.[a-z]?html?|default\.htm)$/i, '')
 		.replace(/(?<!\?.*)\/{2,}/g, '/')
@@ -51,17 +50,12 @@ export function sanitizeUrl(url, doLowerCase = true) {
 }
 
 // Strip a path down to its bare components, for comparison purposes
-export function sanitizePath(path, keepAnchor = false, doLowerCase = true) {
-	let sanitizedPath = safeDecode(path);
-	const anchorMatch = sanitizedPath.match(/(?<=^[^#]+)#[^#]+$/);
-	if (anchorMatch !== null)
-		sanitizedPath = sanitizedPath.substring(0, anchorMatch.index);
+export function sanitizePath(path, doLowerCase = true) {
+	let [sanitizedPath, anchor] = splitAnchor(path).map(value => safeDecode(value));
 
 	sanitizedPath = sanitizedPath
 		.replace(/\/{2,}/g, '/')
-		.replace(/\/$/, '');
-	if (anchorMatch !== null && keepAnchor)
-		sanitizedPath += anchorMatch[0];
+		.replace(/\/$/, '') + anchor;
 	if (doLowerCase)
 		sanitizedPath = sanitizedPath.toLowerCase();
 
@@ -71,7 +65,7 @@ export function sanitizePath(path, keepAnchor = false, doLowerCase = true) {
 // Split a URL into segments for use by the directory browser
 export function splitUrl(url, orphanSource = null) {
 	const sanitizedUrl = orphanSource !== null
-		? pathUtils.join(orphanSource, sanitizePath(url, false, false))
+		? pathUtils.join(orphanSource, sanitizePath(url, false))
 		: sanitizeUrl(url, false);
 
 	// The name is on purpose, FYI
@@ -81,9 +75,9 @@ export function splitUrl(url, orphanSource = null) {
 }
 
 // Extract the anchor from a URL
-export function splitAnchor(url) {
+export function splitAnchor(url, encoded = false) {
 	let anchor = '';
-	const anchorMatch = url.match(/#.*$/);
+	const anchorMatch = url.match(encoded ? /(?:#|%23).*$/ : /#.*$/);
 	if (anchorMatch !== null) {
 		anchor = safeDecode(anchorMatch[0]);
 		url = url.substring(0, anchorMatch.index);

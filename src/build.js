@@ -328,7 +328,7 @@ function buildIndexes() {
 				: sources[sourceId].archiveDate;
 
 			const sanitizedUrl = entry.url !== null ? (!entry.url.startsWith('#') ? utils.sanitizeUrl(entry.url) : entry.url) : null;
-			const sanitizedPath = utils.sanitizePath(entry.path, entry.skip);
+			const sanitizedPath = utils.sanitizePath(entry.path);
 			const offset = (urlIndex[sanitizedUrl] ?? []).filter(urlEntry =>
 				!urlEntry.skip && sourceId == urlEntry.source && entry.url == urlEntry.url
 			).length || null;
@@ -402,7 +402,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 
 	// If the loaded file data was changed, copy over the raw file
 	if (changed) {
-		const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, archive.path);
+		const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
 		Deno.copyFileSync(filePath, pathUtils.join(targetDir, 'raw'));
 	}
 
@@ -605,7 +605,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		// Extract the anchor from the URL string if it exists, and re-encode both
 		let anchor = '';
 		[rawUrl, anchor] = utils.splitAnchor(rawUrl);
-		rawUrl = encodeURI(utils.safeDecode(rawUrl));
+		rawUrl = encodeURI(utils.safeDecode(rawUrl)).replaceAll('#', '%23');
 		anchor = encodeURI(utils.safeDecode(anchor));
 
 		const isAbsolute = /^[a-z]+:/i.test(rawUrl);
@@ -624,15 +624,15 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 
 			// Sanitize the full path and try to retrieve its entry in the path index
 			const pathEntries = pathIndex[archive.source];
-			let sanitizedPath = utils.sanitizePath(unresolvedUrl);
+			let sanitizedPath = utils.sanitizePath(unresolvedUrl + anchor);
 			let pathEntry = pathEntries[sanitizedPath];
 			if (pathEntry === undefined && anchor != '') {
 				// If the entry could not be retrieved, but an anchor exists, append the anchor to the path and try again
-				sanitizedPath = utils.sanitizePath(unresolvedUrl + anchor, true);
+				sanitizedPath = utils.sanitizePath(unresolvedUrl);
 				pathEntry = pathEntries[sanitizedPath];
-				if (pathEntry !== undefined)
-					anchor = '';
 			}
+			else
+				anchor = '';
 
 			// Check if an entry was found in the path index
 			if (pathEntry !== undefined) {
@@ -691,7 +691,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			inject.links.push(linkInject);
 
 			// If the link is valid and of a reasonable length, add it to the inlinks directory list
-			const inlinkUrl = (resolvedUrl ?? unresolvedUrl).replace(/(?<=^[^#]+)#[^#]+$/, '');
+			const inlinkUrl = (resolvedUrl ?? unresolvedUrl).replace(/#.*$/, '');
 			if (resolvedSource !== null || (/^https?:/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 				const sanitizedUrl = !isOrphan
 					? utils.sanitizeUrl(inlinkUrl)
@@ -999,8 +999,7 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 	if (sanitizedPath !== null) {
 		// If a sanitized path is defined, try using it to fast-track identification of nearest archive
 		// If a match is found but is invalid, take note of its URL and carry on
-		const keepAnchor = /(?<=^[^#]+)#[^#]+$/.test(sanitizedPath);
-		const exactMatch = compareEntries.find(compareEntry => archive.source == compareEntry.source && sanitizedPath == utils.sanitizePath(compareEntry.path, keepAnchor));
+		const exactMatch = compareEntries.find(compareEntry => archive.source == compareEntry.source && sanitizedPath == utils.sanitizePath(compareEntry.path));
 		if (exactMatch !== undefined) {
 			if (!exactMatch.error && !exactMatch.skip)
 				return [exactMatch.source, exactMatch.url, exactMatch.offset];
@@ -1499,7 +1498,7 @@ function getLinks(html, baseUrl = undefined) {
 // Retrieve a file's data and parse it
 async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {}) {
 	// Make sure the file exists, otherwise return an empty byte array
-	const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, archive.path);
+	const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
 	const fileInfo = utils.getPathInfo(filePath);
 	if (fileInfo === null || !fileInfo.isFile || fileInfo.size == 0)
 		return [null, null, false];

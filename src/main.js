@@ -500,7 +500,7 @@ async function serverHandler(request, info) {
 				for (const inlink of inlinksInfo)
 					links.push(buildHtml(templates.compat.inlinks.link, {
 						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url}`,
-						'ORIGINAL': inlink.url,
+						'ORIGINAL': sanitizeInject(utils.safeDecode(inlink.url)),
 						'SOURCE': inlink.source,
 					}));
 
@@ -929,9 +929,16 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	let archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan = false;
 
 	// Check the urls directory first
-	let archiveRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(url), 'urls');
-	let archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
-	if (utils.getPathInfo(archiveInfoSetPath)?.isFile) {
+	let archiveRootDir, archiveInfoSetPath, archiveFound = false;
+	for (const sanitizedUrl of [utils.sanitizeUrl(url), utils.sanitizeUrl(utils.splitAnchor(url, true)[0])]) {
+		archiveRootDir = utils.getArchiveRootDir(sanitizedUrl, 'urls');
+		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
+		archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
+		if (archiveFound)
+			break;
+	}
+
+	if (archiveFound) {
 		// The archive exists in the urls directory, now identify where it resides in the set
 		archiveInfoSet = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
 		archiveInfoIndex = -1;
@@ -960,21 +967,26 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	}
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory
-		archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans');
-		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
-		if (!utils.getPathInfo(archiveInfoSetPath)?.isFile)
-			return [undefined, undefined, undefined, undefined];
+		for (const sanitizedPath of [utils.sanitizePath(url), utils.sanitizePath(utils.splitAnchor(url, true)[0])]) {
+			archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'orphans');
+			archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
+			archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
+			if (archiveFound)
+				break;
+		}
 
-		const archiveInfo = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
-		archiveInfoSet = [archiveInfo];
-		archiveInfoIndex = 0;
-		archiveDir = archiveRootDir;
-		isOrphan = true;
+		if (archiveFound) {
+			const archiveInfo = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
+			archiveInfoSet = [archiveInfo];
+			archiveInfoIndex = 0;
+			archiveDir = archiveRootDir;
+			isOrphan = true;
+		}
 	}
-	else
-		return [undefined, undefined, undefined, undefined];
 
-	return [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan];
+	return archiveFound
+		? [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan]
+		: [undefined, undefined, undefined, undefined];
 }
 
 // Identify the correct archive file and injection list and return their paths
@@ -1187,7 +1199,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">Wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">Live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
-			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${splitUrl.join('/')}`,
+			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
@@ -1235,7 +1247,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}`,
-			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${splitUrl.join('/')}`,
+			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}`,
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',
