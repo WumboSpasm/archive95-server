@@ -215,7 +215,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${sanitizedUrl}...`);
-			const sourcePath = pathUtils.join(config.inputPath, 'screenshots', screenshot.source, screenshot.path);
+			const sourcePath = pathUtils.join(config.inputPath, 'screenshots', screenshot.source, utils.safeDecode(screenshot.path));
 			const thumbnail = Deno.spawnAndWaitSync('convert', [sourcePath, '-geometry', 'x64', '-']).stdout;
 			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
 			Deno.writeFileSync(pathUtils.join(targetDir, 'thumbnail'), thumbnail);

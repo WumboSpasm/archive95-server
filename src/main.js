@@ -570,7 +570,8 @@ async function serverHandler(request, info) {
 		case 'screenshot':
 		case 'thumbnail': {
 			// Check if the screenshot exists
-			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(urlStr), 'screenshots');
+			const screenshotUrl = urlStr.replaceAll('%23', '#');
+			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(screenshotUrl), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (!utils.getPathInfo(screenshotInfoSetPath)?.isFile)
 				throw new NotFoundError(modernMode);
@@ -581,7 +582,7 @@ async function serverHandler(request, info) {
 			if (screenshotInfoSet.length > 1 && sourceId !== undefined) {
 				for (let i = 0; i < screenshotInfoSet.length; i++) {
 					if (sourceId == screenshotInfoSet[i].source) {
-						if (urlStr == screenshotInfoSet[i].url) {
+						if (screenshotUrl == screenshotInfoSet[i].url) {
 							screenshotInfoIndex = i;
 							if (offset === undefined || offset == screenshotInfoSet[i].offset)
 								break;
