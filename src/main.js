@@ -843,7 +843,7 @@ async function performSearch(params) {
 		else if (match.startsWith('"') && match.endsWith('"'))
 			// If the segment is already surrounded by quotation marks, we don't need to do anything
 			return match;
-		else if (/^https?:\/\/[^ ]+$/i.test(match))
+		else if (/^(?:https?|ftp):\/\/[^ ]+$/i.test(match))
 			// If the segment appears to be a URL, sanitize it and surround in quotation marks to maximize potential results
 			// This fails to match some URLs and is made mostly redundant by the below code, but meh. When it works it works
 			return '"' + utils.sanitizeUrl(match) + '"';

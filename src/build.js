@@ -236,9 +236,9 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		const inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
 		if (inlinks.length > 1) {
 			inlinks.sort((a, b) => {
-				const httpExp = /^https?:/i;
-				const aIsUrl = httpExp.test(a.url);
-				const bIsUrl = httpExp.test(b.url);
+				const protocolExp = /^(?:https?|ftp):/i;
+				const aIsUrl = protocolExp.test(a.url);
+				const bIsUrl = protocolExp.test(b.url);
 				return aIsUrl == bIsUrl
 					? a.url.localeCompare(b.url, 'en', { sensitivity: 'base' })
 					: (aIsUrl ? -1 : 1);
@@ -693,7 +693,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 
 			// If the link is valid and of a reasonable length, add it to the inlinks directory list
 			const inlinkUrl = (resolvedUrl ?? unresolvedUrl).replace(/#.*$/, '');
-			if (resolvedSource !== null || (/^https?:/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
+			if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 				const sanitizedUrl = !isOrphan
 					? utils.sanitizeUrl(inlinkUrl)
 					: pathUtils.join(linkInject.source, utils.sanitizePath(inlinkUrl));
