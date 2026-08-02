@@ -1,7 +1,7 @@
-// For frames inside iframes, in-site links that target the parent browsing context as well as all Wayback Machine links need to be re-targeted to the topmost browsing context
-// - In the former's case, this is to prevent links that intend to change the page URL from only changing the iframe
-// - In the latter's case, it's because embedding content from the Wayback Machine is generally not a good idea
-// The "j" flag ID also needs to be removed from in-site links so the page doesn't display without a navigation bar
+// For frames inside iframes, links that target the parent browsing context as well as all Wayback Machine links need to be re-targeted to the topmost browsing context
+// - In the former's case, this is to prevent links that intend to change the page URL from only changing the iframe URL
+// - In the latter's case, this is because embedding content from the Wayback Machine is generally not a good idea
+// The "j" flag ID also needs to be removed from these links so the page doesn't display without a navigation bar
 function updateLinks() {
 	for (const link of document.querySelectorAll('[href^="/view-"][target],[href="/deadend"][target],[href^="http://"]')) {
 		const href = link.getAttribute('href');
