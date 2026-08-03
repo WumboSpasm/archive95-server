@@ -1146,7 +1146,7 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 				'"/deadend"',
 			).replace(
 				// Replace non-link image placeholders and remove added link
-				/<a href=".*?">(<img .*?src=)"[./]*link\.gif" alt="\[image\]"((?:.|\n)*?>)<\/a>/gi,
+				/<a href="[^\n"]*?">(<img [^\n]*?src=)"[./]*link\.gif" alt="\[image\]"(.*?>)<\/a>/gis,
 				'$1"/deadend"$2',
 			).replace(
 				// Remove broken page warning
