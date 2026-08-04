@@ -571,7 +571,7 @@ async function serverHandler(request, info) {
 		case 'thumbnail': {
 			// Check if the screenshot exists
 			const screenshotUrl = urlStr.replaceAll('%23', '#');
-			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(screenshotUrl), 'screenshots');
+			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(screenshotUrl), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (!utils.getPathInfo(screenshotInfoSetPath)?.isFile)
 				throw new NotFoundError(modernMode);
@@ -844,9 +844,9 @@ async function performSearch(params) {
 			// If the segment is already surrounded by quotation marks, we don't need to do anything
 			return match;
 		else if (/^(?:https?|ftp):\/\/[^ ]+$/i.test(match))
-			// If the segment appears to be a URL, sanitize it and surround in quotation marks to maximize potential results
+			// If the segment appears to be a URL, normalize it and surround in quotation marks to maximize potential results
 			// This fails to match some URLs and is made mostly redundant by the below code, but meh. When it works it works
-			return '"' + utils.sanitizeUrl(match) + '"';
+			return '"' + utils.normalizeUrl(match) + '"';
 		else
 			// Loose words need most non-alphanumeric characters to be escaped
 			return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
@@ -857,7 +857,7 @@ async function performSearch(params) {
 			});
 	});
 
-	// Check if the search query matches any URLs when sanitized, and add them to the top of the search results
+	// Check if the search query matches any URLs when normalized, and add them to the top of the search results
 	const searchResults = [];
 	let searchOffset = 0;
 	if (searchFilters.inUrl && !/[ "]/.test(query)) {
@@ -932,8 +932,8 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 
 	// Check the urls directory first
 	let archiveRootDir, archiveInfoSetPath, archiveFound = false;
-	for (const sanitizedUrl of [utils.sanitizeUrl(url), utils.sanitizeUrl(utils.splitAnchor(url, true)[0])]) {
-		archiveRootDir = utils.getArchiveRootDir(sanitizedUrl, 'urls');
+	for (const normalizedUrl of [utils.normalizeUrl(url), utils.normalizeUrl(utils.splitAnchor(url, true)[0])]) {
+		archiveRootDir = utils.getArchiveRootDir(normalizedUrl, 'urls');
 		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
 		archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
 		if (archiveFound || !/#|%23/.test(url))
@@ -969,8 +969,8 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	}
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory
-		for (const sanitizedPath of [utils.sanitizePath(url), utils.sanitizePath(utils.splitAnchor(url, true)[0])]) {
-			archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'orphans');
+		for (const normalizedPath of [utils.normalizePath(url), utils.normalizePath(utils.splitAnchor(url, true)[0])]) {
+			archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, normalizedPath), 'orphans');
 			archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
 			archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
 			if (archiveFound || !/#|%23/.test(url))
@@ -1017,13 +1017,13 @@ function getArchivePathInfo(archiveDir, flagIds = '') {
 function getBrowseInfo(url, sourceId = undefined) {
 	// Look for the directory listing file and load it
 	const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
-	let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.sanitizeUrl(url), 'urls'), browseFileName);
+	let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.normalizeUrl(url), 'urls'), browseFileName);
 	let isOrphan = false;
 	if (!utils.getPathInfo(browseFilePath)?.isFile) {
 		if (sourceId === undefined)
 			return null;
 		else {
-			browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.sanitizePath(url)), 'orphans'), browseFileName);
+			browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.normalizePath(url)), 'orphans'), browseFileName);
 			if (!utils.getPathInfo(browseFilePath)?.isFile)
 				return null;
 			isOrphan = true;
@@ -1037,7 +1037,7 @@ function getBrowseInfo(url, sourceId = undefined) {
 // Gather inlinks information for a URL
 function getInlinksInfo(url, sourceId = undefined) {
 	let inlinksInfo = [];
-	let displayUrl = utils.sanitizeUrl(url);
+	let displayUrl = utils.normalizeUrl(url);
 
 	// Check inlinks_urls and inlinks_orphans directories for list of inlinks
 	let inlinksDir = utils.getArchiveRootDir(displayUrl, 'inlinks_urls');
@@ -1045,12 +1045,12 @@ function getInlinksInfo(url, sourceId = undefined) {
 	if (utils.getPathInfo(inlinksPath)?.isFile)
 		inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
 	else if (sourceId !== undefined) {
-		const sanitizedPath = utils.sanitizePath(url);
-		inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, sanitizedPath), 'inlinks_orphans');
+		const normalizedPath = utils.normalizePath(url);
+		inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, normalizedPath), 'inlinks_orphans');
 		inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
 		if (utils.getPathInfo(inlinksPath)?.isFile) {
 			inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
-			displayUrl = sanitizedPath;
+			displayUrl = normalizedPath;
 		}
 	}
 
@@ -1224,7 +1224,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const screenshots = [];
 		if (!isOrphan) {
-			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(archiveInfo.url), 'screenshots');
+			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
 				const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
@@ -1274,7 +1274,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const screenshots = [];
 		if (!isOrphan) {
-			const screenshotRootDir = utils.getArchiveRootDir(utils.sanitizeUrl(archiveInfo.url), 'screenshots');
+			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
 				const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));

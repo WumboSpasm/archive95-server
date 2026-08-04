@@ -84,16 +84,16 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	total += Object.values(urlIndex).map(entries => entries.filter(entry => !entry.skip).length).reduce((sum, n) => sum + n, 0);
 	// One step for each valid orphan
 	total += Object.values(pathIndex).map(entries =>
-		Object.values(entries).filter(entry => entry.sanitizedUrl === null && !entry.skip).length
+		Object.values(entries).filter(entry => entry.normalizedUrl === null && !entry.skip).length
 	).reduce((sum, n) => sum + n, 0);
 	// One step for each screenshot
 	total += Object.values(screenshotIndex).map(entries => entries.length).reduce((sum, n) => sum + n, 0);
 
 	// Build the URL file tree
-	for (const sanitizedUrl in urlIndex) {
+	for (const normalizedUrl in urlIndex) {
 		// Gather archive info
 		const archives = [];
-		const urlEntries = urlIndex[sanitizedUrl];
+		const urlEntries = urlIndex[normalizedUrl];
 		for (const urlEntry of urlEntries) {
 			if (!urlEntry.skip)
 				archives.push({
@@ -117,7 +117,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		archives.sort((a, b) => utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date));
 
 		// Create the containing directory for the current URL
-		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'urls', tempBuildPath);
+		const urlDir = utils.getArchiveRootDir(normalizedUrl, 'urls', tempBuildPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
 
 		// Create subdirectories for each archive of the current URL with file data and important information
@@ -129,7 +129,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedUrl}...`);
+			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedUrl}...`);
 			await buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement);
 
 			// Increment URL totals
@@ -150,10 +150,10 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 	// Build the orphan file tree
 	for (const sourceId in pathIndex) {
-		for (const sanitizedPath in pathIndex[sourceId]) {
-			const orphanEntry = pathIndex[sourceId][sanitizedPath];
+		for (const normalizedPath in pathIndex[sourceId]) {
+			const orphanEntry = pathIndex[sourceId][normalizedPath];
 			// Orphans do not have an associated URL, and we should only build archives of valid orphans
-			if (orphanEntry.sanitizedUrl !== null || orphanEntry.skip)
+			if (orphanEntry.normalizedUrl !== null || orphanEntry.skip)
 				continue;
 
 			// Gather archive info
@@ -170,11 +170,11 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			};
 
 			// Create a containing directory for the current orphan
-			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, sanitizedPath), 'orphans', tempBuildPath);
+			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, normalizedPath), 'orphans', tempBuildPath);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${sanitizedPath}...`);
+			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedPath}...`);
 			await buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement);
 
 			// Increment orphan totals
@@ -198,11 +198,11 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	database.close();
 
 	// Build the screenshot file tree
-	for (const sanitizedUrl in screenshotIndex) {
-		const screenshots = screenshotIndex[sanitizedUrl];
+	for (const normalizedUrl in screenshotIndex) {
+		const screenshots = screenshotIndex[normalizedUrl];
 
 		// Create the containing directory for the current URL
-		const urlDir = utils.getArchiveRootDir(sanitizedUrl, 'screenshots', tempBuildPath);
+		const urlDir = utils.getArchiveRootDir(normalizedUrl, 'screenshots', tempBuildPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
 
 		// Create subdirectories for each screenshot of the current URL with file data and important information
@@ -214,7 +214,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
-			utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${sanitizedUrl}...`);
+			utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${normalizedUrl}...`);
 			const sourcePath = pathUtils.join(config.inputPath, 'screenshots', screenshot.source, utils.safeDecode(screenshot.path));
 			const thumbnail = Deno.spawnAndWaitSync('convert', [sourcePath, '-geometry', 'x64', '-']).stdout;
 			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
@@ -327,9 +327,9 @@ function buildIndexes() {
 				? new Date(entry.archived).toISOString().substring(0, 10)
 				: sources[sourceId].archiveDate;
 
-			const sanitizedUrl = entry.url !== null ? (!entry.url.startsWith('#') ? utils.sanitizeUrl(entry.url) : entry.url) : null;
-			const sanitizedPath = utils.sanitizePath(entry.path);
-			const offset = (urlIndex[sanitizedUrl] ?? []).filter(urlEntry =>
+			const normalizedUrl = entry.url !== null ? (!entry.url.startsWith('#') ? utils.normalizeUrl(entry.url) : entry.url) : null;
+			const normalizedPath = utils.normalizePath(entry.path);
+			const offset = (urlIndex[normalizedUrl] ?? []).filter(urlEntry =>
 				!urlEntry.skip && sourceId == urlEntry.source && entry.url == urlEntry.url
 			).length || null;
 
@@ -338,8 +338,8 @@ function buildIndexes() {
 				source: sourceId,
 				url: entry.url,
 				path: entry.path,
-				sanitizedUrl: sanitizedUrl,
-				sanitizedPath: sanitizedPath,
+				normalizedUrl: normalizedUrl,
+				normalizedPath: normalizedPath,
 				date: date,
 				warn: entry.warn,
 				error: entry.error,
@@ -348,18 +348,18 @@ function buildIndexes() {
 			};
 
 			// Add entry to URL index
-			if (sanitizedUrl !== null && !sanitizedUrl.startsWith('#')) {
-				if (urlIndex[sanitizedUrl] === undefined)
-					urlIndex[sanitizedUrl] = [];
+			if (normalizedUrl !== null && !normalizedUrl.startsWith('#')) {
+				if (urlIndex[normalizedUrl] === undefined)
+					urlIndex[normalizedUrl] = [];
 
-				urlIndex[sanitizedUrl].push(indexEntry);
+				urlIndex[normalizedUrl].push(indexEntry);
 			}
 
 			// Add entry to path index
 			// If it needs to be skipped but doesn't have a valid URL, then it's useless to us
 			// (Unless the URL mode is 1, otherwise we need to know its path so we can mark it as invalid)
-			if (!entry.skip || sanitizedUrl !== null || sources[sourceId].urlMode == 1)
-				pathIndex[sourceId][sanitizedPath] = indexEntry;
+			if (!entry.skip || normalizedUrl !== null || sources[sourceId].urlMode == 1)
+				pathIndex[sourceId][normalizedPath] = indexEntry;
 		}
 	}
 
@@ -373,16 +373,16 @@ function buildIndexes() {
 
 		const entries = JSON.parse(Deno.readTextFileSync(entriesPath));
 		for (const entry of entries) {
-			const sanitizedUrl = utils.sanitizeUrl(entry.url);
-			if (screenshotIndex[sanitizedUrl] === undefined)
-				screenshotIndex[sanitizedUrl] = [];
+			const normalizedUrl = utils.normalizeUrl(entry.url);
+			if (screenshotIndex[normalizedUrl] === undefined)
+				screenshotIndex[normalizedUrl] = [];
 
-			screenshotIndex[sanitizedUrl].push({
+			screenshotIndex[normalizedUrl].push({
 				source: sourceId,
 				url: entry.url,
 				path: entry.path,
 				type: entry.type,
-				offset: screenshotIndex[sanitizedUrl].filter(screenshotEntry =>
+				offset: screenshotIndex[normalizedUrl].filter(screenshotEntry =>
 					!screenshotEntry.skip && sourceId == screenshotEntry.source && entry.url == screenshotEntry.url
 				).length || null,
 			});
@@ -623,14 +623,14 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			if (parsedPath !== null)
 				unresolvedUrl = parsedPath.pathname.substring(1);
 
-			// Sanitize the full path and try to retrieve its entry in the path index
+			// Normalize the full path and try to retrieve its entry in the path index
 			const pathEntries = pathIndex[archive.source];
-			let sanitizedPath = utils.sanitizePath(unresolvedUrl + anchor);
-			let pathEntry = pathEntries[sanitizedPath];
+			let normalizedPath = utils.normalizePath(unresolvedUrl + anchor);
+			let pathEntry = pathEntries[normalizedPath];
 			if (pathEntry === undefined && anchor != '') {
 				// If the entry could not be retrieved, but an anchor exists, append the anchor to the path and try again
-				sanitizedPath = utils.sanitizePath(unresolvedUrl);
-				pathEntry = pathEntries[sanitizedPath];
+				normalizedPath = utils.normalizePath(unresolvedUrl);
+				pathEntry = pathEntries[normalizedPath];
 			}
 			else
 				anchor = '';
@@ -647,8 +647,8 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 						return newStr;
 					}
 					// Otherwise, resolve the URL to the nearest valid archive and fetch relevant info
-					const urlEntries = urlIndex[pathEntry.sanitizedUrl];
-					[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, sanitizedPath);
+					const urlEntries = urlIndex[pathEntry.normalizedUrl];
+					[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, normalizedPath);
 					if (anchor == '' && pathEntry.url.includes('#'))
 						anchor = utils.splitAnchor(pathEntry.url)[1];
 				}
@@ -670,8 +670,8 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				unresolvedUrl = parsedUrl.href;
 
 			// Check if the entry can be found in the URL index
-			const sanitizedUrl = utils.sanitizeUrl(unresolvedUrl);
-			const urlEntries = urlIndex[sanitizedUrl];
+			const normalizedUrl = utils.normalizeUrl(unresolvedUrl);
+			const urlEntries = urlIndex[normalizedUrl];
 			if (urlEntries !== undefined)
 				// If the entry was found, resolve it to the nearest valid archive and fetch relevant info
 				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
@@ -694,10 +694,10 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			// If the link is valid and of a reasonable length, add it to the inlinks directory list
 			const inlinkUrl = (resolvedUrl ?? unresolvedUrl).replace(/#.*$/, '');
 			if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
-				const sanitizedUrl = !isOrphan
-					? utils.sanitizeUrl(inlinkUrl)
-					: pathUtils.join(linkInject.source, utils.sanitizePath(inlinkUrl));
-				const inlinksDir = utils.getArchiveRootDir(sanitizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildPath);
+				const normalizedUrl = !isOrphan
+					? utils.normalizeUrl(inlinkUrl)
+					: pathUtils.join(linkInject.source, utils.normalizePath(inlinkUrl));
+				const inlinksDir = utils.getArchiveRootDir(normalizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildPath);
 				if (inlinksDir.length < 256)
 					inlinksDirs.push(inlinksDir);
 			}
@@ -855,13 +855,13 @@ function buildBrowse(archive, browseIndex) {
 	};
 
 	const isOrphan = archive.url === null;
-	const sanitizedUrl = isOrphan
-		? pathUtils.join(archive.source, utils.sanitizePath(archive.path))
-		: utils.sanitizeUrl(archive.url);
+	const normalizedUrl = isOrphan
+		? pathUtils.join(archive.source, utils.normalizePath(archive.path))
+		: utils.normalizeUrl(archive.url);
 	const namespace = isOrphan ? 'orphans' : 'urls';
 
 	// Get the start and end directories for traversal
-	let currentDir = utils.getArchiveRootDir(sanitizedUrl, namespace, tempBuildPath);
+	let currentDir = utils.getArchiveRootDir(normalizedUrl, namespace, tempBuildPath);
 	const endDir = pathUtils.join(tempBuildPath, namespace);
 
 	// Split URL into segments and resolve index files to a consistent identifier to reduce complexity
@@ -995,12 +995,12 @@ function buildBrowse(archive, browseIndex) {
 }
 
 // Determine which entry in a set of archives for a specific URL is closest date-wise to a supplied archive
-function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
+function nearestArchiveInfo(archive, compareEntries, normalizedPath = null) {
 	let backupUrl = null;
-	if (sanitizedPath !== null) {
-		// If a sanitized path is defined, try using it to fast-track identification of nearest archive
+	if (normalizedPath !== null) {
+		// If a normalized path is defined, try using it to fast-track identification of nearest archive
 		// If a match is found but is invalid, take note of its URL and carry on
-		const exactMatch = compareEntries.find(compareEntry => archive.source == compareEntry.source && sanitizedPath == utils.sanitizePath(compareEntry.path));
+		const exactMatch = compareEntries.find(compareEntry => archive.source == compareEntry.source && normalizedPath == utils.normalizePath(compareEntry.path));
 		if (exactMatch !== undefined) {
 			if (!exactMatch.error && !exactMatch.skip)
 				return [exactMatch.source, exactMatch.url, exactMatch.offset];
@@ -1682,7 +1682,7 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 			const inlinePathExp = new RegExp(`(?:\\.\\./)+(${archive.path.substring(0, archive.path.indexOf('/')).toLowerCase()}.*?)(?=\\s)`, 'g');
 			const inlinePathSlices = [];
 			for (let inlinePathMatch; (inlinePathMatch = inlinePathExp.exec(blankedHtml)) !== null;) {
-				const inlinePathEntry = pathIndex[archive.source][utils.sanitizePath(inlinePathMatch[1])];
+				const inlinePathEntry = pathIndex[archive.source][utils.normalizePath(inlinePathMatch[1])];
 				if (inlinePathEntry === undefined)
 					continue;
 

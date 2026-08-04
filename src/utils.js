@@ -24,9 +24,9 @@ export function loadBlocklist(blocklistPath) {
 	}
 }
 
-// Convert a sanitized URL/path into a properly escaped directory definition for quick lookup
-export function getArchiveRootDir(sanitizedUrl, namespace, buildPath = config.buildPath) {
-	return pathUtils.join(buildPath, namespace, sanitizedUrl
+// Convert a normalized URL/path into a properly escaped directory definition for quick lookup
+export function getArchiveRootDir(normalizedUrl, namespace, buildPath = config.buildPath) {
+	return pathUtils.join(buildPath, namespace, normalizedUrl
 		.replace(/[^a-z0-9 \/_.-]/gi, c => c.charCodeAt(0).toString(16).toUpperCase().match(/.{1,2}/g).map(h => '%' + h.padStart(2, '0')).join(''))
 		.replace(/(?<=%3F.*)\//g, '%2F')
 		.replace(/(?<=^|\/)\.+(?=\/|$)/g, match => '%2E'.repeat(match.length))
@@ -34,12 +34,12 @@ export function getArchiveRootDir(sanitizedUrl, namespace, buildPath = config.bu
 }
 
 // Strip a URL down to its bare components, for comparison purposes
-export function sanitizeUrl(url, doLowerCase = true) {
-	let sanitizedUrl = safeDecode(url.replace(/#.*$/, ''));
+export function normalizeUrl(url, doLowerCase = true) {
+	let normalizedUrl = safeDecode(url.replace(/#.*$/, ''));
 	if (doLowerCase)
-		sanitizedUrl = sanitizedUrl.toLowerCase();
+		normalizedUrl = normalizedUrl.toLowerCase();
 
-	return sanitizedUrl
+	return normalizedUrl
 		.replace(/^(?:https?|ftp):\/*/i, '')
 		.replace(/^www\d{0,2}\./i, '')
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
@@ -50,26 +50,26 @@ export function sanitizeUrl(url, doLowerCase = true) {
 }
 
 // Strip a path down to its bare components, for comparison purposes
-export function sanitizePath(path, doLowerCase = true) {
-	let [sanitizedPath, anchor] = splitAnchor(path).map(value => safeDecode(value));
+export function normalizePath(path, doLowerCase = true) {
+	let [normalizedPath, anchor] = splitAnchor(path).map(value => safeDecode(value));
 
-	sanitizedPath = sanitizedPath
+	normalizedPath = normalizedPath
 		.replace(/\/{2,}/g, '/')
 		.replace(/\/$/, '') + anchor;
 	if (doLowerCase)
-		sanitizedPath = sanitizedPath.toLowerCase();
+		normalizedPath = normalizedPath.toLowerCase();
 
-	return sanitizedPath;
+	return normalizedPath;
 }
 
 // Split a URL into segments for use by the directory browser
 export function splitUrl(url, orphanSource = null) {
-	const sanitizedUrl = orphanSource !== null
-		? pathUtils.join(orphanSource, sanitizePath(url, false))
-		: sanitizeUrl(url, false);
+	const normalizedUrl = orphanSource !== null
+		? pathUtils.join(orphanSource, normalizePath(url, false))
+		: normalizeUrl(url, false);
 
 	// The name is on purpose, FYI
-	const splittedUrl = sanitizedUrl.split(/(?<!\?.*)\//i);
+	const splittedUrl = normalizedUrl.split(/(?<!\?.*)\//i);
 	splittedUrl[0] = splittedUrl[0].toLowerCase();
 	return splittedUrl;
 }
