@@ -1050,7 +1050,7 @@ function nearestArchiveInfo(archive, compareEntries, sanitizedPath = null) {
 }
 
 // Attempt to revert source-specific markup alterations
-function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
+function genericizeMarkup(html, sourceId, path, url = undefined) {
 	switch (sourceId) {
 		case 'cdwin': {
 			// Replace error links
@@ -1103,21 +1103,47 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 					'',
 				).replace(
 					// Fix broken image elements (variation 1)
-					/<(?:A|IMG|(?=\/))([^> ]+\.[a-zA-Z]+)"/g,
-					(_, path) => '<IMG SRC="' + (!path.startsWith('/') ? '../../' : '') + path + '"',
+					// Yes, this is *exactly* as stupid and arbitrary as it looks
+					/<(?:A|IMG|(?=\/))([^> \n]+\.[a-zA-Z]+)"/g,
+					(_, imagePath) => {
+						imagePath = imagePath.replace(/^[./]+/, '').replace(/^([^/]+)\/\1\//, '$1/');
+						let upDirs = 0;
+						if (!url.startsWith('http://www.census.gov/')) {
+							const dirDepth = url.replace(/^http:\/\/[^/]+\/?/, '').split('/').length - 1;
+							if (dirDepth == 3) {
+								const urlStarts = [
+									'http://www.gsa.gov/',
+									'http://www.ksc.nasa.gov/',
+									'http://www.nsf.gov/',
+									'http://www.whitehouse.gov/White_House/Cabinet/'
+								];
+								if (!urlStarts.some(urlStart => url.startsWith(urlStart)))
+									upDirs = 2;
+							}
+							else if (dirDepth == 4) {
+								if (url.startsWith('http://cuiwww.unige.ch/'))
+									upDirs = 2;
+								else
+									upDirs = 3;
+							}
+							else if (dirDepth == 5)
+								upDirs = 4;
+						}
+						return '<IMG SRC="' + (upDirs > 0 ? '../'.repeat(upDirs) : '/') + imagePath + '"';
+					},
 				).replace(
 					// Fix broken image elements (variation 2)
 					/<A HREF="([^">]+\.gif)"([^>]*)><\/A>/g,
-					(_, url, attrs) => {
-						if (url.startsWith('http://')) {
-							const trimmedUrl = url.substring(7);
+					(_, imageUrl, attrs) => {
+						if (imageUrl.startsWith('http://')) {
+							const trimmedUrl = imageUrl.substring(7);
 							const domain = trimmedUrl.substring(0, trimmedUrl.indexOf('/'));
 							if (!domain.includes('.') || domain.endsWith('.gif'))
-								url = '/' + trimmedUrl;
+								imageUrl = '/' + trimmedUrl;
 							else
-								url = new URL(url.replace(/([^/]+\/[^/]+$)/, '../../$1')).href;
+								imageUrl = new URL(imageUrl.replace(/([^/]+\/[^/]+$)/, '../../$1')).href;
 						}
-						return `<IMG SRC="${url}"${attrs}>`;
+						return `<IMG SRC="${imageUrl}"${attrs}>`;
 					},
 				).replace(
 					// Fix mailto links
@@ -1188,7 +1214,7 @@ function genericizeMarkup(html, sourceId, path, baseUrl = undefined) {
 		}
 		case 'pcpress': {
 			// Attempt to fix broken external links
-			const links = getLinks(html, baseUrl)
+			const links = getLinks(html, url)
 				.filter(link => link.hasHttp && URL.canParse(link.rawUrl))
 				.toSorted((a, b) => a.index - b.index);
 			for (const link of links) {
@@ -1696,7 +1722,7 @@ async function mimeType(file, filePath, url = null) {
 	// Guess the file's type based on its intrinsic properties and file extension
 	const [magicType, extType] = (await Promise.all([
 		inputAndExecute(file, 'mimetype', ['-b', '--stdin']),
-		new Deno.Command('mimetype', { args: ['-b',  filePath], stdout: 'piped' }).output(),
+		new Deno.Command('mimetype', { args: ['-b', filePath], stdout: 'piped' }).output(),
 	])).map(type => decoder.decode(type.stdout).trim());
 
 	// Anything that is text will have a magic type of text/plain
