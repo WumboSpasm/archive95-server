@@ -999,7 +999,7 @@ function getArchivePathInfo(archiveInfo, archiveDir, flagIds = '') {
 		typeIndex: 0,
 	};
 
-	if (flagIds.includes('p')) {
+	if (!flagIds.includes('p')) {
 		if (archiveInfo.files.includes('file_p')) {
 			archivePathInfo.filePath = pathUtils.join(archiveDir, 'file_p');
 			archivePathInfo.typeIndex = 1;
