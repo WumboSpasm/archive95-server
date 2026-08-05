@@ -103,6 +103,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 					date: urlEntry.date,
 					size: 0,
 					types: [],
+					files: [],
 					warn: urlEntry.warn,
 					error: urlEntry.error,
 					offset: urlEntry.offset,
@@ -125,7 +126,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			const archive = archives[i];
 
 			// Create subdirectory with the naming format <index>_<source>
-			const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + archive.source);
+			const targetDir = pathUtils.join(urlDir, '@' + i.toString().padStart(2, '0') + '_' + archive.source);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
@@ -164,6 +165,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 				date: orphanEntry.date,
 				size: 0,
 				types: [],
+				files: [],
 				warn: false,
 				error: orphanEntry.error,
 				offset: null,
@@ -210,7 +212,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			const screenshot = screenshots[i];
 
 			// Create subdirectory with the naming format <index>_<source>
-			const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + screenshot.source);
+			const targetDir = pathUtils.join(urlDir, '@' + i.toString().padStart(2, '0') + '_' + screenshot.source);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
@@ -281,8 +283,6 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 		'sources.json',
 		'stats.json',
 		'types.json',
-		'inlinks_orphans',
-		'inlinks_urls',
 		'orphans',
 		'screenshots',
 		'urls',
@@ -399,11 +399,13 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 		return;
 	archive.size = file.byteLength;
 	archive.types.push(type);
+	archive.files.push('file');
 
 	// If the loaded file data was changed, copy over the raw file
 	if (changed) {
 		const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
 		Deno.copyFileSync(filePath, pathUtils.join(targetDir, 'raw'));
+		archive.files.push('raw');
 	}
 
 	const targetPath = pathUtils.join(targetDir, 'file');
@@ -415,6 +417,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 		const [newHtml, inject, inlinksDirs] = buildInject(html, archive, urlIndex, pathIndex);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
+		archive.files.push('inject.json');
 
 		// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
 		const html_p = improvePresentation(html);
@@ -422,6 +425,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 			const [newHtml_p, inject_p, inlinksDirs_p] = buildInject(html_p, archive, urlIndex, pathIndex);
 			Deno.writeTextFileSync(targetPath + '_p', newHtml_p);
 			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(inject_p, null, '\t'));
+			archive.files.push('file_p', 'inject_p.json');
 			buildInlinks(archive, inlinksDirs_p, inlinksIndex);
 		}
 		else
@@ -496,6 +500,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 				if (file_p.byteLength > 0) {
 					Deno.writeFileSync(targetPath + '_p', file_p);
 					archive.types.push(type_p);
+					archive.files.push('file_p');
 				}
 
 				// Delete any conversion helper files now that we no longer need them
@@ -510,9 +515,10 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 	}
 
 	// Write title/content text to file
-	if (search !== undefined)
+	if (search !== undefined) {
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'search.json'), JSON.stringify(search, null, '\t'));
-
+		archive.files.push('search.json');
+	}
 
 	if (!archive.error) {
 		// Build directory browser indexes
@@ -534,6 +540,9 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 	// If the archive is an orphan, set its path as the URL
 	if (archive.url === null)
 		archive.url = archive.path;
+
+	// Sort the file list
+	archive.files.sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
 
 	// Update date range stats
 	const sourceStats = stats[archive.source];
@@ -697,7 +706,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 				const normalizedUrl = !isOrphan
 					? utils.normalizeUrl(inlinkUrl)
 					: pathUtils.join(linkInject.source, utils.normalizePath(inlinkUrl));
-				const inlinksDir = utils.getArchiveRootDir(normalizedUrl, 'inlinks_' + (isOrphan ? 'orphans' : 'urls'), tempBuildPath);
+				const inlinksDir = utils.getArchiveRootDir(normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath);
 				if (inlinksDir.length < 256)
 					inlinksDirs.push(inlinksDir);
 			}
@@ -862,7 +871,9 @@ function buildBrowse(archive, browseIndex) {
 
 	// Get the start and end directories for traversal
 	let currentDir = utils.getArchiveRootDir(normalizedUrl, namespace, tempBuildPath);
-	const endDir = pathUtils.join(tempBuildPath, namespace);
+	const endDir = !isOrphan
+		? pathUtils.join(utils.getArchiveRootDir(normalizedUrl.split('/')[0], namespace, tempBuildPath), '..')
+		: pathUtils.join(tempBuildPath, namespace);
 
 	// Split URL into segments and resolve index files to a consistent identifier to reduce complexity
 	const splitUrl = utils.splitUrl(archive.url ?? archive.path, isOrphan ? archive.source : null);

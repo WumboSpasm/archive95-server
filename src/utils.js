@@ -26,36 +26,94 @@ export function loadBlocklist(blocklistPath) {
 
 // Convert a normalized URL/path into a properly escaped directory definition for quick lookup
 export function getArchiveRootDir(normalizedUrl, namespace, buildPath = config.buildPath) {
-	return pathUtils.join(buildPath, namespace, normalizedUrl
+	let archiveRootDir;
+	if (namespace != 'orphans') {
+		const splitNormalizedUrl = normalizedUrl.split('/');
+		const splitOrigin = splitNormalizedUrl[0].split(':');
+
+		const origin = getDirFragment(splitOrigin[0]);
+		const port = parseInt(splitOrigin[1]) || 80;
+		const path = getDirFragment(splitNormalizedUrl.slice(1).join('/'));
+
+		// Re-order the origin segments from lowest to highest specificity if it is not an IP address
+		const originParts = origin.split(/(?<=[^.])\.(?=[^.])/);
+		if (!/^\d+\.\d+\.\d+\.\d+(?::\d+)?$/.test(origin))
+			originParts.reverse();
+
+		const dirParts = [];
+		dirParts.push(...originParts, '@' + port);
+		if (path != '')
+			dirParts.push(path);
+
+		archiveRootDir = dirParts.join('/');
+	}
+	else
+		archiveRootDir = getDirFragment(normalizedUrl);
+
+	return pathUtils.join(buildPath, namespace, archiveRootDir);
+}
+
+// Parse a directory as it should appear in the built filesystem
+export function getDirFragment(dir) {
+	return dir
+		// Manually encode all characters except for the basic ones
 		.replace(/[^a-z0-9 \/_.-]/gi, c => c.charCodeAt(0).toString(16).toUpperCase().match(/.{1,2}/g).map(h => '%' + h.padStart(2, '0')).join(''))
+		// Encode slashes if they are part of a query string
 		.replace(/(?<=%3F.*)\//g, '%2F')
+		// Encode file/directory names which consist exclusively of a sequence of dots
 		.replace(/(?<=^|\/)\.+(?=\/|$)/g, match => '%2E'.repeat(match.length))
-		.replace(/\/{2,}/g, '/'));
+		// Collapse sequences of slashes
+		.replace(/\/{2,}/g, '/');
 }
 
 // Strip a URL down to its bare components, for comparison purposes
 export function normalizeUrl(url, doLowerCase = true) {
+	// Decode the URL and remove anchor if it exists
 	let normalizedUrl = safeDecode(url.replace(/#.*$/, ''));
+
+	normalizedUrl = normalizedUrl
+		// Remove protocol
+		.replace(/^(?:https?|ftp):\/*/i, '')
+		// Remove www subdomain
+		.replace(/^\.*www\d{0,2}\.([^/]+\.)/i, '$1')
+		// Remove port number if it is 80
+		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
+		// Collapse sequences of dots in origin
+		.replace(/(?<=^[^/:]*)\.{2,}/g, '.')
+		// Remove trailing dot from origin
+		.replace(/(?<=^[^/:]*)\.(?=[/:])/g, '')
+		// Remove leading dot from origin
+		.replace(/^\./, '')
+		// Remove imagemap coordinates
+		.replace(/\?\d+,\d+$/, '')
+		// Remove index file
+		.replace(/(?<!\?.*)\/(?:index\.[a-z]?html?|default\.htm)$/i, '')
+		// Collapse sequences of slashes
+		.replace(/(?<!\?.*)\/{2,}/g, '/')
+		// Remove trailing slash
+		.replace(/(?<!\?.*)\/$/, '');
+
+	// Convert to lowercase if specified
 	if (doLowerCase)
 		normalizedUrl = normalizedUrl.toLowerCase();
 
-	return normalizedUrl
-		.replace(/^(?:https?|ftp):\/*/i, '')
-		.replace(/^www\d{0,2}\./i, '')
-		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
-		.replace(/\?\d+,\d+$/, '')
-		.replace(/(?<!\?.*)\/(?:index\.[a-z]?html?|default\.htm)$/i, '')
-		.replace(/(?<!\?.*)\/{2,}/g, '/')
-		.replace(/(?<!\?.*)\/$/, '');
+	return normalizedUrl;
 }
 
 // Strip a path down to its bare components, for comparison purposes
 export function normalizePath(path, doLowerCase = true) {
+	// Decode the path and extract anchor if it exists
 	let [normalizedPath, anchor] = splitAnchor(path).map(value => safeDecode(value));
 
 	normalizedPath = normalizedPath
+		// Collapse sequences of slashes
 		.replace(/\/{2,}/g, '/')
-		.replace(/\/$/, '') + anchor;
+		// Remove trailing slash
+		.replace(/\/$/, '')
+		// Restore anchor if it exists
+		+ anchor;
+
+	// Convert to lowercase if specified
 	if (doLowerCase)
 		normalizedPath = normalizedPath.toLowerCase();
 

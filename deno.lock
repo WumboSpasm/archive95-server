@@ -10,6 +10,7 @@
     "jsr:@std/fmt@1": "1.0.10",
     "jsr:@std/fmt@1.0.10": "1.0.10",
     "jsr:@std/fs@1": "1.0.24",
+    "jsr:@std/fs@^1.0.24": "1.0.24",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/media-types@1.1.0": "1.1.0",
     "jsr:@std/path@1": "1.1.6",
@@ -31,7 +32,7 @@
       "dependencies": [
         "jsr:@std/encoding",
         "jsr:@std/fmt@1",
-        "jsr:@std/fs",
+        "jsr:@std/fs@1",
         "jsr:@std/path@1"
       ]
     },
@@ -87,6 +88,7 @@
       "jsr:@std/async@^1.5.0",
       "jsr:@std/cli@1.0.32",
       "jsr:@std/fmt@1.0.10",
+      "jsr:@std/fs@^1.0.24",
       "jsr:@std/media-types@1.1.0",
       "jsr:@std/path@1.1.6",
       "npm:comlink@4.4.2"

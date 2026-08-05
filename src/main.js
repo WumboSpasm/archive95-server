@@ -3,6 +3,7 @@ import { contentType } from '@std/media-types';
 import { delay } from '@std/async/delay';
 import { parseArgs } from '@std/cli/parse-args';
 import * as pathUtils from '@std/path';
+import { walkSync } from '@std/fs/walk';
 
 import * as utils from './utils.js';
 
@@ -26,6 +27,7 @@ const highlights = JSON.parse(Deno.readTextFileSync('data/highlights.json'));
 const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'sources.json')));
 const stats = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'stats.json')));
 
+const staticFileInfo = cacheStaticFileInfo();
 const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
 const sourcesContent = buildSourcesContent();
 
@@ -117,10 +119,10 @@ async function serverHandler(request, info) {
 		return new Response(await buildSearch(requestUrl.searchParams, modernMode), { headers: headers });
 
 	// Try serving from static file directory
-	const staticFilePath = 'static/' + requestPath;
-	if (utils.getPathInfo(staticFilePath)?.isFile) {
-		headers.set('Content-Type', contentType(staticFilePath.substring(staticFilePath.lastIndexOf('.'))) ?? 'application/octet-stream');
-		return new Response(Deno.openSync(staticFilePath).readable, { headers: headers });
+	const staticFileInfoEntry = staticFileInfo[requestPath];
+	if (staticFileInfoEntry !== undefined) {
+		headers.set('Content-Type', staticFileInfoEntry.type);
+		return new Response(Deno.openSync(staticFileInfoEntry.path).readable, { headers: headers });
 	}
 
 	// Extract info from URL
@@ -146,7 +148,7 @@ async function serverHandler(request, info) {
 				throw new UnarchivedError(urlStr, modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
-			const archivePathInfo = getArchivePathInfo(archiveDir, flagIds);
+			const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
 			if (fileType == 'text/html' && (!modernMode || /[ndijk]/.test(flagIds))) {
 				// For HTML files, we build a list of slices from the injection list and pass it to replaceSlices
@@ -321,7 +323,7 @@ async function serverHandler(request, info) {
 
 				// Build page title
 				let title = (isOrphan ? archiveInfo.source + '/' : '') + utils.safeDecode(archiveInfo.url);
-				if (fileType == 'text/html' && utils.getPathInfo(archivePathInfo.searchPath)?.isFile) {
+				if (fileType == 'text/html' && archivePathInfo.searchPath !== null) {
 					const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
 					if (archiveSearchInfo.title)
 						title = archiveSearchInfo.title;
@@ -351,10 +353,7 @@ async function serverHandler(request, info) {
 				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 
-			let archiveRawPath = pathUtils.join(archiveDir, 'raw');
-			if (!utils.getPathInfo(archiveRawPath)?.isFile)
-				archiveRawPath = pathUtils.join(archiveDir, 'file');
-
+			const archiveRawPath = pathUtils.join(archiveDir, archiveInfo.files.includes('raw') ? 'raw' : 'file');
 			headers.set('Content-Type', archiveInfo.types[0]);
 			return new Response(Deno.openSync(archiveRawPath).readable, { headers: headers });
 		}
@@ -595,7 +594,7 @@ async function serverHandler(request, info) {
 
 			// Determine the screenshot's path and serve it
 			const screenshotInfo = screenshotInfoSet[screenshotInfoIndex];
-			const screenshotDir = pathUtils.join(screenshotRootDir, screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
+			const screenshotDir = pathUtils.join(screenshotRootDir, '@' + screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
 			const screenshotPath = pathUtils.join(screenshotDir, modeId);
 			headers.set('Content-Type', screenshotInfo.type);
 			return new Response(Deno.openSync(screenshotPath).readable, { headers: headers });
@@ -662,11 +661,11 @@ async function serverHandler(request, info) {
 						const [archiveInfoSet, archiveInfoIndex, archiveDir] = getArchiveInfo(urlParam, sourceParam, offsetParam);
 						if (archiveInfoSet !== undefined) {
 							const archiveInfo = archiveInfoSet[archiveInfoIndex];
-							const archivePathInfo = getArchivePathInfo(archiveDir, params.get('p') == 'true' ? 'p' : '');
-							archiveInfo.inject = utils.getPathInfo(archivePathInfo.injectPath)?.isFile
+							const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir, params.get('p') == 'true' ? 'p' : '');
+							archiveInfo.inject = archivePathInfo.injectPath !== null
 								? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
 								: {};
-							archiveInfo.search = utils.getPathInfo(archivePathInfo.searchPath)?.isFile
+							archiveInfo.search = archivePathInfo.searchPath !== null
 								? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
 								: {};
 
@@ -891,8 +890,8 @@ async function performSearch(params) {
 				};
 
 				// Load in title/content text if applicable, trimming the latter to the first 24 words
-				const archivePathInfo = getArchivePathInfo(archiveDir);
-				if (utils.getPathInfo(archivePathInfo.searchPath)?.isFile) {
+				const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir);
+				if (archivePathInfo.searchPath !== null) {
 					const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
 					searchResult.title = archiveSearchInfo.title;
 					searchResult.content = archiveSearchInfo.content?.match(/^(?:[^\s]+(?:\s+|$)){0,24}/)[0].trimEnd() || null;
@@ -965,7 +964,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 			archiveInfoIndex = 0;
 
 		const archiveInfo = archiveInfoSet[archiveInfoIndex];
-		archiveDir = pathUtils.join(archiveRootDir, archiveInfoIndex.toString().padStart(2, '0') + '_' + archiveInfo.source);
+		archiveDir = pathUtils.join(archiveRootDir, '@' + archiveInfoIndex.toString().padStart(2, '0') + '_' + archiveInfo.source);
 	}
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory
@@ -991,24 +990,30 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 		: [undefined, undefined, undefined, undefined];
 }
 
-// Identify the correct archive file and injection list and return their paths
-function getArchivePathInfo(archiveDir, flagIds = '') {
+// Resolve the paths of certain archive JSON files if they exist
+function getArchivePathInfo(archiveInfo, archiveDir, flagIds = '') {
 	const archivePathInfo = {
-		filePath: pathUtils.join(archiveDir, 'file'),
-		injectPath: pathUtils.join(archiveDir, 'inject.json'),
-		searchPath: pathUtils.join(archiveDir, 'search.json'),
+		filePath: null,
+		injectPath: null,
+		searchPath: null,
 		typeIndex: 0,
 	};
 
-	if (!flagIds.includes('p')) {
-		const filePath_p = archivePathInfo.filePath + '_p';
-		const injectPath_p = pathUtils.join(archiveDir, 'inject_p.json');
-		if (utils.getPathInfo(filePath_p)?.isFile) {
-			archivePathInfo.filePath = filePath_p;
-			archivePathInfo.injectPath = injectPath_p;
+	if (flagIds.includes('p')) {
+		if (archiveInfo.files.includes('file_p')) {
+			archivePathInfo.filePath = pathUtils.join(archiveDir, 'file_p');
 			archivePathInfo.typeIndex = 1;
 		}
+		if (archiveInfo.files.includes('inject_p.json'))
+			archivePathInfo.injectPath = pathUtils.join(archiveDir, 'inject_p.json');
 	}
+
+	if (archivePathInfo.filePath === null)
+		archivePathInfo.filePath = pathUtils.join(archiveDir, 'file');
+	if (archivePathInfo.injectPath === null && archiveInfo.files.includes('inject.json'))
+		archivePathInfo.injectPath = pathUtils.join(archiveDir, 'inject.json');
+	if (archiveInfo.files.includes('search.json'))
+		archivePathInfo.searchPath = pathUtils.join(archiveDir, 'search.json');
 
 	return archivePathInfo;
 }
@@ -1039,14 +1044,14 @@ function getInlinksInfo(url, sourceId = undefined) {
 	let inlinksInfo = [];
 	let displayUrl = utils.normalizeUrl(url);
 
-	// Check inlinks_urls and inlinks_orphans directories for list of inlinks
-	let inlinksDir = utils.getArchiveRootDir(displayUrl, 'inlinks_urls');
+	// Look for the inlinks listing file and load it
+	let inlinksDir = utils.getArchiveRootDir(displayUrl, 'urls');
 	let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
 	if (utils.getPathInfo(inlinksPath)?.isFile)
 		inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
 	else if (sourceId !== undefined) {
 		const normalizedPath = utils.normalizePath(url);
-		inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, normalizedPath), 'inlinks_orphans');
+		inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, normalizedPath), 'orphans');
 		inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
 		if (utils.getPathInfo(inlinksPath)?.isFile) {
 			inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
@@ -1516,6 +1521,18 @@ function loadTemplates() {
 	}
 
 	return templates;
+}
+
+// Gather the path and type of each file in the static directory
+function cacheStaticFileInfo() {
+	const staticFileInfo = {};
+	for (const dirEntry of walkSync('static', { includeDirs: false }))
+		staticFileInfo[dirEntry.path.substring(7)] = {
+			path: dirEntry.path,
+			type: contentType(dirEntry.path.substring(dirEntry.path.lastIndexOf('.'))) ?? 'application/octet-stream',
+		};
+
+	return staticFileInfo;
 }
 
 // For compatibility mode, build the full homepage content
