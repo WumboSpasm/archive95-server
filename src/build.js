@@ -19,7 +19,8 @@ utils.loadConfig(args['config']);
 const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'sources.json')));
 
 // Load overrides for MIME types/character encodings
-const overrides = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath, 'overrides.json')));
+const overridesPath = pathUtils.join(config.inputPath, 'overrides.json');
+const overrides = utils.getPathInfo(overridesPath)?.isFile ? JSON.parse(Deno.readTextFileSync(overridesPath)) : {};
 
 // Get paths of temporary build directory
 const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
