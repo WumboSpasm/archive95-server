@@ -1594,23 +1594,8 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 		}
 	}
 
-	// It is now safe to gather the file's MIME type
-	const typeField = archive.source + '/' + archive.path;
-	let type = typeIndex[typeField];
-	if (type === undefined) {
-		if (override !== undefined && override.type !== null)
-			// A type override exists
-			type = override.type;
-		else if (archive.error)
-			// Error pages are always HTML
-			type = 'text/html';
-		else
-			// Automatically determine the type
-			type = await mimeType(file, filePath, archive.url);
-
-		// Insert the newly-determined type into the type index
-		typeIndex[typeField] = type;
-	}
+	// Determine the file's MIME type
+	const type = await mimeType(file, filePath, archive, typeIndex);
 
 	// Fix weirdly-formatted GIFs present in The Risc Disc Volume 2
 	if (archive.source == 'riscdisc' && type == 'image/gif') {
@@ -1718,11 +1703,18 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 }
 
 // Identify the file's MIME type
-async function mimeType(file, filePath, url = null) {
+async function mimeType(file, filePath, archive, typeIndex = {}) {
+	// First, check if a type override exists or if the file is an error page (the latter are always HTML)
+	const field = archive.source + '/' + archive.path;
+	if (overrides[field] !== undefined && overrides[field].type !== null)
+		return overrides[field].type;
+	else if (archive.error)
+		return 'text/html';
+
 	const decoder = new TextDecoder();
 	const rawText = decoder.decode(file);
 
-	// First, check if the file is multipart and set the type accordingly
+	// Check if the file is multipart and build the appropriate type if so
 	// TODO: Figure out why this doesn't seem to work
 	const mixedMatch = rawText.match(/^[\r\n]*--(.+)\r?\nContent-type:/i);
 	if (mixedMatch !== null) {
@@ -1730,22 +1722,35 @@ async function mimeType(file, filePath, url = null) {
 		return 'multipart/x-mixed-replace;boundary=' + boundary;
 	}
 
-	// Guess the file's type based on its intrinsic properties and file extension
-	const [magicType, extType] = (await Promise.all([
-		inputAndExecute(file, 'mimetype', ['-b', '--stdin']),
-		new Deno.Command('mimetype', { args: ['-b', filePath], stdout: 'piped' }).output(),
-	])).map(type => decoder.decode(type.stdout).trim());
+	// Get candidates for the file's type based on its intrinsic properties and path/URL file extensions
+	// If the types are cached in types.json, pull them from there; otherwise, determine their values and add them to the cache
+	let magicType, pathType, urlType;
+	if (typeIndex[field] === undefined) {
+		const typePromises = [
+			inputAndExecute(file, 'mimetype', ['-b', '--stdin']),
+			new Deno.Command('mimetype', { args: ['-b', filePath], stdout: 'piped' }).output(),
+		];
+		const urlExtMatch = URL.parse(archive.url)?.pathname.match(/[^/]+(\.[^/.]+)$/i);
+		typePromises.push(urlExtMatch
+			? new Deno.Command('mimetype', { args: ['-b', urlExtMatch[1]], stdout: 'piped' }).output()
+			: new ArrayBuffer()); // This will eventually resolve to null
 
-	// Anything that is text will have a magic type of text/plain
-	// The file extension can't always be trusted either, so we will need to do some manual checks
-	// If none of the checks pass, we just use the magic type
+		[magicType, pathType, urlType] = (await Promise.all(typePromises)).map(type => decoder.decode(type.stdout).trim() || null);
+		typeIndex[field] = { magicType, pathType, urlType };
+	}
+	else
+		({ magicType, pathType, urlType } = typeIndex[field]);
+
+	const extType = urlType ?? pathType;
+
+	// A magic type is text/plain is not specific enough and requires additional manual checks
 	let chosenType = magicType;
 	if (magicType == 'text/plain') {
 		// Check if the file appears to be HTML
-		if (isHtml(rawText, url, extType == 'text/html'))
+		if (isHtml(rawText, pathType, urlType))
 			chosenType = 'text/html';
 		// Check if the file appears to be XBM
-		else if (rawText.match(/static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/i) !== null)
+		else if (rawText.match(/^static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/im) !== null)
 			chosenType = 'image/x-xbitmap';
 		// Check if the file appears to be XPM
 		else if (rawText.match(/^\s*!\s*XPM2/i) !== null)
@@ -1753,11 +1758,8 @@ async function mimeType(file, filePath, url = null) {
 		// Otherwise, use the file extension's type if it is text-based
 		else if (utils.isTextType(extType, true))
 			chosenType = extType;
-		// If the file extension's type is not text-based, assume it cannot be trusted
-		else
-			chosenType = 'text/plain';
 	}
-	// Any binary file will have a magic type of application/octet-stream
+	// Most binary files will have a magic type of application/octet-stream
 	// So if the file extension also indicates a binary file, then it can probably be trusted
 	else if (magicType == 'application/octet-stream' && !utils.isTextType(extType))
 		chosenType = extType;
@@ -1767,7 +1769,7 @@ async function mimeType(file, filePath, url = null) {
 		chosenType = 'audio/wav';
 
 	// Band-aid fixes for certain types until I improve the type detection code
-	if (chosenType == 'application/typescript' || chosenType == 'text/x-devicetree-source')
+	if (chosenType == 'application/typescript' || chosenType == 'text/x-devicetree-source' || chosenType == 'text/x-c++src')
 		chosenType = 'text/x-csrc';
 	if (chosenType != 'application/pdf' && /\.pdf$/i.test(filePath))
 		chosenType = 'application/pdf';
@@ -1776,24 +1778,22 @@ async function mimeType(file, filePath, url = null) {
 }
 
 // Guess if a piece of text is HTML
-function isHtml(text, url = null, pathHasHtmlExt = false) {
+function isHtml(text, pathType, urlType = null) {
 	let decision;
 
 	// If the text has an HTML comment opening sequence, then it's probably HTML
 	if (text.includes('<!--'))
 		decision = true;
 
-	const parsedUrl = URL.parse(url);
-	const urlHasHtmlExt = parsedUrl !== null && /\.[a-z]?html?$/i.test(parsedUrl.pathname);
 	const tagMatches = [...text.matchAll(/<\/?([a-z\d]+)(?: [^>\n]*?)?>/gi)];
 
 	if (decision === undefined) {
-		if (tagMatches.length > 0 && urlHasHtmlExt)
+		if (tagMatches.length > 0 && urlType == 'text/html')
 			// If there appear to be HTML tags in the text, and the URL has an HTML file extension, then it's probably HTML
 			decision = true;
 		else if (tagMatches.length == 0)
 			// If there is nothing resembling HTML tags in the text, then it's probably HTML only if it has an HTML file extension and no newlines
-			decision = urlHasHtmlExt && !text.trim().includes('\n');
+			decision = urlType == 'text/html' && !text.trim().includes('\n');
 	}
 
 	const validTags = [
@@ -1821,7 +1821,7 @@ function isHtml(text, url = null, pathHasHtmlExt = false) {
 
 	// If the text appears to be HTML, but the URL and path both lack an HTML file extension, then weigh the amount of valid tags against the whole text content
 	// If there is an overwhelmingly larger amount of regular text compared to valid tags, then it's actually probably not HTML
-	if (decision === true && !pathHasHtmlExt && !urlHasHtmlExt) {
+	if (decision === true && pathType != 'text/html' && urlType != 'text/html') {
 		const validTagLength = tagMatches.filter(tagMatch => {
 			const tag = tagMatch[1].toLowerCase();
 			return validTags.some(validTag => tag == validTag);
