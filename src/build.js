@@ -1742,11 +1742,13 @@ async function mimeType(file, filePath, archive, typeIndex = {}) {
 	else
 		({ magicType, pathType, urlType } = typeIndex[field]);
 
+	// The URL type takes priority over the file path type if it exists
 	const extType = urlType ?? pathType;
 
-	// A magic type is text/plain is not specific enough and requires additional manual checks
+	// If the magic type is text/plain or application/octet-stream, it is not specific enough and requires additional work to determine the type
+	// We do text-oriented checks for magic types of application/octet-stream only if the extension type is HTML, as badly-encoded HTML is sometimes identified as binary
 	let chosenType = magicType;
-	if (magicType == 'text/plain') {
+	if (magicType == 'text/plain' || (magicType == 'application/octet-stream' && extType == 'text/html')) {
 		// Check if the file appears to be HTML
 		if (isHtml(rawText, pathType, urlType))
 			chosenType = 'text/html';
@@ -1756,14 +1758,19 @@ async function mimeType(file, filePath, archive, typeIndex = {}) {
 		// Check if the file appears to be XPM
 		else if (rawText.match(/^\s*!\s*XPM2/i) !== null)
 			chosenType = 'image/x-xpixmap';
-		// Otherwise, use the file extension's type if it is text-based
-		else if (utils.isTextType(extType, true))
+		// Otherwise, use the file extension's type if it is not HTML
+		// If the magic type is text/plain, then it is further restricted to only text-based types
+		else if (extType != 'text/html' && (utils.isTextType(extType) || magicType == 'application/octet-stream'))
 			chosenType = extType;
 	}
-	// Most binary files will have a magic type of application/octet-stream
-	// So if the file extension also indicates a binary file, then it can probably be trusted
+	// Check if the magic type is application/octet-stream and the extension type indicates a binary file
+	// If so, use the extension type since it is more specific and can probably be trusted
 	else if (magicType == 'application/octet-stream' && !utils.isTextType(extType))
 		chosenType = extType;
+
+	// Use the URL type if both that and the chosen type are text-based but not HTML, and the URL type is more specific than text/plain
+	if (urlType !== null && urlType != 'text/plain' && chosenType != urlType && utils.isTextType(chosenType, true) && utils.isTextType(urlType, true))
+		chosenType = urlType;
 
 	// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
 	if (chosenType == 'audio/vnd.wave')
@@ -1786,7 +1793,11 @@ function isHtml(text, pathType, urlType = null) {
 	if (text.includes('<!--'))
 		decision = true;
 
-	const tagMatches = [...text.matchAll(/<\/?([a-z\d]+)(?: [^>\n]*?)?>/gi)];
+	// If the extension type is text-based but not HTML, don't match tags bordered by quotes in case the file is a script
+	const tagExp = !utils.isTextType(urlType ?? pathType, true)
+		? /<\/?([a-z\d]+)(?: [^>\n]*?)?>/gi
+		: /(?<!['"])<\/?([a-z\d]+)(?: [^>\n]*?)?>(?!['"])/gi;
+	const tagMatches = [...text.matchAll(tagExp)];
 
 	if (decision === undefined) {
 		if (tagMatches.length > 0 && urlType == 'text/html')
