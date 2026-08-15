@@ -1634,8 +1634,8 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 			];
 
 			const [rawType, pathType, urlType] = (await Promise.all(typePromises)).map(type => decoder.decode(type.stdout).trim() || null);
-			const magicType = null;
-			typeIndex[typeField] = { rawType, magicType, pathType, urlType };
+			const [magicType, chosenType] = [null, null];
+			typeIndex[typeField] = { rawType, magicType, pathType, urlType, chosenType };
 
 			if (changed)
 				Deno.removeSync(mimeFilePath);
@@ -1654,6 +1654,9 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 
 		// Use the information we've gathered to determine the most appropriate MIME type
 		type = mimeType(file, typeEntry);
+
+		// This serves no purpose except to make my life easier
+		typeEntry.chosenType = type;
 	}
 
 	// If the final determined type is text-based and we didn't re-encode the file earlier, do it now
