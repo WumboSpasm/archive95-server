@@ -191,10 +191,12 @@ export function dateStringToNum(dateStr) {
 	return dateNum;
 }
 
-// Determine if a given MIME type indicates that a file can be rendered in plaintext
-export function isTextType(type, excludeHtml = false) {
-	return textTypes.include.some(includeType => type.startsWith(includeType))
-		&& !textTypes.exclude.some(excludeType => type.startsWith(excludeType) && (excludeType != 'text/html' || excludeHtml));
+// Determine if a given MIME type indicates that the file is text-based
+export function isTextType(type, includeHtml = true, includeImages = true) {
+	const matchesHtml = textTypes.html.some(includeType => type.startsWith(includeType));
+	const matchesPlaintext = textTypes.plaintext.some(includeType => type.startsWith(includeType) && (!matchesHtml || includeHtml));
+	const matchesImage = textTypes.image.some(includeType => type.startsWith(includeType));
+	return matchesPlaintext || includeImages && matchesImage;
 }
 
 // Log to the appropriate places based on the configuration

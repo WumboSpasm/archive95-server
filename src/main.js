@@ -280,10 +280,10 @@ async function serverHandler(request, info) {
 					if (anchorIndex != -1)
 						archiveUrl += '#' + urlStr.substring(anchorIndex + 3);
 				}
-				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : 'n');
+				const fileFlags = cleanFlags(fileType == 'text/html' ? flagIds + 'i' : (flagIds.includes('p') ? 'np' : 'n'));
 				const fileUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, fileFlags)}/${archiveUrl}`;
 				let embed, indent = 'all';
-				if (utils.isTextType(fileType, true)) {
+				if (utils.isTextType(fileType, false, false)) {
 					embed = buildHtml(templates.compat.embed.text, {
 						'TEXT': Deno.readTextFileSync(archivePathInfo.filePath).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
 					});
@@ -425,7 +425,7 @@ async function serverHandler(request, info) {
 
 				// Determine which icon to use based on the file's MIME type
 				let icon = 'generic.gif';
-				if (utils.isTextType(browseFile.type))
+				if (utils.isTextType(browseFile.type, true, false))
 					icon = 'text.gif';
 				else if (browseFile.type.startsWith('image/'))
 					icon = 'image.gif';
@@ -866,10 +866,11 @@ async function performSearch(params) {
 				const archiveInfo = archiveInfoSet[i];
 
 				// Apply search filters
+				const archiveIsText = utils.isTextType(archiveInfo.types[0], true, false);
 				if (archiveInfo.error
 				|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source)
-				|| (utils.isTextType(archiveInfo.types[0]) && searchFilters.formatsMedia)
-				|| (!utils.isTextType(archiveInfo.types[0]) && searchFilters.formatsText))
+				|| (archiveIsText && searchFilters.formatsMedia)
+				|| (!archiveIsText && searchFilters.formatsText))
 					continue;
 
 				// Update offset but only add to result array if we're on the first page

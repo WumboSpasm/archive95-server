@@ -26,6 +26,7 @@
 			"write": true,
 			"env": true,
 			"run": [
+				"file",
 				"mimetype",
 				"uchardet",
 				"iconv",

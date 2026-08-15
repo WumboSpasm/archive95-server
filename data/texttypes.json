@@ -1,18 +1,29 @@
 {
-	"include": [
+	"html": [
+		"text/html"
+	],
+	"plaintext": [
 		"text/",
 		"message/",
 		"application/mac-binhex40",
 		"application/mbox",
+		"application/pgp-keys",
+		"application/postscript",
 		"application/ram",
+		"application/rtf",
 		"application/typescript",
 		"application/winhlp",
 		"application/x-asp",
+		"application/x-mozilla-bookmarks",
 		"application/x-perl",
 		"application/x-ruby",
-		"application/x-troff-man"
+		"application/x-troff-man",
+		"application/x-wine-extension-ini",
+		"image/x-eps",
+		"model/vrml"
 	],
-	"exclude": [
-		"text/html"
+	"image": [
+		"image/x-xbitmap",
+		"image/x-xpixmap"
 	]
 }

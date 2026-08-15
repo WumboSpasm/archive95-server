@@ -29,6 +29,9 @@ const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
 const convertInputPath = pathUtils.join(tempBuildPath, '.convin');
 const convertOutputPath = pathUtils.join(tempBuildPath, '.convout');
 
+// Get path of MIME type helper file
+const mimeFilePath = pathUtils.join(tempBuildPath, '.mimefile');
+
 // Often reused regular expressions
 const linkExp = /((?:href|src|action|background|rectangle|http-equiv\s*=\s*"?refresh"?[^>]+content)\s*=\s*)("[^">]+"|[^>\s]+)/gis;
 const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
@@ -439,77 +442,77 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 		archive.size = new TextEncoder().encode(html).byteLength;
 	}
 	else {
-		if (utils.isTextType(archive.types[0]))
-			// Build content text
-			search = buildSearch(decoder.decode(file), archive.types[0]);
-		else {
-			// Convert certain file formats to ones that are more broadly supported by browsers
-			// They will be used when presentation improvements are active
-			let convertCommand, doStdin = true, doStdout = true, type_p;
-			switch (archive.types[0]) {
-				case 'image/x-xbitmap': {
-					// XBM to GIF
-					convertCommand = ['convert', ['XBM:-', 'GIF:-']];
-					type_p = 'image/gif';
-					break;
-				}
-				case 'image/x-xpixmap': {
-					// XPM to GIF
-					convertCommand = ['convert', ['XPM:-', 'GIF:-']];
-					type_p = 'image/gif';
-					break;
-				}
-				case 'audio/basic':
-				case 'audio/mp2':
-				case 'audio/vnd.rn-realaudio':
-				case 'audio/x-aifc':
-				case 'audio/x-aiff': {
-					// AU/MP2/RA/AIFC/AIFF to WAV
-					convertCommand = ['ffmpeg', ['-y', '-i', 'pipe:', '-f', 'wav', convertOutputPath]];
-					doStdout = false;
-					type_p = 'audio/wav';
-					break;
-				}
-				case 'video/mpeg':
-				case 'video/quicktime':
-				case 'video/vnd.avi': {
-					// Work around FFmpeg failing to convert MOV files from stdin
-					if (archive.types[0] == 'video/quicktime') {
-						Deno.writeFileSync(convertInputPath, file);
-						doStdin = false;
-					}
-					// MPG/MOV/AVI to MP4
-					convertCommand = ['ffmpeg', [
-						'-y', '-i', doStdin ? 'pipe:' : convertInputPath,
-						'-crf', '1', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', convertOutputPath,
-					]];
-					doStdout = false;
-					type_p = 'video/mp4';
-					break;
-				}
+		// Convert certain file formats to ones that are more broadly supported by browsers
+		// They will be used when presentation improvements are active
+		let convertCommand, doStdin = true, doStdout = true, type_p;
+		switch (archive.types[0]) {
+			case 'image/x-xbitmap': {
+				// XBM to GIF
+				convertCommand = ['convert', ['XBM:-', 'GIF:-']];
+				type_p = 'image/gif';
+				break;
 			}
-
-			if (convertCommand !== undefined) {
-				// Perform the conversion and utilize our helper files in case we cannot use stdin or stdout
-				let file_p = (doStdin ? await inputAndExecute(file, ...convertCommand) : Deno.spawnAndWaitSync(...convertCommand)).stdout;
-				if (!doStdout) {
-					if (utils.getPathInfo(convertOutputPath)?.isFile)
-						file_p = Deno.readFileSync(convertOutputPath);
-					else
-						file_p = new Uint8Array();
+			case 'image/x-xpixmap': {
+				// XPM to GIF
+				convertCommand = ['convert', ['XPM:-', 'GIF:-']];
+				type_p = 'image/gif';
+				break;
+			}
+			case 'audio/basic':
+			case 'audio/mp2':
+			case 'audio/vnd.rn-realaudio':
+			case 'audio/x-aifc':
+			case 'audio/x-aiff': {
+				// AU/MP2/RA/AIFC/AIFF to WAV
+				convertCommand = ['ffmpeg', ['-y', '-i', 'pipe:', '-f', 'wav', convertOutputPath]];
+				doStdout = false;
+				type_p = 'audio/wav';
+				break;
+			}
+			case 'video/mpeg':
+			case 'video/quicktime':
+			case 'video/vnd.avi': {
+				// Work around FFmpeg failing to convert MOV files from stdin
+				if (archive.types[0] == 'video/quicktime') {
+					Deno.writeFileSync(convertInputPath, file);
+					doStdin = false;
 				}
-				if (file_p.byteLength > 0) {
-					Deno.writeFileSync(targetPath + '_p', file_p);
-					archive.types.push(type_p);
-					archive.files.push('file_p');
-				}
+				// MPG/MOV/AVI to MP4
+				convertCommand = ['ffmpeg', [
+					'-y', '-i', doStdin ? 'pipe:' : convertInputPath,
+					'-crf', '1', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', convertOutputPath,
+				]];
+				doStdout = false;
+				type_p = 'video/mp4';
+				break;
+			}
+			default: {
+				// If the file doesn't need to be converted and is text-based, just build its content text
+				if (utils.isTextType(archive.types[0]))
+					search = buildSearch(decoder.decode(file), archive.types[0]);
+			}
+		}
 
-				// Delete any conversion helper files now that we no longer need them
-				if (utils.getPathInfo(convertInputPath)?.isFile)
-					Deno.removeSync(convertInputPath);
+		if (convertCommand !== undefined) {
+			// Perform the conversion and utilize our helper files in case we cannot use stdin or stdout
+			let file_p = (doStdin ? await inputAndExecute(file, ...convertCommand) : Deno.spawnAndWaitSync(...convertCommand)).stdout;
+			if (!doStdout) {
 				if (utils.getPathInfo(convertOutputPath)?.isFile)
-					Deno.removeSync(convertOutputPath);
+					file_p = Deno.readFileSync(convertOutputPath);
+				else
+					file_p = new Uint8Array();
 			}
+			if (file_p.byteLength > 0) {
+				Deno.writeFileSync(targetPath + '_p', file_p);
+				archive.types.push(type_p);
+				archive.files.push('file_p');
+			}
+
+			// Delete any conversion helper files now that we no longer need them
+			if (utils.getPathInfo(convertInputPath)?.isFile)
+				Deno.removeSync(convertInputPath);
+			if (utils.getPathInfo(convertOutputPath)?.isFile)
+				Deno.removeSync(convertOutputPath);
 		}
 
 		Deno.writeFileSync(targetPath, file);
@@ -1595,8 +1598,69 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 		}
 	}
 
-	// Determine the file's MIME type
-	const type = await mimeType(file, filePath, archive, typeIndex);
+	let type = null;
+
+	// First, check if a type override exists or if the file is an error page (the latter are always HTML)
+	const overrideEntry = overrides[archive.source + '/' + archive.path];
+	if (overrideEntry !== undefined && overrideEntry.type !== null)
+		type = overrideEntry.type;
+	else if (archive.error)
+		type = 'text/html';
+
+	// Check if the file is multipart and build the appropriate type if so
+	// TODO: Figure out why this doesn't seem to work
+	const mixedMatch = decoder.decode(file).match(/^[\r\n]*--(.+)\r?\nContent-type:/i);
+	if (mixedMatch !== null) {
+		const boundary = mixedMatch[1].includes(' ') ? '"' + mixedMatch[1] + '"' : mixedMatch[1];
+		type = 'multipart/x-mixed-replace;boundary=' + boundary;
+	}
+
+	let converted = false;
+	if (type === null) {
+		// Query candidates for the file's type using several different methods if not already cached in types.json
+		// Otherwise, add the gathered types to the cache
+		const typeField = archive.source + '/' + archive.path;
+		if (typeIndex[typeField] === undefined) {
+			if (changed)
+				Deno.writeFileSync(mimeFilePath, file);
+
+			const urlExtMatch = URL.parse(archive.url)?.pathname.match(/[^/]+(\.[^/.]+)$/i);
+			const typePromises = [
+				new Deno.Command('file', { args: ['-b', '--mime-type', changed ? mimeFilePath : filePath], stdout: 'piped' }).output(),
+				new Deno.Command('mimetype', { args: ['-b', filePath], stdout: 'piped' }).output(),
+				urlExtMatch
+					? new Deno.Command('mimetype', { args: ['-b', urlExtMatch[1]], stdout: 'piped' }).output()
+					: new ArrayBuffer(), // This will eventually resolve to null
+			];
+
+			const [rawType, pathType, urlType] = (await Promise.all(typePromises)).map(type => decoder.decode(type.stdout).trim() || null);
+			const magicType = null;
+			typeIndex[typeField] = { rawType, magicType, pathType, urlType };
+
+			if (changed)
+				Deno.removeSync(mimeFilePath);
+		}
+
+		// If the raw type is text-based, re-encode the file to slightly increase the odds of getting a trustworthy magic type
+		const typeEntry = typeIndex[typeField];
+		if (utils.isTextType(typeEntry.rawType)) {
+			file = await convertText(file, filePath, archive, urlIndex, pathIndex);
+			[changed, converted] = [true, true];
+		}
+
+		// Get the magic type if not already cached
+		if (typeEntry.magicType === null)
+			typeEntry.magicType = decoder.decode((await inputAndExecute(file, 'mimetype', ['-b', '--stdin'])).stdout).trim();
+
+		// Use the information we've gathered to determine the most appropriate MIME type
+		type = mimeType(file, typeEntry);
+	}
+
+	// If the final determined type is text-based and we didn't re-encode the file earlier, do it now
+	if (!converted && utils.isTextType(type)) {
+		file = await convertText(file, filePath, archive, urlIndex, pathIndex);
+		changed = true;
+	}
 
 	// Fix weirdly-formatted GIFs present in The Risc Disc Volume 2
 	if (archive.source == 'riscdisc' && type == 'image/gif') {
@@ -1604,202 +1668,203 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 		changed = true;
 	}
 
-	if (utils.isTextType(type)) {
-		// World Wide Web Directory files are double-encoded
-		if (archive.source == 'wwwdir')
-			file = (await inputAndExecute(file, 'iconv', ['-cf', 'UTF-8', '-t', 'WINDOWS-1252'])).stdout;
-
-		// Einblicke ins Internet is already UTF-8 and anything that isn't detected as such causes issues
-		if (archive.source != 'einblicke') {
-			let charset;
-			if (override !== undefined && override.charset !== null)
-				// There is a character encoding override, so just use that
-				charset = override.charset;
-			else {
-				// Try to identify the character encoding using uchardet
-				charset = decoder.decode((await inputAndExecute(file, 'uchardet')).stdout).trim();
-
-				// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
-				if (charset == 'MAC-CENTRALEUROPE' || charset == 'IBM865')
-					charset = 'WINDOWS-1253';
-				// Same with IBM852 and WINDOWS-1252
-				else if (charset == 'IBM852')
-					charset = 'WINDOWS-1252';
-				else if (charset == 'unknown') {
-					// If the source is The Risc Disc Volume 2, then the file probably uses the RISC OS character set which is based on ISO-8859-1
-					// Otherwise, screw it. It's UTF-8
-					if (archive.source == 'riscdisc')
-						charset = 'ISO-8859-1';
-					else
-						charset = 'UTF-8';
-				}
-			}
-
-			// Convert to UTF-8 from the identified character encoding if not already UTF-8
-			if (charset != 'ASCII' && charset != 'UTF-8')
-				file = (await inputAndExecute(file, 'iconv', ['-cf', charset, '-t', 'UTF-8'])).stdout;
-		}
-
-		// Check if the file belongs to PC Press Internet CD and resides on the .yu TLD
-		let text = decoder.decode(file);
-		if (archive.source == 'pcpress' && archive.url !== null && /https?:\/\/[^\/]+\.yu[\/:]/i.test(archive.url)) {
-			// If the text contains <yu> elements, convert again from YUSCII and selectively insert segments into the original conversion
-			// TODO: Figure out if content marked as CP852 or CP1250 needs to be converted differently and how
-			// TODO: Figure out how to identify <yu>-less YUSCII content without breaking a bunch of other pages in the process
-			const yuExp = /(<yu(?: +[a-z0-9]+)?>)(.*?)(<\/yu>|$)/gis;
-			const yuMatches = [...text.matchAll(yuExp)];
-			if (yuMatches.length > 0) {
-				const yuText = decoder.decode(Deno.spawnAndWaitSync('iconv', [filePath, '-cf', 'YU', '-t', 'UTF-8']).stdout);
-				const yuMatches2 = [...yuText.matchAll(yuExp)];
-
-				let newText = '';
-				let offset = 0;
-				for (let i = 0; i < yuMatches.length; i++) {
-					const yuMatch = yuMatches[i];
-					const yuMatch2 = yuMatches2[i];
-
-					const start = yuMatch.index + yuMatch[1].length;
-					const end = yuMatch.index + yuMatch[0].length - yuMatch[3].length;
-					if (offset > start)
-						continue;
-
-					newText += text.substring(0, start - offset) + yuMatch2[2];
-					text = text.substring(end - offset);
-					offset = end;
-				}
-
-				text = newText + text;
-			}
-		}
-
-		// Text files in World Wide Catalog Summer 1995 have all locally-available URLs converted into paths, even in non-HTML files
-		// So we need to resolve them and convert them back into URLs
-		if (archive.source == 'wwcatalog' && urlIndex !== null && pathIndex !== null) {
-			const blankedHtml = type == 'text/html' ? blankHtml(text) : text;
-			const inlinePathExp = new RegExp(`(?:\\.\\./)+(${archive.path.substring(0, archive.path.indexOf('/')).toLowerCase()}.*?)(?=\\s)`, 'g');
-			const inlinePathSlices = [];
-			for (let inlinePathMatch; (inlinePathMatch = inlinePathExp.exec(blankedHtml)) !== null;) {
-				const inlinePathEntry = pathIndex[archive.source][utils.normalizePath(inlinePathMatch[1])];
-				if (inlinePathEntry === undefined)
-					continue;
-
-				inlinePathSlices.push({
-					start: inlinePathMatch.index,
-					end: inlinePathMatch.index + inlinePathMatch[0].length,
-					value: inlinePathEntry.url,
-				});
-			}
-
-			if (inlinePathSlices.length > 0)
-				text = utils.replaceSlices(text, inlinePathSlices);
-		}
-
-		// Standardize newlines and re-encode text
-		text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-		file = encoder.encode(text);
-		changed = true;
-	}
-
 	return [file, type, changed];
 }
 
-// Identify the file's MIME type
-async function mimeType(file, filePath, archive, typeIndex = {}) {
-	// First, check if a type override exists or if the file is an error page (the latter are always HTML)
-	const field = archive.source + '/' + archive.path;
-	if (overrides[field] !== undefined && overrides[field].type !== null)
-		return overrides[field].type;
-	else if (archive.error)
-		return 'text/html';
-
+// Identify the encoding of a piece of text, convert it to UTF-8 and normalize newlines
+async function convertText(file, filePath, archive, urlIndex = null, pathIndex = null) {
 	const decoder = new TextDecoder();
-	const rawText = decoder.decode(file);
 
-	// Check if the file is multipart and build the appropriate type if so
-	// TODO: Figure out why this doesn't seem to work
-	const mixedMatch = rawText.match(/^[\r\n]*--(.+)\r?\nContent-type:/i);
-	if (mixedMatch !== null) {
-		const boundary = mixedMatch[1].includes(' ') ? '"' + mixedMatch[1] + '"' : mixedMatch[1];
-		return 'multipart/x-mixed-replace;boundary=' + boundary;
+	// World Wide Web Directory files are double-encoded
+	if (archive.source == 'wwwdir')
+		file = (await inputAndExecute(file, 'iconv', ['-cf', 'UTF-8', '-t', 'WINDOWS-1252'])).stdout;
+
+	// Einblicke ins Internet is already UTF-8 and anything that isn't detected as such causes issues
+	if (archive.source != 'einblicke') {
+		let charset;
+		const overrideEntry = overrides[archive.source + '/' + archive.path];
+		if (overrideEntry !== undefined && overrideEntry.charset !== null)
+			// There is a character encoding override, so just use that
+			charset = overrideEntry.charset;
+		else {
+			// Try to identify the character encoding using uchardet
+			charset = decoder.decode((await inputAndExecute(file, 'uchardet')).stdout).trim();
+
+			// For some reason, files identified as MAC-CENTRALEUROPE/IBM865 only convert correctly if interpreted as WINDOWS-1253
+			if (charset == 'MAC-CENTRALEUROPE' || charset == 'IBM865')
+				charset = 'WINDOWS-1253';
+			// Same with IBM852 and WINDOWS-1252
+			else if (charset == 'IBM852')
+				charset = 'WINDOWS-1252';
+			else if (charset == 'unknown') {
+				// If the source is The Risc Disc Volume 2, then the file probably uses the RISC OS character set which is based on ISO-8859-1
+				// Otherwise, screw it. It's UTF-8
+				if (archive.source == 'riscdisc')
+					charset = 'ISO-8859-1';
+				else
+					charset = 'UTF-8';
+			}
+		}
+
+		// Convert to UTF-8 from the identified character encoding if not already UTF-8
+		if (charset != 'ASCII' && charset != 'UTF-8')
+			file = (await inputAndExecute(file, 'iconv', ['-cf', charset, '-t', 'UTF-8'])).stdout;
 	}
 
-	// Get candidates for the file's type based on its intrinsic properties and path/URL file extensions
-	// If the types are cached in types.json, pull them from there; otherwise, determine their values and add them to the cache
-	let magicType, pathType, urlType;
-	if (typeIndex[field] === undefined) {
-		const typePromises = [
-			inputAndExecute(file, 'mimetype', ['-b', '--stdin']),
-			new Deno.Command('mimetype', { args: ['-b', filePath], stdout: 'piped' }).output(),
-		];
-		const urlExtMatch = URL.parse(archive.url)?.pathname.match(/[^/]+(\.[^/.]+)$/i);
-		typePromises.push(urlExtMatch
-			? new Deno.Command('mimetype', { args: ['-b', urlExtMatch[1]], stdout: 'piped' }).output()
-			: new ArrayBuffer()); // This will eventually resolve to null
+	// Check if the file belongs to PC Press Internet CD and resides on the .yu TLD
+	let text = decoder.decode(file);
+	if (archive.source == 'pcpress' && archive.url !== null && /https?:\/\/[^\/]+\.yu[\/:]/i.test(archive.url)) {
+		// If the text contains <yu> elements, convert again from YUSCII and selectively insert segments into the original conversion
+		// TODO: Figure out if content marked as CP852 or CP1250 needs to be converted differently and how
+		// TODO: Figure out how to identify <yu>-less YUSCII content without breaking a bunch of other pages in the process
+		const yuExp = /(<yu(?: +[a-z0-9]+)?>)(.*?)(<\/yu>|$)/gis;
+		const yuMatches = [...text.matchAll(yuExp)];
+		if (yuMatches.length > 0) {
+			const yuText = decoder.decode(Deno.spawnAndWaitSync('iconv', [filePath, '-cf', 'YU', '-t', 'UTF-8']).stdout);
+			const yuMatches2 = [...yuText.matchAll(yuExp)];
 
-		[magicType, pathType, urlType] = (await Promise.all(typePromises)).map(type => decoder.decode(type.stdout).trim() || null);
-		typeIndex[field] = { magicType, pathType, urlType };
+			let newText = '';
+			let offset = 0;
+			for (let i = 0; i < yuMatches.length; i++) {
+				const yuMatch = yuMatches[i];
+				const yuMatch2 = yuMatches2[i];
+
+				const start = yuMatch.index + yuMatch[1].length;
+				const end = yuMatch.index + yuMatch[0].length - yuMatch[3].length;
+				if (offset > start)
+					continue;
+
+				newText += text.substring(0, start - offset) + yuMatch2[2];
+				text = text.substring(end - offset);
+				offset = end;
+			}
+
+			text = newText + text;
+		}
 	}
-	else
-		({ magicType, pathType, urlType } = typeIndex[field]);
+
+	// Text files in World Wide Catalog Summer 1995 have all locally-available URLs converted into paths, even in non-HTML files
+	// So we need to resolve them and convert them back into URLs
+	if (archive.source == 'wwcatalog' && urlIndex !== null && pathIndex !== null) {
+		const blankedHtml = archive.path.endsWith('.HTM') ? blankHtml(text) : text;
+		const inlinePathExp = new RegExp(`(?:\\.\\./)+(${archive.path.substring(0, archive.path.indexOf('/')).toLowerCase()}.*?)(?=\\s)`, 'g');
+		const inlinePathSlices = [];
+		for (let inlinePathMatch; (inlinePathMatch = inlinePathExp.exec(blankedHtml)) !== null;) {
+			const inlinePathEntry = pathIndex[archive.source][utils.normalizePath(inlinePathMatch[1])];
+			if (inlinePathEntry === undefined)
+				continue;
+
+			inlinePathSlices.push({
+				start: inlinePathMatch.index,
+				end: inlinePathMatch.index + inlinePathMatch[0].length,
+				value: inlinePathEntry.url,
+			});
+		}
+
+		if (inlinePathSlices.length > 0)
+			text = utils.replaceSlices(text, inlinePathSlices);
+	}
+
+	// Standardize newlines and re-encode text
+	text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+	file = new TextEncoder().encode(text);
+
+	return file;
+}
+
+// Identify the file's MIME type
+function mimeType(file, typeEntry) {
+	const text = new TextDecoder().decode(file);
 
 	// The URL type takes priority over the file path type if it exists
+	const { rawType, magicType, pathType, urlType } = typeEntry;
 	const extType = urlType ?? pathType;
 
-	// If the magic type is text/plain or application/octet-stream, it is not specific enough and requires additional work to determine the type
-	// We do text-oriented checks for magic types of application/octet-stream only if the extension type is HTML, as badly-encoded HTML is sometimes identified as binary
+	// Use the raw type to determine if a file is text-based, unless it is a generic binary type and contradicted by the magic type
+	// Then we use the volume of invalid characters in the file, as well as its file extension type, to determine if it is really binary or not
+	let isText;
+	if (rawType == 'application/octet-stream' && utils.isTextType(magicType)) {
+		const invalidTotal = text.length - text.replace(/[\x00\uFFFD]+/g, '').length;
+		const invalidRatio = invalidTotal / text.length;
+		isText = (magicType == 'text/html' && utils.isTextType(extType)) || invalidRatio < 0.1 && invalidTotal < 1000;
+	}
+	else
+		isText = utils.isTextType(rawType);
+
 	let chosenType = magicType;
-	if (magicType == 'text/plain' || (magicType == 'application/octet-stream' && extType == 'text/html')) {
+	if (isText) {
 		// Check if the file appears to be HTML
-		if (isHtml(rawText, pathType, urlType))
+		if (isHtml(text, magicType, pathType, urlType))
 			chosenType = 'text/html';
 		// Check if the file appears to be XBM
-		else if (rawText.match(/^static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/im) !== null)
+		else if (text.match(/^static(?:\s+unsigned)?\s+char\s+[^\s]*_bits\[\]\s*=\s*\{/im) !== null)
 			chosenType = 'image/x-xbitmap';
-		// Check if the file appears to be XPM
-		else if (rawText.match(/^\s*!\s*XPM2/i) !== null)
+		// Check if the file appears to be XPM2
+		// TODO: Check for the other XPM versions
+		else if (text.match(/^\s*!\s*XPM2/i) !== null)
 			chosenType = 'image/x-xpixmap';
-		// Otherwise, use the file extension's type if it is not HTML
-		// If the magic type is text/plain, then it is further restricted to only text-based types
-		else if (extType != 'text/html' && (utils.isTextType(extType) || magicType == 'application/octet-stream'))
+		// Use the file extension type if it is text-based but not generic or HTML
+		else if (extType != 'text/plain' && utils.isTextType(extType, false, false))
 			chosenType = extType;
+		// Otherwise, if the magic type is not text-based, use the generic plaintext type
+		else if (!utils.isTextType(magicType, false))
+			chosenType = 'text/plain';
+
+		// Normalize types which are never correct
+		if (chosenType == 'application/typescript' || chosenType == 'text/x-devicetree-source' || chosenType == 'text/x-c++src')
+			chosenType = 'text/x-csrc';
 	}
-	// Check if the magic type is application/octet-stream and the extension type indicates a binary file
-	// If so, use the extension type since it is more specific and can probably be trusted
-	else if (magicType == 'application/octet-stream' && !utils.isTextType(extType))
-		chosenType = extType;
+	else {
+		// If the magic type is text-based or generic, use the file extension type if it's not text-based
+		if ((magicType == 'application/octet-stream' || utils.isTextType(magicType)) && !utils.isTextType(extType))
+			chosenType = extType;
+		// Otherwise, use the generic binary type
+		else if (utils.isTextType(magicType))
+			chosenType = 'application/octet-stream';
 
-	// Use the URL type if both that and the chosen type are text-based but not HTML, and the URL type is more specific than text/plain
-	if (urlType !== null && urlType != 'text/plain' && chosenType != urlType && utils.isTextType(chosenType, true) && utils.isTextType(urlType, true))
-		chosenType = urlType;
-
-	// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
-	if (chosenType == 'audio/vnd.wave')
-		chosenType = 'audio/wav';
-
-	// Band-aid fixes for certain types until I improve the type detection code
-	if (chosenType == 'application/typescript' || chosenType == 'text/x-devicetree-source' || chosenType == 'text/x-c++src')
-		chosenType = 'text/x-csrc';
-	if (chosenType != 'application/pdf' && /\.pdf$/i.test(filePath))
-		chosenType = 'application/pdf';
+		// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
+		if (chosenType == 'audio/vnd.wave')
+			chosenType = 'audio/wav';
+	}
 
 	return chosenType;
 }
 
 // Guess if a piece of text is HTML
-function isHtml(text, pathType, urlType = null) {
+function isHtml(text, magicType, pathType, urlType = null) {
 	let decision;
 
-	// If the text has an HTML comment opening sequence, then it's probably HTML
-	if (text.includes('<!--'))
-		decision = true;
+	// If the text starts with a shebang, then it's probably not HTML
+	if (/^\s*#!/.test(text))
+		decision = false;
 
-	// If the extension type is text-based but not HTML, don't match tags bordered by quotes in case the file is a script
-	const tagExp = !utils.isTextType(urlType ?? pathType, true)
-		? /<\/?([a-z\d]+)(?: [^>\n]*?)?>/gi
-		: /(?<!['"])<\/?([a-z\d]+)(?: [^>\n]*?)?>(?!['"])/gi;
-	const tagMatches = [...text.matchAll(tagExp)];
+	// If there are indicators that the file is text-based but not HTML, then we need to be sure that the tags we would otherwise be matching are not part of a script
+	let tagMatches = [...text.matchAll(/<\/?([a-z\d]+)(?: [^>\n]*?)?>/gi)];
+	if (tagMatches.length > 0 && (magicType != 'text/plain' && utils.isTextType(magicType, false) || utils.isTextType(urlType ?? pathType, false))) {
+		// Blank text which is surrounded by quotations or parentheses in case they contain tags
+		let blankedText = text, blankedTextOld;
+		do {
+			blankedTextOld = blankedText;
+			blankedText = text.replace(/\([^()\n]+\)|'[^'\n]+'|"[^"\n]+"/g, match => match[0] + match[match.length - 1]);
+		}
+		while (blankedText != blankedTextOld);
+
+		if (blankedText != text) {
+			// Meticulously query remaining tags while being careful of script indicators
+			// If less than half of the total potential tags remain, then it's probably not HTML
+			const blankedTagMatches = [...blankedText.matchAll(/(?<!(?:\/\/|\/\*|#)[^\n]*|__(?:END|DATA)__.*|= *)<\/?([a-zA-Z\d]+)(?: [^>\n]*?)?>(?! *;)/gms)];
+			if (blankedTagMatches.length < tagMatches.length / 2) {
+				tagMatches = blankedTagMatches;
+				decision = false;
+			}
+		}
+	}
 
 	if (decision === undefined) {
+		// If the text has an HTML comment opening sequence, then it's probably HTML
+		if (text.includes('<!--'))
+			decision = true;
+
 		if (tagMatches.length > 0 && urlType == 'text/html')
 			// If there appear to be HTML tags in the text, and the URL has an HTML file extension, then it's probably HTML
 			decision = true;
