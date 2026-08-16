@@ -1874,6 +1874,10 @@ function mimeType(file, typeEntry) {
 		// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
 		if (chosenType == 'audio/vnd.wave')
 			chosenType = 'audio/wav';
+
+		// Neither file nor mimetype seem to know what a Shockwave file is
+		if (chosenType == 'image/x-kodak-dcr')
+			chosenType = 'application/x-director';
 	}
 
 	return chosenType;
