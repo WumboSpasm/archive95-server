@@ -208,6 +208,17 @@ async function serverHandler(request, info) {
 					}
 				}
 
+				// Build slices rewriting references to top window context if the page is being rendered inside an iframe
+				// This is a hacky way of lobotomizing scripts which try to break out of frames
+				if (flagIds.includes('i') && inject.scripts.length > 0) {
+					for (const scriptInject of inject.scripts)
+						slices.push({
+							start: scriptInject.start,
+							end: scriptInject.end,
+							value: scriptInject.type == 'topstring' ? '_self' : 'self',
+						});
+				}
+
 				// Determine the most appropriate way to hide the navbar
 				let noNavbarFlagId = 'n';
 				if (/[ij]/.test(flagIds))

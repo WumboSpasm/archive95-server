@@ -569,6 +569,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			index: -1,
 		},
 		frames: [],
+		scripts: [],
 		links: [],
 	};
 	const inlinksDirs = [];
@@ -756,6 +757,47 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			end: noframesMatch.index + noframesMatch[0].length,
 			type: 'noframes',
 		});
+
+	// Identify references to the top window context in scripts so they can be rewritten when inside iframes
+	const scriptExp = /(<script(?: [^>]+)?>)(.*?)<\/script>/gis;
+	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
+		const scriptBody = scriptMatch[2];
+
+		// Blank script comments while being mindful of strings so we don't get false positives
+		const scriptBodyNoStrings = scriptBody
+			.replace(/"(?:(?!(?<!\\)").)+"/g, match => ' '.repeat(match.length))
+			.replace(/'(?:(?!(?<!\\)').)+'/g, match => ' '.repeat(match.length));
+		const singleCommentSlices = [...scriptBodyNoStrings.matchAll(/\/\/.*$/gm)].map(commentMatch => ({
+			start: commentMatch.index,
+			end: commentMatch.index + commentMatch[0].length,
+			value: ' '.repeat(commentMatch[0].length),
+		}));
+		const multiCommentSlices = [...scriptBodyNoStrings.matchAll(/\/\*.*?(?:\*\/|$)/gs)].map(commentMatch => ({
+			start: commentMatch.index,
+			end: commentMatch.index + commentMatch[0].length,
+			value: ' '.repeat(commentMatch[0].length),
+		}));
+		const scriptBodyNoComments = utils.replaceSlices(scriptBody, singleCommentSlices.concat(multiCommentSlices));
+
+		// Add strings and variables referencing the top window context to the injection list
+		const topStringExp = /(?<=(['"]))_top(?=\1)/g;
+		const scriptBodyIndex = scriptMatch.index + scriptMatch[1].length;
+		for (let topStringMatch; (topStringMatch = topStringExp.exec(scriptBodyNoComments)) !== null;)
+			inject.scripts.push({
+				start: scriptBodyIndex + topStringMatch.index,
+				end: scriptBodyIndex + topStringMatch.index + topStringMatch[0].length,
+				type: 'topstring',
+			});
+		const topVarExp = /(?<![a-zA-Z0-9_-])top(?![a-zA-Z0-9_-])/g;
+		for (let topVarMatch; (topVarMatch = topVarExp.exec(scriptBodyNoComments)) !== null;)
+			inject.scripts.push({
+				start: scriptBodyIndex + topVarMatch.index,
+				end: scriptBodyIndex + topVarMatch.index + topVarMatch[0].length,
+				type: 'topvar',
+			});
+
+		inject.scripts.sort((a, b) => a.start - b.start);
+	}
 
 	return [newHtml, inject, inlinksDirs];
 }
