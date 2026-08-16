@@ -575,8 +575,12 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 
 	let offset = 0;
 	const source = sources[archive.source];
+
+	// Remove <base> tag
+	html = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '');
+
 	const excludeIndexes = [...blankHtml(html, true).matchAll(linkExp)].map(linkMatch => linkMatch.index);
-	const newHtml = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '').replace(linkExp, (match, tagStart, url, index) => {
+	const newHtml = html.replace(linkExp, (match, tagStart, url, index) => {
 		// Don't process link attributes that are probably intended to be rendered as plaintext
 		if (excludeIndexes.includes(index))
 			return match;
