@@ -143,10 +143,11 @@ async function serverHandler(request, info) {
 
 	switch (modeId) {
 		case 'view': {
-			const [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan] = getArchiveInfo(urlStr, sourceId, offset);
+			const [archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
 				throw new UnarchivedError(urlStr, modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
+			const archiveDir = archiveDirs[archiveInfoIndex];
 
 			const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
@@ -359,10 +360,11 @@ async function serverHandler(request, info) {
 			}
 		}
 		case 'raw': {
-			const [archiveInfoSet, archiveInfoIndex, archiveDir] = getArchiveInfo(urlStr, sourceId, offset);
+			const [archiveInfoSet, archiveDirs, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
 				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
+			const archiveDir = archiveDirs[archiveInfoIndex];
 
 			const archiveRawPath = pathUtils.join(archiveDir, archiveInfo.files.includes('raw') ? 'raw' : 'file');
 			headers.set('Content-Type', archiveInfo.types[0]);
@@ -531,7 +533,7 @@ async function serverHandler(request, info) {
 			return new Response(inlinksPage, { headers: headers });
 		}
 		case 'options': {
-			const [archiveInfoSet, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
+			const [archiveInfoSet, _, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
 				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
@@ -669,9 +671,10 @@ async function serverHandler(request, info) {
 					if (urlParam) {
 						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
 						const offsetParam = parseInt(params.get('offset'), 10) || undefined;
-						const [archiveInfoSet, archiveInfoIndex, archiveDir] = getArchiveInfo(urlParam, sourceParam, offsetParam);
+						const [archiveInfoSet, archiveDirs, archiveInfoIndex] = getArchiveInfo(urlParam, sourceParam, offsetParam);
 						if (archiveInfoSet !== undefined) {
 							const archiveInfo = archiveInfoSet[archiveInfoIndex];
+							const archiveDir = archiveDirs[archiveInfoIndex];
 							const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir, params.get('p') == 'true' ? 'p' : '');
 							archiveInfo.inject = archivePathInfo.injectPath !== null
 								? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
@@ -871,10 +874,11 @@ async function performSearch(params) {
 	const searchResults = [];
 	let searchOffset = 0;
 	if (searchFilters.inUrl && !/[ "]/.test(query)) {
-		const [archiveInfoSet, _, archiveDir, isOrphan] = getArchiveInfo(query, searchFilters.source || undefined);
+		const [archiveInfoSet, archiveDirs, _, isOrphan] = getArchiveInfo(query, searchFilters.source || undefined);
 		if (archiveInfoSet !== undefined) {
 			for (let i = 0; i < archiveInfoSet.length; i++) {
 				const archiveInfo = archiveInfoSet[i];
+				const archiveDir = archiveDirs[i];
 
 				// Apply search filters
 				const archiveIsText = utils.isTextType(archiveInfo.types[0], true, false);
@@ -939,7 +943,7 @@ async function performSearch(params) {
 
 // Locate the archive in the filesystem and gather useful data
 function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
-	let archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan = false;
+	let archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan = false;
 
 	// Check the urls directory first
 	let archiveRootDir, archiveInfoSetPath, archiveFound = false;
@@ -975,8 +979,10 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 		if (archiveInfoIndex == -1)
 			archiveInfoIndex = 0;
 
-		const archiveInfo = archiveInfoSet[archiveInfoIndex];
-		archiveDir = pathUtils.join(archiveRootDir, '@' + archiveInfoIndex.toString().padStart(2, '0') + '_' + archiveInfo.source);
+		// Get each archive's directory
+		archiveDirs = [];
+		for (let i = 0; i < archiveInfoSet.length; i++)
+			archiveDirs.push(pathUtils.join(archiveRootDir, '@' + i.toString().padStart(2, '0') + '_' + archiveInfoSet[i].source));
 	}
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory
@@ -992,13 +998,13 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 			const archiveInfo = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
 			archiveInfoSet = [archiveInfo];
 			archiveInfoIndex = 0;
-			archiveDir = archiveRootDir;
+			archiveDirs = [archiveRootDir];
 			isOrphan = true;
 		}
 	}
 
 	return archiveFound
-		? [archiveInfoSet, archiveInfoIndex, archiveDir, isOrphan]
+		? [archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan]
 		: [undefined, undefined, undefined, undefined];
 }
 
