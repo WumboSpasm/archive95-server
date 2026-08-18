@@ -100,18 +100,16 @@ async function serverHandler(request, info) {
 	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname) && request.headers.has('Host'))
 		throw new BadHostError();
 
-	// Render search page and navbar in HTML5 if the browser seems to be modern
+	// Assess the browser's recency so the response can be rendered accordingly
 	const modernMode = config.doModernMode && isModernBrowser(userAgent);
-
-	// Render pages in UTF-8 if the browser does not seem to be ancient
-	const doUnicode = modernMode || !isAncientBrowser(userAgent);
+	const ancientMode = isAncientBrowser(userAgent);
 
 	// Get body of request URL
 	const requestPath = requestUrl.pathname.replace(/^\/+/, '');
 
 	// Initialize response headers
 	const headers = new Headers();
-	headers.set('Content-Type', 'text/html' + (doUnicode ? ';charset=UTF-8' : ''));
+	headers.set('Content-Type', 'text/html' + (!ancientMode ? ';charset=UTF-8' : ''));
 	headers.set('Cache-Control', 'max-age=14400');
 
 	// Serve homepage/search results
@@ -121,8 +119,11 @@ async function serverHandler(request, info) {
 	// Try serving from static file directory
 	const staticFileInfoEntry = staticFileInfo[requestPath];
 	if (staticFileInfoEntry !== undefined) {
+		const staticFile = Deno.openSync(staticFileInfoEntry.path);
 		headers.set('Content-Type', staticFileInfoEntry.type);
-		return new Response(Deno.openSync(staticFileInfoEntry.path).readable, { headers: headers });
+		if (ancientMode)
+			headers.set('Content-Length', staticFile.statSync().size);
+		return new Response(staticFile.readable, { headers: headers });
 	}
 
 	// Extract info from URL
@@ -355,8 +356,11 @@ async function serverHandler(request, info) {
 			}
 			else {
 				// Serve the unprocessed file if the navbar is disabled
-				headers.set('Content-Type', fileType + (doUnicode && utils.isTextType(fileType) ? ';charset=UTF-8' : ''));
-				return new Response(Deno.openSync(archivePathInfo.filePath).readable, { headers: headers });
+				const archiveFile = Deno.openSync(archivePathInfo.filePath);
+				headers.set('Content-Type', fileType + (!ancientMode && utils.isTextType(fileType) ? ';charset=UTF-8' : ''));
+				if (ancientMode)
+					headers.set('Content-Length', archiveFile.statSync().size);
+				return new Response(archiveFile.readable, { headers: headers });
 			}
 		}
 		case 'raw': {
@@ -367,8 +371,11 @@ async function serverHandler(request, info) {
 			const archiveDir = archiveDirs[archiveInfoIndex];
 
 			const archiveRawPath = pathUtils.join(archiveDir, archiveInfo.files.includes('raw') ? 'raw' : 'file');
+			const archiveRawFile = Deno.openSync(archiveRawPath)
 			headers.set('Content-Type', archiveInfo.types[0]);
-			return new Response(Deno.openSync(archiveRawPath).readable, { headers: headers });
+			if (ancientMode)
+				headers.set('Content-Length', archiveRawFile.statSync().size);
+			return new Response(archiveRawFile.readable, { headers: headers });
 		}
 		case 'browse': {
 			// Look for the directory listing file and load it
@@ -609,8 +616,11 @@ async function serverHandler(request, info) {
 			const screenshotInfo = screenshotInfoSet[screenshotInfoIndex];
 			const screenshotDir = pathUtils.join(screenshotRootDir, '@' + screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
 			const screenshotPath = pathUtils.join(screenshotDir, modeId);
+			const screenshotFile = Deno.openSync(screenshotPath);
 			headers.set('Content-Type', screenshotInfo.type);
-			return new Response(Deno.openSync(screenshotPath).readable, { headers: headers });
+			if (ancientMode)
+				headers.set('Content-Length', screenshotFile.statSync().size);
+			return new Response(screenshotFile.readable, { headers: headers });
 		}
 		case 'random': {
 			// Query for a random archive
