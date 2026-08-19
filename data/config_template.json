@@ -10,7 +10,7 @@
 	"logToConsole": true,
 	"logBlockedRequests": true,
 	"doModernMode": true,
-	"doHoneypot": true,
+	"doHoneypot": false,
 	"honeypotBlockTime": 86400000,
 	"randomCacheSize": 100,
 	"shutdownTimeout": 30000,
