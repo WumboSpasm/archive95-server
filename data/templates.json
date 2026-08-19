@@ -31,10 +31,10 @@
 		"options": [
 			"option"
 		],
-		"random": [],
 		"error": [
 			"links"
-		]
+		],
+		"redirect": []
 	},
 	"modern": {
 		"shell": [],

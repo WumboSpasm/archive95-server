@@ -628,15 +628,12 @@ async function serverHandler(request, info) {
 			if (archiveInfo === null)
 				throw new NotFoundError(modernMode);
 
+			// TODO: Find out if 302 Found responses can be formatted in a way that doesn't cause ancient browsers to hang
 			const randomUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`;
 			if (modernMode)
-				// Perform an HTTP redirect if modern mode is active
-				return Response.redirect(requestUrl.origin + randomUrl);
-			else {
-				// Otherwise, return a page that instantly redirects using <meta http-equiv="refresh">
-				headers.set('Cache-Control', 'no-store');
-				return new Response(buildHtml(templates.compat.random.main, { 'URL': randomUrl }), { headers: headers });
-			}
+				headers.set('Location', requestUrl.origin + randomUrl);
+			headers.set('Cache-Control', 'no-store');
+			return new Response(buildHtml(templates.compat.redirect.main, { 'URL': randomUrl }), { status: modernMode ? 302 : 200, headers: headers });
 		}
 		case 'api': {
 			headers.set('Content-Type', 'application/json;charset=UTF-8');
