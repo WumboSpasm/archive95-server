@@ -13,17 +13,6 @@ export function loadConfig(configPath) {
 		logMessage('no config file found, using default config');
 }
 
-// Attempt to load blocklist and remove expired entries
-export function loadBlocklist(blocklistPath) {
-	globalThis.blocklist = [];
-	if (getPathInfo(blocklistPath)?.isFile) {
-		globalThis.blocklist = JSON.parse(Deno.readTextFileSync(blocklistPath))
-			.filter(blocklistEntry => blocklistEntry.expires === null || blocklistEntry.expires > Date.now());
-		Deno.writeTextFileSync(blocklistPath, JSON.stringify(blocklist, null, '\t'));
-		logMessage(`loaded blocklist file at ${Deno.realPathSync(blocklistPath)}`);
-	}
-}
-
 // Convert a normalized URL/path into a properly escaped directory definition for quick lookup
 export function getArchiveRootDir(normalizedUrl, namespace, buildPath = config.buildPath) {
 	let archiveRootDir;

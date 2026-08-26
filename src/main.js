@@ -16,9 +16,12 @@ const args = parseArgs(Deno.args, {
 	},
 });
 
-// Load configuration and blocklist
+// Load configuration file
 utils.loadConfig(args['config']);
-utils.loadBlocklist(args['blocklist']);
+
+// Load blocklist file
+let blocklistBusy = false;
+const blocklist = loadBlocklist();
 
 const templates = loadTemplates();
 const modes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
@@ -132,13 +135,9 @@ async function serverHandler(request, info) {
 		throw new NotFoundError(modernMode);
 
 	// If enabled, block the IP if it contains a hidden honeypot flag
-	if (config.doHoneypot && modeId != 'options' && /\d/.test(flagIds)) {
-		blocklist.push({
-			ipAddress: ipAddress,
-			userAgent: null,
-			expires: config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null,
-		});
-		Deno.writeTextFileSync(args['blocklist'], JSON.stringify(blocklist, null, '\t'));
+	if (config.doHoneypot && /\d/.test(flagIds)) {
+		blocklist.ipAddresses[ipAddress] = config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null;
+		writeBlocklist();
 		throw new BlockedError();
 	}
 
@@ -1385,18 +1384,22 @@ function buildHtml(template, defs) {
 
 // Determine whether a request should be blocked, and delete blocklist entries that have expired
 function doBlockRequest(ipAddress, userAgent) {
-	const blocklistEntryIndex = blocklist.findIndex(blocklistEntry => ipAddress.startsWith(blocklistEntry.ipAddress) || userAgent.includes(blocklistEntry.userAgent));
-	if (blocklistEntryIndex != -1) {
-		const blocklistEntry = blocklist[blocklistEntryIndex];
-		if (blocklistEntry.expires === null || blocklistEntry.expires > Date.now())
+	if (blocklist.ipAddresses[ipAddress] !== undefined) {
+		const expires = blocklist.ipAddresses[ipAddress];
+		if (expires === null || expires > Date.now()) {
+			if (expires !== null) {
+				blocklist.ipAddresses[ipAddress] = config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null;
+				writeBlocklist();
+			}
 			return true;
+		}
 		else {
-			blocklist.splice(blocklistEntryIndex, 1);
-			Deno.writeTextFileSync(args['blocklist'], JSON.stringify(blocklist, null, '\t'));
+			delete blocklist.ipAddresses[ipAddress];
+			writeBlocklist();
 		}
 	}
 
-	return false;
+	return blocklist.userAgents.some(userAgentSegment => userAgent.includes(userAgentSegment));
 }
 
 // Check if the user agent suggests a somewhat recent (ie. >2019) browser
@@ -1521,6 +1524,32 @@ function sanitizeInject(str, amp = false) {
 		charMap['&'] = '&amp;';
 
 	return str.replace(new RegExp(`[${Object.keys(charMap).join('')}]`, 'g'), m => charMap[m]);
+}
+
+// Attempt to load blocklist and remove expired entries
+function loadBlocklist() {
+	const blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
+	if (utils.getPathInfo(args['blocklist'])?.isFile) {
+		Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(args['blocklist'])));
+		for (const ipAddress in blocklist.ipAddresses) {
+			const expires = blocklist.ipAddresses[ipAddress];
+			if (expires !== null && expires <= Date.now())
+				delete blocklist.ipAddresses[ipAddress];
+		}
+		writeBlocklist();
+		utils.logMessage(`loaded blocklist file at ${Deno.realPathSync(args['blocklist'])}`);
+	}
+
+	return blocklist;
+}
+
+// Asynchronously update blocklist file if not already being written to
+function writeBlocklist() {
+	if (!blocklistBusy) {
+		blocklistBusy = true;
+		try { Deno.writeTextFile(args['blocklist'], JSON.stringify(blocklist, null, '\t')).then(() => { blocklistBusy = false; }); }
+		catch { blocklistBusy = false; }
+	}
 }
 
 // Load HTML templates into memory

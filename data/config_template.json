@@ -11,7 +11,7 @@
 	"logBlockedRequests": true,
 	"doModernMode": true,
 	"doHoneypot": false,
-	"honeypotBlockTime": 86400000,
+	"honeypotBlockTime": 259200000,
 	"randomCacheSize": 100,
 	"shutdownTimeout": 30000,
 	"resultsPerPage": 50,
