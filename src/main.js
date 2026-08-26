@@ -90,8 +90,10 @@ async function serverHandler(request, info) {
 		utils.logMessage(`${blockRequest ? 'BLOCKED ' : ''}${ipAddress} (${userAgent}): ${request.url}`);
 
 	// Block the request if it needs to be blocked
-	if (blockRequest)
+	if (blockRequest) {
+		await delay(config.blockDelayTime);
 		throw new BlockedError();
+	}
 
 	// Parse the request URL
 	const requestUrl = URL.parse(request.url);
@@ -138,6 +140,7 @@ async function serverHandler(request, info) {
 	if (config.doHoneypot && /\d/.test(flagIds)) {
 		blocklist.ipAddresses[ipAddress] = config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null;
 		writeBlocklist();
+		await delay(config.blockDelayTime);
 		throw new BlockedError();
 	}
 
