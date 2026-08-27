@@ -12,6 +12,7 @@
 	"doModernMode": true,
 	"doHoneypot": false,
 	"honeypotBlockTime": 259200000,
+	"blockWriteFrequency": 900000,
 	"blockDelayTime": 30000,
 	"randomCacheSize": 100,
 	"shutdownTimeout": 30000,

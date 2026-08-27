@@ -16,12 +16,9 @@ const args = parseArgs(Deno.args, {
 	},
 });
 
-// Load configuration file
+// Load configuration and blocklist files
 utils.loadConfig(args['config']);
-
-// Load blocklist file
-let blocklistBusy = false;
-const blocklist = loadBlocklist();
+loadBlocklist(args['blocklist']);
 
 const templates = loadTemplates();
 const modes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
@@ -139,7 +136,7 @@ async function serverHandler(request, info) {
 	// If enabled, block the IP if it contains a hidden honeypot flag
 	if (config.doHoneypot && /\d/.test(flagIds)) {
 		blocklist.ipAddresses[ipAddress] = config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null;
-		writeBlocklist();
+		blocklistWritePending = true;
 		await delay(config.blockDelayTime);
 		throw new BlockedError();
 	}
@@ -778,9 +775,10 @@ async function serverShutdown() {
 	if (shuttingDown)
 		return;
 
-	utils.logMessage('shutting down server...');
 	shuttingDown = true;
+	clearInterval(blocklistWriteInterval);
 
+	utils.logMessage('shutting down server...');
 	const serverPromises = [];
 	if (httpServer)
 		serverPromises.push(httpServer.shutdown());
@@ -794,6 +792,7 @@ async function serverShutdown() {
 		delay(config.shutdownTimeout).then(() => utils.logMessage('shutdown is taking too long, exiting forcefully...')),
 	]);
 
+	writeBlocklist();
 	Deno.exit();
 }
 Deno.addSignalListener('SIGINT', serverShutdown);
@@ -1392,13 +1391,13 @@ function doBlockRequest(ipAddress, userAgent) {
 		if (expires === null || expires > Date.now()) {
 			if (expires !== null) {
 				blocklist.ipAddresses[ipAddress] = config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null;
-				writeBlocklist();
+				blocklistWritePending = true;
 			}
 			return true;
 		}
 		else {
 			delete blocklist.ipAddresses[ipAddress];
-			writeBlocklist();
+			blocklistWritePending = true;
 		}
 	}
 
@@ -1530,28 +1529,31 @@ function sanitizeInject(str, amp = false) {
 }
 
 // Attempt to load blocklist and remove expired entries
-function loadBlocklist() {
-	const blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
-	if (utils.getPathInfo(args['blocklist'])?.isFile) {
-		Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(args['blocklist'])));
+function loadBlocklist(blocklistPath) {
+	globalThis.blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
+	globalThis.blocklistWritePending = false;
+	if (utils.getPathInfo(blocklistPath)?.isFile) {
+		Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(blocklistPath)));
 		for (const ipAddress in blocklist.ipAddresses) {
 			const expires = blocklist.ipAddresses[ipAddress];
-			if (expires !== null && expires <= Date.now())
+			if (expires !== null && expires <= Date.now()) {
 				delete blocklist.ipAddresses[ipAddress];
+				blocklistWritePending = true;
+			}
 		}
-		writeBlocklist();
-		utils.logMessage(`loaded blocklist file at ${Deno.realPathSync(args['blocklist'])}`);
+		utils.logMessage(`loaded blocklist file at ${Deno.realPathSync(blocklistPath)}`);
 	}
 
-	return blocklist;
+	writeBlocklist();
+	if (config.blockWriteFrequency > 0)
+		globalThis.blocklistWriteInterval = setInterval(writeBlocklist, config.blockWriteFrequency);
 }
 
-// Asynchronously update blocklist file if not already being written to
+// Update blocklist file if there are pending changes
 function writeBlocklist() {
-	if (!blocklistBusy) {
-		blocklistBusy = true;
-		try { Deno.writeTextFile(args['blocklist'], JSON.stringify(blocklist, null, '\t')).then(() => { blocklistBusy = false; }); }
-		catch { blocklistBusy = false; }
+	if (blocklistWritePending) {
+		try { Deno.writeTextFile(args['blocklist'], JSON.stringify(blocklist, null, '\t')); } catch {}
+		blocklistWritePending = false;
 	}
 }
 
