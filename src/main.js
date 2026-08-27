@@ -792,7 +792,7 @@ async function serverShutdown() {
 		delay(config.shutdownTimeout).then(() => utils.logMessage('shutdown is taking too long, exiting forcefully...')),
 	]);
 
-	writeBlocklist();
+	await writeBlocklist();
 	Deno.exit();
 }
 Deno.addSignalListener('SIGINT', serverShutdown);
@@ -1533,7 +1533,7 @@ function loadBlocklist(blocklistPath) {
 	globalThis.blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
 	globalThis.blocklistWritePending = false;
 	if (utils.getPathInfo(blocklistPath)?.isFile) {
-		Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(blocklistPath)));
+		try { Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(blocklistPath))); } catch {}
 		for (const ipAddress in blocklist.ipAddresses) {
 			const expires = blocklist.ipAddresses[ipAddress];
 			if (expires !== null && expires <= Date.now()) {
@@ -1551,10 +1551,8 @@ function loadBlocklist(blocklistPath) {
 
 // Update blocklist file if there are pending changes
 function writeBlocklist() {
-	if (blocklistWritePending) {
-		try { Deno.writeTextFile(args['blocklist'], JSON.stringify(blocklist, null, '\t')); } catch {}
-		blocklistWritePending = false;
-	}
+	if (blocklistWritePending)
+		try { return Deno.writeTextFile(args['blocklist'], JSON.stringify(blocklist, null, '\t')).then(() => { blocklistWritePending = false; }); } catch {}
 }
 
 // Load HTML templates into memory
