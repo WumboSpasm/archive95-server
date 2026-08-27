@@ -21,7 +21,7 @@ utils.loadConfig(args['config']);
 
 // Load blocklist file
 let blocklistBusy = false;
-const blocklist = loadBlocklist();
+const blocklist = await loadBlocklist();
 
 const templates = loadTemplates();
 const modes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
@@ -124,10 +124,10 @@ async function serverHandler(request, info) {
 	// Try serving from static file directory
 	const staticFileInfoEntry = staticFileInfo[requestPath];
 	if (staticFileInfoEntry !== undefined) {
-		const staticFile = Deno.openSync(staticFileInfoEntry.path);
+		const staticFile = await Deno.open(staticFileInfoEntry.path);
 		headers.set('Content-Type', staticFileInfoEntry.type);
 		if (ancientMode)
-			headers.set('Content-Length', staticFile.statSync().size);
+			headers.set('Content-Length', (await staticFile.stat()).size);
 		return new Response(staticFile.readable, { headers: headers });
 	}
 
@@ -146,9 +146,9 @@ async function serverHandler(request, info) {
 
 	switch (modeId) {
 		case 'view': {
-			const [archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan] = getArchiveInfo(urlStr, sourceId, offset);
+			const [archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan] = await getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
-				throw new UnarchivedError(urlStr, modernMode);
+				throw new UnarchivedError(await getUrlInfo(urlStr), modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archiveDir = archiveDirs[archiveInfoIndex];
 
@@ -156,7 +156,7 @@ async function serverHandler(request, info) {
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
 			if (fileType == 'text/html' && (!modernMode || /[ndijk]/.test(flagIds))) {
 				// For HTML files, we build a list of slices from the injection list and pass it to replaceSlices
-				const inject = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
+				const inject = JSON.parse(await Deno.readTextFile(archivePathInfo.injectPath));
 				const framesetInject = inject.frames.find(frameInject => frameInject.type == 'frameset');
 				const doNavbar = !/[nijk]/.test(flagIds) && (framesetInject === undefined || flagIds.includes('f'));
 				const slices = [];
@@ -188,7 +188,7 @@ async function serverHandler(request, info) {
 					slices.push({
 						start: inject.navbar.index,
 						end: null,
-						value: buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
+						value: await buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
 					});
 
 				// Build frame-related slices if applicable
@@ -283,7 +283,7 @@ async function serverHandler(request, info) {
 				}
 
 				// Apply our built slices to the HTML and serve it
-				const html = utils.replaceSlices(Deno.readTextFileSync(archivePathInfo.filePath), slices);
+				const html = utils.replaceSlices(await Deno.readTextFile(archivePathInfo.filePath), slices);
 				return new Response(html, { headers: headers });
 			}
 			else if (!/[nijk]/.test(flagIds)) {
@@ -300,7 +300,7 @@ async function serverHandler(request, info) {
 				let embed, indent = 'all';
 				if (utils.isTextType(fileType, false, false)) {
 					embed = buildHtml(templates.compat.embed.text, {
-						'TEXT': Deno.readTextFileSync(archivePathInfo.filePath).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+						'TEXT': (await Deno.readTextFile(archivePathInfo.filePath)).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
 					});
 					indent = 'first';
 				}
@@ -339,7 +339,7 @@ async function serverHandler(request, info) {
 				// Build page title
 				let title = (isOrphan ? archiveInfo.source + '/' : '') + utils.safeDecode(archiveInfo.url);
 				if (fileType == 'text/html' && archivePathInfo.searchPath !== null) {
-					const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
+					const archiveSearchInfo = JSON.parse(await Deno.readTextFile(archivePathInfo.searchPath));
 					if (archiveSearchInfo.title)
 						title = archiveSearchInfo.title;
 				}
@@ -351,37 +351,37 @@ async function serverHandler(request, info) {
 					'TYPE': fileType,
 					'EMBED': { value: embed, indent: indent },
 					'DOWNLOADS': downloadsArr.length > 0 ? '<hr>\n' + downloadsArr.join(' - ') : '',
-					'NAVBAR': buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
+					'NAVBAR': await buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
 				});
 
 				return new Response(html, { headers: headers });
 			}
 			else {
 				// Serve the unprocessed file if the navbar is disabled
-				const archiveFile = Deno.openSync(archivePathInfo.filePath);
+				const archiveFile = await Deno.open(archivePathInfo.filePath);
 				headers.set('Content-Type', fileType + (!ancientMode && utils.isTextType(fileType) ? ';charset=UTF-8' : ''));
 				if (ancientMode)
-					headers.set('Content-Length', archiveFile.statSync().size);
+					headers.set('Content-Length', (await archiveFile.stat()).size);
 				return new Response(archiveFile.readable, { headers: headers });
 			}
 		}
 		case 'raw': {
-			const [archiveInfoSet, archiveDirs, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
+			const [archiveInfoSet, archiveDirs, archiveInfoIndex] = await getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
 				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archiveDir = archiveDirs[archiveInfoIndex];
 
 			const archiveRawPath = pathUtils.join(archiveDir, archiveInfo.files.includes('raw') ? 'raw' : 'file');
-			const archiveRawFile = Deno.openSync(archiveRawPath)
+			const archiveRawFile = await Deno.open(archiveRawPath);
 			headers.set('Content-Type', archiveInfo.types[0]);
 			if (ancientMode)
-				headers.set('Content-Length', archiveRawFile.statSync().size);
+				headers.set('Content-Length', (await archiveRawFile.stat()).size);
 			return new Response(archiveRawFile.readable, { headers: headers });
 		}
 		case 'browse': {
 			// Look for the directory listing file and load it
-			const browseInfoSpread = getBrowseInfo(urlStr, sourceId);
+			const browseInfoSpread = await getBrowseInfo(urlStr, sourceId);
 			if (browseInfoSpread === null)
 				throw new NotFoundError(modernMode);
 			const [browseInfo, isOrphan] = browseInfoSpread;
@@ -513,7 +513,7 @@ async function serverHandler(request, info) {
 			return new Response(browsePage, { headers: headers });
 		}
 		case 'inlinks': {
-			const [inlinksInfo, displayUrl] = getInlinksInfo(urlStr, sourceId);
+			const [inlinksInfo, displayUrl] = await getInlinksInfo(urlStr, sourceId);
 
 			let content;
 			if (inlinksInfo.length > 0) {
@@ -542,7 +542,7 @@ async function serverHandler(request, info) {
 			return new Response(inlinksPage, { headers: headers });
 		}
 		case 'options': {
-			const [archiveInfoSet, _, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
+			const [archiveInfoSet, _, archiveInfoIndex] = await getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
 				throw new NotFoundError(modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
@@ -594,11 +594,11 @@ async function serverHandler(request, info) {
 			const screenshotUrl = urlStr.replaceAll('%23', '#');
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(screenshotUrl), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
-			if (!utils.getPathInfo(screenshotInfoSetPath)?.isFile)
+			if (!await fileExists(screenshotInfoSetPath))
 				throw new NotFoundError(modernMode);
 
 			// Identify the desired screenshot from the set (mostly lifted from getArchiveInfo)
-			const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
+			const screenshotInfoSet = JSON.parse(await Deno.readTextFile(screenshotInfoSetPath));
 			let screenshotInfoIndex = -1;
 			if (screenshotInfoSet.length > 1 && sourceId !== undefined) {
 				for (let i = 0; i < screenshotInfoSet.length; i++) {
@@ -618,10 +618,10 @@ async function serverHandler(request, info) {
 			const screenshotInfo = screenshotInfoSet[screenshotInfoIndex];
 			const screenshotDir = pathUtils.join(screenshotRootDir, '@' + screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
 			const screenshotPath = pathUtils.join(screenshotDir, modeId);
-			const screenshotFile = Deno.openSync(screenshotPath);
+			const screenshotFile = await Deno.open(screenshotPath);
 			headers.set('Content-Type', screenshotInfo.type);
 			if (ancientMode)
-				headers.set('Content-Length', screenshotFile.statSync().size);
+				headers.set('Content-Length', (await screenshotFile.stat()).size);
 			return new Response(screenshotFile.readable, { headers: headers });
 		}
 		case 'random': {
@@ -667,7 +667,7 @@ async function serverHandler(request, info) {
 					const urlParam = params.get('url');
 					if (urlParam) {
 						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
-						const [archiveInfoSet] = getArchiveInfo(urlParam, sourceParam);
+						const [archiveInfoSet] = await getArchiveInfo(urlParam, sourceParam);
 						if (archiveInfoSet !== undefined)
 							return new Response(JSON.stringify(archiveInfoSet), { headers: headers });
 					}
@@ -680,16 +680,16 @@ async function serverHandler(request, info) {
 					if (urlParam) {
 						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
 						const offsetParam = parseInt(params.get('offset'), 10) || undefined;
-						const [archiveInfoSet, archiveDirs, archiveInfoIndex] = getArchiveInfo(urlParam, sourceParam, offsetParam);
+						const [archiveInfoSet, archiveDirs, archiveInfoIndex] = await getArchiveInfo(urlParam, sourceParam, offsetParam);
 						if (archiveInfoSet !== undefined) {
 							const archiveInfo = archiveInfoSet[archiveInfoIndex];
 							const archiveDir = archiveDirs[archiveInfoIndex];
 							const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir, params.get('p') == 'true' ? 'p' : '');
 							archiveInfo.inject = archivePathInfo.injectPath !== null
-								? JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath))
+								? JSON.parse(await Deno.readTextFile(archivePathInfo.injectPath))
 								: {};
 							archiveInfo.search = archivePathInfo.searchPath !== null
-								? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
+								? JSON.parse(await Deno.readTextFile(archivePathInfo.searchPath))
 								: {};
 
 							return new Response(JSON.stringify(archiveInfo), { headers: headers });
@@ -700,7 +700,7 @@ async function serverHandler(request, info) {
 				}
 				case 'browse': {
 					// Return the contents of the given directory
-					const browseInfoSpread = getBrowseInfo(params.get('url') || '', params.get('source') || undefined);
+					const browseInfoSpread = await getBrowseInfo(params.get('url') || '', params.get('source') || undefined);
 					if (browseInfoSpread !== null) {
 						const [browseInfo] = browseInfoSpread;
 						return new Response(JSON.stringify(browseInfo), { headers: headers });
@@ -710,7 +710,7 @@ async function serverHandler(request, info) {
 				}
 				case 'inlinks': {
 					// Return all archived pages which link to the given URL
-					const [inlinksInfo] = getInlinksInfo(params.get('url') || '', params.get('source') || undefined);
+					const [inlinksInfo] = await getInlinksInfo(params.get('url') || '', params.get('source') || undefined);
 					return new Response(JSON.stringify(inlinksInfo), { headers: headers });
 				}
 			}
@@ -883,7 +883,7 @@ async function performSearch(params) {
 	const searchResults = [];
 	let searchOffset = 0;
 	if (searchFilters.inUrl && !/[ "]/.test(query)) {
-		const [archiveInfoSet, archiveDirs, _, isOrphan] = getArchiveInfo(query, searchFilters.source || undefined);
+		const [archiveInfoSet, archiveDirs, _, isOrphan] = await getArchiveInfo(query, searchFilters.source || undefined);
 		if (archiveInfoSet !== undefined) {
 			for (let i = 0; i < archiveInfoSet.length; i++) {
 				const archiveInfo = archiveInfoSet[i];
@@ -917,7 +917,7 @@ async function performSearch(params) {
 				// Load in title/content text if applicable, trimming the latter to the first 24 words
 				const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir);
 				if (archivePathInfo.searchPath !== null) {
-					const archiveSearchInfo = JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath));
+					const archiveSearchInfo = JSON.parse(await Deno.readTextFile(archivePathInfo.searchPath));
 					searchResult.title = archiveSearchInfo.title;
 					searchResult.content = archiveSearchInfo.content?.match(/^(?:[^\s]+(?:\s+|$)){0,24}/)[0].trimEnd() || null;
 					if (searchResult.content !== null && searchResult.content.length < archiveSearchInfo.content.length)
@@ -951,7 +951,7 @@ async function performSearch(params) {
 }
 
 // Locate the archive in the filesystem and gather useful data
-function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
+async function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	let archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan = false;
 
 	// Check the urls directory first
@@ -959,14 +959,14 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	for (const normalizedUrl of [utils.normalizeUrl(url), utils.normalizeUrl(utils.splitAnchor(url, true)[0])]) {
 		archiveRootDir = utils.getArchiveRootDir(normalizedUrl, 'urls');
 		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
-		archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
+		archiveFound = await fileExists(archiveInfoSetPath);
 		if (archiveFound || !/#|%23/.test(url))
 			break;
 	}
 
 	if (archiveFound) {
 		// The archive exists in the urls directory, now identify where it resides in the set
-		archiveInfoSet = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
+		archiveInfoSet = JSON.parse(await Deno.readTextFile(archiveInfoSetPath));
 		archiveInfoIndex = -1;
 		if (archiveInfoSet.length > 1 && sourceId !== undefined) {
 			for (let i = 0; i < archiveInfoSet.length; i++) {
@@ -998,13 +998,13 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 		for (const normalizedPath of [utils.normalizePath(url), utils.normalizePath(utils.splitAnchor(url, true)[0])]) {
 			archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, normalizedPath), 'orphans');
 			archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
-			archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
+			archiveFound = await fileExists(archiveInfoSetPath);
 			if (archiveFound || !/#|%23/.test(url))
 				break;
 		}
 
 		if (archiveFound) {
-			const archiveInfo = JSON.parse(Deno.readTextFileSync(archiveInfoSetPath));
+			const archiveInfo = JSON.parse(await Deno.readTextFile(archiveInfoSetPath));
 			archiveInfoSet = [archiveInfo];
 			archiveInfoIndex = 0;
 			archiveDirs = [archiveRootDir];
@@ -1046,48 +1046,63 @@ function getArchivePathInfo(archiveInfo, archiveDir, flagIds = '') {
 }
 
 // Gather directory listing information for a URL
-function getBrowseInfo(url, sourceId = undefined) {
+async function getBrowseInfo(url, sourceId = undefined) {
 	// Look for the directory listing file and load it
 	const browseFileName = sourceId !== undefined ? `browse_${sourceId}.json` : 'browse.json';
 	let browseFilePath = pathUtils.join(utils.getArchiveRootDir(utils.normalizeUrl(url), 'urls'), browseFileName);
 	let isOrphan = false;
-	if (!utils.getPathInfo(browseFilePath)?.isFile) {
+	if (!await fileExists(browseFilePath)) {
 		if (sourceId === undefined)
 			return null;
 		else {
 			browseFilePath = pathUtils.join(utils.getArchiveRootDir(pathUtils.join(sourceId, utils.normalizePath(url)), 'orphans'), browseFileName);
-			if (!utils.getPathInfo(browseFilePath)?.isFile)
+			if (!await fileExists(browseFilePath))
 				return null;
 			isOrphan = true;
 		}
 	}
 
-	const browseInfo = JSON.parse(Deno.readTextFileSync(browseFilePath));
+	const browseInfo = JSON.parse(await Deno.readTextFile(browseFilePath));
 	return [browseInfo, isOrphan];
 }
 
 // Gather inlinks information for a URL
-function getInlinksInfo(url, sourceId = undefined) {
+async function getInlinksInfo(url, sourceId = undefined) {
 	let inlinksInfo = [];
 	let displayUrl = utils.normalizeUrl(url);
 
 	// Look for the inlinks listing file and load it
 	let inlinksDir = utils.getArchiveRootDir(displayUrl, 'urls');
 	let inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-	if (utils.getPathInfo(inlinksPath)?.isFile)
-		inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
+	if (await fileExists(inlinksPath))
+		inlinksInfo = JSON.parse(await Deno.readTextFile(inlinksPath));
 	else if (sourceId !== undefined) {
 		const normalizedPath = utils.normalizePath(url);
 		inlinksDir = utils.getArchiveRootDir(pathUtils.join(sourceId, normalizedPath), 'orphans');
 		inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
-		if (utils.getPathInfo(inlinksPath)?.isFile) {
-			inlinksInfo = JSON.parse(Deno.readTextFileSync(inlinksPath));
+		if (await fileExists(inlinksPath)) {
+			inlinksInfo = JSON.parse(await Deno.readTextFile(inlinksPath));
 			displayUrl = normalizedPath;
 		}
 	}
 
 	displayUrl = sanitizeInject(displayUrl, true);
 	return [inlinksInfo, displayUrl];
+}
+
+// Gather general information about a URL
+async function getUrlInfo(url) {
+	const splitUrl = utils.splitUrl(url);
+	if (splitUrl.length > 1 && splitUrl[splitUrl.length - 1].includes('.'))
+		splitUrl.pop();
+	const urlDir = splitUrl.join('/');
+
+	return {
+		url: url,
+		dir: urlDir,
+		browse: await getBrowseInfo(urlDir),
+		inlinks: await getInlinksInfo(url),
+	};
 }
 
 // Build home/search pages based on query strings
@@ -1204,7 +1219,7 @@ async function buildSearch(params, modernMode) {
 }
 
 // Build navigation bar
-function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) {
+async function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) {
 	const archiveInfo = archiveInfoSet[archiveInfoIndex];
 	const displayUrl = sanitizeInject(utils.safeDecode(archiveInfo.url));
 
@@ -1258,8 +1273,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		if (!isOrphan) {
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
-			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
-				const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
+			if (await fileExists(screenshotInfoSetPath)) {
+				const screenshotInfoSet = JSON.parse(await Deno.readTextFile(screenshotInfoSetPath));
 				for (const screenshotInfo of screenshotInfoSet) {
 					const screenshotUrl = screenshotInfo.url.replaceAll('#', '%23');
 					const screenshotSource = sources[screenshotInfo.source];
@@ -1308,8 +1323,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		if (!isOrphan) {
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
-			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
-				const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
+			if (await fileExists(screenshotInfoSetPath)) {
+				const screenshotInfoSet = JSON.parse(await Deno.readTextFile(screenshotInfoSetPath));
 				for (const screenshotInfo of screenshotInfoSet) {
 					const screenshotUrl = screenshotInfo.url.replaceAll('#', '%23');
 					const screenshotSource = sources[screenshotInfo.source];
@@ -1529,10 +1544,16 @@ function sanitizeInject(str, amp = false) {
 	return str.replace(new RegExp(`[${Object.keys(charMap).join('')}]`, 'g'), m => charMap[m]);
 }
 
+// Check if a file exists
+async function fileExists(path) {
+	try { return (await Deno.lstat(path))?.isFile; } catch {}
+	return false;
+}
+
 // Attempt to load blocklist and remove expired entries
-function loadBlocklist() {
+async function loadBlocklist() {
 	const blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
-	if (utils.getPathInfo(args['blocklist'])?.isFile) {
+	if (await fileExists(args['blocklist'])) {
 		Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(args['blocklist'])));
 		for (const ipAddress in blocklist.ipAddresses) {
 			const expires = blocklist.ipAddresses[ipAddress];
@@ -1753,24 +1774,19 @@ class NotFoundError extends ArchiveError {
 }
 
 class UnarchivedError extends ArchiveError {
-	constructor(url, modernMode = false) {
-		const splitUrl = utils.splitUrl(url);
-		if (splitUrl.length > 1 && splitUrl[splitUrl.length - 1].includes('.'))
-			splitUrl.pop();
-		const urlDir = splitUrl.join('/');
-
+	constructor(urlInfo, modernMode = false) {
 		const options = [];
-		if (getBrowseInfo(urlDir) !== null)
-			options.push(`<li><a href="/browse/${encodeURI(urlDir)}">Browse files in this directory</a></li>`);
-		if (getInlinksInfo(url)[0].length > 0)
-			options.push(`<li><a href="/inlinks/${url}">See which pages link here</a></li>`);
-		if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(url))
-			options.push(`<li><a href="http://web.archive.org/web/0/${url}">Go to the Wayback Machine</a></li>`);
+		if (urlInfo.browse !== null)
+			options.push(`<li><a href="/browse/${encodeURI(urlInfo.dir)}">Browse files in this directory</a></li>`);
+		if (urlInfo.inlinks[0].length > 0)
+			options.push(`<li><a href="/inlinks/${urlInfo.url}">See which pages link here</a></li>`);
+		if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(urlInfo.url))
+			options.push(`<li><a href="http://web.archive.org/web/0/${urlInfo.url}">Go to the Wayback Machine</a></li>`);
 
 		super(
 			404,
 			'Unarchived URL',
-			`The URL <b>${sanitizeInject(utils.safeDecode(url), true)}</b> does not exist in the archive.`,
+			`The URL <b>${sanitizeInject(utils.safeDecode(urlInfo.url), true)}</b> does not exist in the archive.`,
 			modernMode,
 			options,
 		);
