@@ -13,9 +13,9 @@
 	"doHoneypot": false,
 	"honeypotBlockTime": 259200000,
 	"blockWriteFrequency": 900000,
-	"blockDelayTime": 30000,
+	"blockDelayTime": 0,
+	"shutdownTimeout": 15000,
 	"randomCacheSize": 100,
-	"shutdownTimeout": 30000,
 	"resultsPerPage": 50,
 	"maxPage": 20
 }
