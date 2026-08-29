@@ -13,12 +13,14 @@ const args = parseArgs(Deno.args, {
 	default: {
 		'config': 'config.json',
 		'blocklist': 'blocklist.json',
+		'honeypot': 'honeypot.txt',
 	},
 });
 
-// Load configuration and blocklist files
+// Load configuration/blocklist/honeypot files
 utils.loadConfig(args['config']);
 loadBlocklist(args['blocklist']);
+loadHoneypot(args['honeypot']);
 
 const templates = loadTemplates();
 const modes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
@@ -79,18 +81,18 @@ async function serverHandler(request, info) {
 	const ipAddress = info.remoteAddr.hostname;
 	const userAgent = request.headers.get('User-Agent') ?? '';
 
-	// Check if IP or user agent is in blocklist
-	const blockRequest = doBlockRequest(ipAddress, userAgent);
+	// Check if IP or user agent needs to be blocked
+	const blockRequest = blocklist.ipAddresses.some(ipAddressSegment => ipAddress.startsWith(ipAddressSegment))
+		|| blocklist.userAgents.some(userAgentSegment => userAgent.includes(userAgentSegment))
+		|| config.doHoneypotBlock && honeypot[ipAddress];
 
 	// Log the request if desired
 	if (!blockRequest || config.logBlockedRequests)
 		utils.logMessage(`${blockRequest ? 'BLOCKED ' : ''}${ipAddress} (${userAgent}): ${request.url}`);
 
 	// Block the request if it needs to be blocked
-	if (blockRequest) {
-		await delay(config.blockDelayTime);
+	if (blockRequest)
 		throw new BlockedError();
-	}
 
 	// Parse the request URL
 	const requestUrl = URL.parse(request.url);
@@ -133,12 +135,15 @@ async function serverHandler(request, info) {
 	if (urlStr === undefined)
 		throw new NotFoundError(modernMode);
 
-	// If enabled, block the IP if it contains a hidden honeypot flag
+	// If the honeypot is enabled, log the IP if the URL contains a hidden honeypot flag
+	// Also block the IP if honeypot blocking is enabled
 	if (config.doHoneypot && /\d/.test(flagIds)) {
-		blocklist.ipAddresses[ipAddress] = config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null;
-		blocklistWritePending = true;
-		await delay(config.blockDelayTime);
-		throw new BlockedError();
+		if (!honeypot[ipAddress]) {
+			honeypot[ipAddress] = true;
+			try { Deno.writeTextFile(args['honeypot'], ipAddress + '\n', { append: true }); } catch {}
+		}
+		if (config.doHoneypotBlock)
+			throw new BlockedError();
 	}
 
 	switch (modeId) {
@@ -774,9 +779,7 @@ let shuttingDown = false;
 async function serverShutdown() {
 	if (shuttingDown)
 		return;
-
 	shuttingDown = true;
-	clearInterval(blocklistWriteInterval);
 
 	utils.logMessage('shutting down server...');
 	const serverPromises = [];
@@ -792,7 +795,6 @@ async function serverShutdown() {
 		delay(config.shutdownTimeout).then(() => utils.logMessage('shutdown is taking too long, exiting forcefully...')),
 	]);
 
-	await writeBlocklist();
 	Deno.exit();
 }
 Deno.addSignalListener('SIGINT', serverShutdown);
@@ -1384,26 +1386,6 @@ function buildHtml(template, defs) {
 	return utils.replaceSlices(template, varSlices);
 }
 
-// Determine whether a request should be blocked, and delete blocklist entries that have expired
-function doBlockRequest(ipAddress, userAgent) {
-	if (blocklist.ipAddresses[ipAddress] !== undefined) {
-		const expires = blocklist.ipAddresses[ipAddress];
-		if (expires === null || expires > Date.now()) {
-			if (expires !== null) {
-				blocklist.ipAddresses[ipAddress] = config.honeypotBlockTime !== null ? Date.now() + config.honeypotBlockTime : null;
-				blocklistWritePending = true;
-			}
-			return true;
-		}
-		else {
-			delete blocklist.ipAddresses[ipAddress];
-			blocklistWritePending = true;
-		}
-	}
-
-	return blocklist.userAgents.some(userAgentSegment => userAgent.includes(userAgentSegment));
-}
-
 // Check if the user agent suggests a somewhat recent (ie. >2019) browser
 function isModernBrowser(userAgent) {
 	const fieldMatch = userAgent.match(/(Chrome|Firefox|Safari)\/([\d.]+)/);
@@ -1528,31 +1510,22 @@ function sanitizeInject(str, amp = false) {
 	return str.replace(new RegExp(`[${Object.keys(charMap).join('')}]`, 'g'), m => charMap[m]);
 }
 
-// Attempt to load blocklist and remove expired entries
+// Attempt to load blocklist file
 function loadBlocklist(blocklistPath) {
 	globalThis.blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
-	globalThis.blocklistWritePending = false;
 	if (utils.getPathInfo(blocklistPath)?.isFile) {
 		try { Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(blocklistPath))); } catch {}
-		for (const ipAddress in blocklist.ipAddresses) {
-			const expires = blocklist.ipAddresses[ipAddress];
-			if (expires !== null && expires <= Date.now()) {
-				delete blocklist.ipAddresses[ipAddress];
-				blocklistWritePending = true;
-			}
-		}
 		utils.logMessage(`loaded blocklist file at ${Deno.realPathSync(blocklistPath)}`);
 	}
-
-	writeBlocklist();
-	if (config.blockWriteFrequency > 0)
-		globalThis.blocklistWriteInterval = setInterval(writeBlocklist, config.blockWriteFrequency);
 }
 
-// Update blocklist file if there are pending changes
-function writeBlocklist() {
-	if (blocklistWritePending)
-		try { return Deno.writeTextFile(args['blocklist'], JSON.stringify(blocklist, null, '\t')).then(() => { blocklistWritePending = false; }); } catch {}
+// If enabled, load honeypot file and transform it into an object
+function loadHoneypot(honeypotPath) {
+	globalThis.honeypot = {};
+	if (config.doHoneypot && utils.getPathInfo(honeypotPath)?.isFile) {
+		honeypot = Object.fromEntries(Deno.readTextFileSync(honeypotPath).trim().split(/[\r\n]+/).map(line => [line, true]));
+		utils.logMessage(`loaded honeypot file at ${Deno.realPathSync(honeypotPath)}`);
+	}
 }
 
 // Load HTML templates into memory
