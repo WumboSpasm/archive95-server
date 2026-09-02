@@ -33,7 +33,7 @@ const convertOutputPath = pathUtils.join(tempBuildPath, '.convout');
 const mimeFilePath = pathUtils.join(tempBuildPath, '.mimefile');
 
 // Often reused regular expressions
-const linkExp = /((?:href|src|action|background|rectangle|http-equiv\s*=\s*"?refresh"?[^>]+content)\s*=\s*)("[^">]+"|[^>\s]+)/gis;
+const linkExp = /((?:href|src|action|background|code|codebase|rectangle|http-equiv\s*=\s*["']?refresh["']?[^>]+content)\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
 const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 // Do the build
@@ -580,9 +580,17 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 	// Remove <base> tag
 	html = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '');
 
+	// Skip link matches inside plaintext and JavaScript by identifying their indexes beforehand
 	const excludeIndexes = [...blankHtml(html, true).matchAll(linkExp)].map(linkMatch => linkMatch.index);
-	const newHtml = html.replace(linkExp, (match, tagStart, url, index) => {
-		// Don't process link attributes that are probably intended to be rendered as plaintext
+	const eventExp = /\s+on[a-z]+\s*=\s*(["'])(?:(?!\1).)*?\1/gis;
+	for (let eventMatch; (eventMatch = eventExp.exec(html)) !== null;) {
+		const linkMatch = [...eventMatch[0].matchAll(linkExp)][0];
+		if (linkMatch !== undefined)
+			excludeIndexes.push(eventMatch.index + linkMatch.index);
+	}
+
+	const newHtml = html.replace(linkExp, (match, tagStart, url, quoteChar, index) => {
+		// Don't process the match if its index is found inside the exclusion list
 		if (excludeIndexes.includes(index))
 			return match;
 
@@ -596,8 +604,9 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		rawUrl = rawUrl.substring(urlPrefix.length);
 
 		// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
+		quoteChar = quoteChar || '"';
 		if (rawUrl == '/deadend') {
-			const newStr = tagStart + '"' + urlPrefix + rawUrl + '"';
+			const newStr = tagStart + quoteChar + urlPrefix + rawUrl + quoteChar;
 			offset += match.length - newStr.length;
 			return newStr;
 		}
@@ -611,12 +620,13 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			iframe: /^http-equiv/i.test(tagStart),
 			wayback: /^href/i.test(tagStart),
 			navbar: /^(?:href|http-equiv)/i.test(tagStart),
+			quote: quoteChar,
 		};
 
-		// Fast-track anchor links to the injection list since they need to be re-targeted to the correct browsing context when present inside iframes
-		if (rawUrl.startsWith('#')) {
+		// Fast-track anchor/JavaScript links to the injection list since they need to be re-targeted to the correct browsing context when present inside iframes
+		if (rawUrl.startsWith('#') || /^javascript:/i.test(rawUrl)) {
 			inject.links.push(linkInject);
-			const newStr = tagStart + '"' + urlPrefix + '"';
+			const newStr = tagStart + quoteChar + urlPrefix + quoteChar;
 			offset += match.length - newStr.length;
 			return newStr;
 		}
@@ -660,7 +670,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 					if (pathEntry.url.startsWith('#')) {
 						linkInject.url = pathEntry.url;
 						inject.links.push(linkInject);
-						const newStr = tagStart + '"' + urlPrefix + '"';
+						const newStr = tagStart + quoteChar + urlPrefix + quoteChar;
 						offset += match.length - newStr.length;
 						return newStr;
 					}
@@ -699,9 +709,9 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		let newStr = tagStart;
 		if (forceMissing || (source.urlMode == 2 && resolvedUrl === null && !isAbsolute))
 			// If the source's URL mode is 2, unresolved relative links are assumed to be invalid
-			newStr += '"' + urlPrefix + '/deadend"';
+			newStr += quoteChar + urlPrefix + '/deadend' + quoteChar;
 		else {
-			newStr += '"' + urlPrefix + '"';
+			newStr += quoteChar + urlPrefix + quoteChar;
 
 			// Update link info and push to injection list
 			linkInject.source = resolvedSource;
@@ -1427,8 +1437,25 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			break;
 		}
 		case 'netonacd': {
-			// Move real URLs back to original attribute
-			html = html.replace(/"([^"]+)"?\s+tppabs="(.*?)"/g, '"$2"');
+			html = html.replace(
+				// Move URLs back to their original attributes where applicable
+				/([a-z]+\s*=\s*)(["'])((?:(?!\2|>).)+)\2\s*(tppabs="([^">]*?)")(?:\s*\4)?/gis,
+				(_, tagStart, quoteChar, path, __, url) => {
+					path = trimQuotes(path);
+					if (url == 'error')
+						url = '/deadend';
+					let urlPrefix = '';
+					if (/^content/i.test(tagStart))
+						urlPrefix = path.match(/^\d*;? *(?:URL=)?/i)[0];
+					else if (/^rectangle/i.test(tagStart))
+						urlPrefix = path.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
+					return tagStart + quoteChar + urlPrefix + url + quoteChar;
+				}
+			).replace(
+				// Remove any remaining ttpabs attributes
+				/\s*tppabs="[^">]*?"/gis,
+				'',
+			);
 			break;
 		}
 	}
@@ -2027,4 +2054,4 @@ function blankHtml(html, excludeScripts = false) {
 }
 
 // Remove any quotes or whitespace surrounding a string
-function trimQuotes(str) { return str.trim().replace(/^"?(.*?)"?$/s, '$1').replace(/[\r\n]+/g, '').trim(); }
+function trimQuotes(str) { return str.trim().replace(/^(["'])?(.*?)\1?$/s, '$2').replace(/[\r\n]+/g, '').trim(); }

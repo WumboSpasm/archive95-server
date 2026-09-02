@@ -250,10 +250,10 @@ async function serverHandler(request, info) {
 						injectUrl = injectUrl.replaceAll('#', '%23');
 
 					let sliceValue = injectUrl;
-					if (injectUrl.startsWith('#')) {
-						// Also for iframes, force in-page anchor links to always trigger inside the iframe instead of reloading the parent page
+					if (injectUrl.startsWith('#') || /^javascript:/i.test(injectUrl)) {
+						// Also for iframes, force in-page anchor/JavaScript links to always trigger inside the iframe instead of reloading the parent page
 						if (flagIds.includes('i'))
-							sliceValue += '" target="_self';
+							sliceValue += linkInject.quote + ' target=' + linkInject.quote + '_self';
 					}
 					else if (flagIds.includes('e')) {
 						// If the 'e' flag is supplied, don't process the link except to remove unnecessary anchors and prepend orphan paths with slashes
