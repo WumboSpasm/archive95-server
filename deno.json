@@ -11,7 +11,8 @@
 		"@std/fs": "jsr:@std/fs@^1.0.24",
 		"@std/media-types": "jsr:@std/media-types@1.1.0",
 		"@std/path": "jsr:@std/path@1.1.6",
-		"comlink": "npm:comlink@4.4.2"
+		"comlink": "npm:comlink@4.4.2",
+		"xxhash-wasm": "npm:xxhash-wasm@^1.1.0"
 	},
 	"permissions": {
 		"server": {

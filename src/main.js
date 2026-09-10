@@ -618,7 +618,7 @@ async function serverHandler(request, info) {
 
 			// Determine the screenshot's path and serve it
 			const screenshotInfo = screenshotInfoSet[screenshotInfoIndex];
-			const screenshotDir = pathUtils.join(screenshotRootDir, '@' + screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
+			const screenshotDir = pathUtils.join(screenshotRootDir, screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
 			const screenshotPath = pathUtils.join(screenshotDir, modeId);
 			const screenshotFile = Deno.openSync(screenshotPath);
 			headers.set('Content-Type', screenshotInfo.type);
@@ -992,7 +992,7 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 		// Get each archive's directory
 		archiveDirs = [];
 		for (let i = 0; i < archiveInfoSet.length; i++)
-			archiveDirs.push(pathUtils.join(archiveRootDir, '@' + i.toString().padStart(2, '0') + '_' + archiveInfoSet[i].source));
+			archiveDirs.push(pathUtils.join(archiveRootDir, i.toString().padStart(2, '0') + '_' + archiveInfoSet[i].source));
 	}
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory

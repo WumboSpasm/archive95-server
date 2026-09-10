@@ -1,4 +1,7 @@
+import xxhash from 'xxhash-wasm';
 import * as pathUtils from '@std/path';
+
+const { h64ToString } = await xxhash();
 
 const textTypes = JSON.parse(Deno.readTextFileSync('data/texttypes.json'));
 
@@ -13,46 +16,10 @@ export function loadConfig(configPath) {
 		logMessage('no config file found, using default config');
 }
 
-// Convert a normalized URL/path into a properly escaped directory definition for quick lookup
+// Convert a normalized URL/path into a hash and build a directory from it
 export function getArchiveRootDir(normalizedUrl, namespace, buildPath = config.buildPath) {
-	let archiveRootDir;
-	if (namespace != 'orphans') {
-		const splitNormalizedUrl = normalizedUrl.split('/');
-		const splitOrigin = splitNormalizedUrl[0].split(':');
-
-		const origin = getDirFragment(splitOrigin[0]);
-		const port = parseInt(splitOrigin[1]) || 80;
-		const path = getDirFragment(splitNormalizedUrl.slice(1).join('/'));
-
-		// Re-order the origin segments from lowest to highest specificity if it is not an IP address
-		const originParts = origin.split(/(?<=[^.])\.(?=[^.])/);
-		if (!/^\d+\.\d+\.\d+\.\d+(?::\d+)?$/.test(origin))
-			originParts.reverse();
-
-		const dirParts = [];
-		dirParts.push(...originParts, '@' + port);
-		if (path != '')
-			dirParts.push(path);
-
-		archiveRootDir = dirParts.join('/');
-	}
-	else
-		archiveRootDir = getDirFragment(normalizedUrl);
-
-	return pathUtils.join(buildPath, namespace, archiveRootDir);
-}
-
-// Parse a directory as it should appear in the built filesystem
-export function getDirFragment(dir) {
-	return dir
-		// Manually encode all characters except for the basic ones
-		.replace(/[^a-z0-9 \/_.-]/gi, c => c.charCodeAt(0).toString(16).toUpperCase().match(/.{1,2}/g).map(h => '%' + h.padStart(2, '0')).join(''))
-		// Encode slashes if they are part of a query string
-		.replace(/(?<=%3F.*)\//g, '%2F')
-		// Encode file/directory names which consist exclusively of a sequence of dots
-		.replace(/(?<=^|\/)\.+(?=\/|$)/g, match => '%2E'.repeat(match.length))
-		// Collapse sequences of slashes
-		.replace(/\/{2,}/g, '/');
+	const urlHash = h64ToString(normalizedUrl);
+	return pathUtils.join(buildPath, namespace, urlHash.substring(0, 2), urlHash.substring(2, 4), urlHash);
 }
 
 // Strip a URL down to its bare components, for comparison purposes

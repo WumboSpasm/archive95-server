@@ -17,7 +17,8 @@
     "jsr:@std/path@1.0": "1.0.9",
     "jsr:@std/path@1.1.6": "1.1.6",
     "jsr:@std/path@^1.1.5": "1.1.6",
-    "npm:comlink@4.4.2": "4.4.2"
+    "npm:comlink@4.4.2": "4.4.2",
+    "npm:xxhash-wasm@^1.1.0": "1.1.0"
   },
   "jsr": {
     "@db/sqlite@0.13.0": {
@@ -80,6 +81,9 @@
   "npm": {
     "comlink@4.4.2": {
       "integrity": "sha512-OxGdvBmJuNKSCMO4NTl1L47VRp6xn2wG4F/2hYzB6tiCb709otOxtEYCSvK80PtjODfXXZu8ds+Nw5kVCjqd2g=="
+    },
+    "xxhash-wasm@1.1.0": {
+      "integrity": "sha512-147y/6YNh+tlp6nd/2pWq38i9h6mz/EuQ6njIrmW8D1BS5nCqs0P6DG+m6zTGnNz5I+uhZ0SHxBs9BsPrwcKDA=="
     }
   },
   "workspace": {
@@ -91,7 +95,8 @@
       "jsr:@std/fs@^1.0.24",
       "jsr:@std/media-types@1.1.0",
       "jsr:@std/path@1.1.6",
-      "npm:comlink@4.4.2"
+      "npm:comlink@4.4.2",
+      "npm:xxhash-wasm@^1.1.0"
     ]
   }
 }

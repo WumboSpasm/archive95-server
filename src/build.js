@@ -130,7 +130,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			const archive = archives[i];
 
 			// Create subdirectory with the naming format <index>_<source>
-			const targetDir = pathUtils.join(urlDir, '@' + i.toString().padStart(2, '0') + '_' + archive.source);
+			const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + archive.source);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
@@ -216,7 +216,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 			const screenshot = screenshots[i];
 
 			// Create subdirectory with the naming format <index>_<source>
-			const targetDir = pathUtils.join(urlDir, '@' + i.toString().padStart(2, '0') + '_' + screenshot.source);
+			const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + screenshot.source);
 			Deno.mkdirSync(targetDir, { recursive: true });
 
 			// Create the files
@@ -719,15 +719,14 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			linkInject.offset = resolvedOffset;
 			inject.links.push(linkInject);
 
-			// If the link is valid and of a reasonable length, add it to the inlinks directory list
+			// If the link is valid, add it to the inlinks directory list
 			const inlinkUrl = (resolvedUrl ?? unresolvedUrl).replace(/#.*$/, '');
 			if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 				const normalizedUrl = !isOrphan
 					? utils.normalizeUrl(inlinkUrl)
 					: pathUtils.join(linkInject.source, utils.normalizePath(inlinkUrl));
 				const inlinksDir = utils.getArchiveRootDir(normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath);
-				if (inlinksDir.length < 256)
-					inlinksDirs.push(inlinksDir);
+				inlinksDirs.push(inlinksDir);
 			}
 		}
 
@@ -922,6 +921,8 @@ function buildBrowse(archive, browseIndex) {
 		// Otherwise, simply return which string has more uppercase letters
 		return str1UpperCount > str2UpperCount ? str1 : str2;
 	};
+	// Move up one directory without making any other modifications to the path
+	const getParentDir = path => path.replace(/(^[^?]*)\/.+$/s, '$1');
 
 	const isOrphan = archive.url === null;
 	const normalizedUrl = isOrphan
@@ -929,19 +930,14 @@ function buildBrowse(archive, browseIndex) {
 		: utils.normalizeUrl(archive.url);
 	const namespace = isOrphan ? 'orphans' : 'urls';
 
-	// Get the start and end directories for traversal
-	let currentDir = utils.getArchiveRootDir(normalizedUrl, namespace, tempBuildPath);
-	const endDir = !isOrphan
-		? pathUtils.join(utils.getArchiveRootDir(normalizedUrl.split('/')[0], namespace, tempBuildPath), '..')
-		: pathUtils.join(tempBuildPath, namespace);
-
 	// Split URL into segments and resolve index files to a consistent identifier to reduce complexity
+	let currentDir = './' + normalizedUrl;
 	const splitUrl = utils.splitUrl(archive.url ?? archive.path, isOrphan ? archive.source : null);
 	const isIndex = archive.types[0] == 'text/html' && (splitUrl.length == 1 || !splitUrl[splitUrl.length - 1].includes('.'));
 	if (!isOrphan && isIndex)
 		splitUrl.push('[__ARCHIVE95_INDEX__]');
 	else
-		currentDir = pathUtils.join(currentDir, '..');
+		currentDir = getParentDir(currentDir);
 
 	// Create up to two separate listings, one containing files from just the current archive's source and the other containing files from all sources
 	// The latter listing is only created if the current archive is not an orphan
@@ -953,13 +949,14 @@ function buildBrowse(archive, browseIndex) {
 	let splitUrlIndex = splitUrl.length - 1;
 	let fileDone = false;
 	const fileSizeDeltas = {};
-	while (currentDir != endDir) {
+	while (currentDir != '.') {
 		const segmentName = splitUrl[splitUrlIndex];
 		const segmentNameLower = segmentName.toLowerCase();
 
 		for (const browseName of browseNames) {
 			// Load the listing, or initialize it if it doesn't exist yet
-			const browsePath = pathUtils.join(currentDir, browseName);
+			const browseDir = utils.getArchiveRootDir(currentDir.substring(2), namespace, tempBuildPath);
+			const browsePath = pathUtils.join(browseDir, browseName);
 			let browse;
 			if (utils.getPathInfo(browsePath)?.isFile)
 				browse = JSON.parse(Deno.readTextFileSync(browsePath));
@@ -970,6 +967,7 @@ function buildBrowse(archive, browseIndex) {
 					files: [],
 				};
 				browseIndex.push(browsePath);
+				Deno.mkdirSync(browseDir, { recursive: true });
 			}
 
 			// Build the path
@@ -1059,7 +1057,7 @@ function buildBrowse(archive, browseIndex) {
 		}
 
 		// Move up one directory
-		currentDir = pathUtils.join(currentDir, '..');
+		currentDir = getParentDir(currentDir);
 		splitUrlIndex--;
 		fileDone = true;
 	}
