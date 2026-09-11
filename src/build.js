@@ -1887,6 +1887,10 @@ function mimeType(file, typeEntry) {
 		// Normalize types which are never correct
 		if (chosenType == 'application/typescript' || chosenType == 'text/x-devicetree-source' || chosenType == 'text/x-c++src')
 			chosenType = 'text/x-csrc';
+
+		// ASP files should always be treated as HTML
+		if (chosenType == 'application/x-asp')
+			chosenType = 'text/html';
 	}
 	else {
 		// If the magic type is text-based or generic, use the file extension type if it's not text-based
