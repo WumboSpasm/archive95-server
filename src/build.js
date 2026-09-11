@@ -598,7 +598,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 		let rawUrl = trimQuotes(url);
 		let urlPrefix = '';
 		if (/^http-equiv/i.test(tagStart))
-			urlPrefix = rawUrl.match(/^\d*;? *(?:URL=)?/i)[0];
+			urlPrefix = rawUrl.match(/^\d*[;,]? *(?:URL=)?/i)[0];
 		else if (/^rectangle/i.test(tagStart))
 			urlPrefix = rawUrl.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
 		rawUrl = rawUrl.substring(urlPrefix.length);
@@ -1444,7 +1444,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 						url = '/deadend';
 					let urlPrefix = '';
 					if (/^content/i.test(tagStart))
-						urlPrefix = path.match(/^\d*;? *(?:URL=)?/i)[0];
+						urlPrefix = path.match(/^\d*[;,]? *(?:URL=)?/i)[0];
 					else if (/^rectangle/i.test(tagStart))
 						urlPrefix = path.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
 					return tagStart + quoteChar + urlPrefix + url + quoteChar;
@@ -1583,7 +1583,7 @@ function getLinks(html, baseUrl = undefined) {
 		let rawUrl = trimQuotes(linkMatch[2]);
 		let doQuotes = true;
 		if (/^http-equiv/i.test(attribute)) {
-			const urlPrefix = rawUrl.match(/^\d*;? *(?:URL=)?/i)[0];
+			const urlPrefix = rawUrl.match(/^\d*[;,]? *(?:URL=)?/i)[0];
 			attribute += '"' + urlPrefix;
 			rawUrl = rawUrl.substring(urlPrefix.length);
 			doQuotes = false;
