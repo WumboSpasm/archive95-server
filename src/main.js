@@ -1104,6 +1104,7 @@ async function buildSearch(params, modernMode) {
 	const searchDefs = {
 		'QUERY': '',
 		'TOTAL': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
+		'FOCUS': '',
 		'INTITLE': searchFilters.inTitle ? ' checked' : '',
 		'INCONTENT': searchFilters.inContent ? ' checked' : '',
 		'INURL': searchFilters.inUrl ? ' checked' : '',
@@ -1116,6 +1117,7 @@ async function buildSearch(params, modernMode) {
 	// Render the homepage if no search query was supplied
 	if (!params.has('query')) {
 		if (modernMode) {
+			searchDefs['FOCUS'] = ' autofocus';
 			searchDefs['CONTENT'] = templates.modern.search.home;
 			searchDefs['HIGHLIGHTS'] = homeHighlightsModern;
 		}
