@@ -574,9 +574,6 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 	};
 	const inlinksDirs = [];
 
-	let offset = 0;
-	const source = sources[archive.source];
-
 	// Remove <base> tag
 	html = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '');
 
@@ -589,6 +586,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			excludeIndexes.push(eventMatch.index + linkMatch.index);
 	}
 
+	let offset = 0;
 	const newHtml = html.replace(linkExp, (match, tagStart, url, quoteChar, index) => {
 		// Don't process the match if its index is found inside the exclusion list
 		if (excludeIndexes.includes(index))
@@ -623,104 +621,35 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			quote: quoteChar,
 		};
 
-		// Fast-track anchor/JavaScript links to the injection list since they need to be re-targeted to the correct browsing context when present inside iframes
-		if (rawUrl.startsWith('#') || /^javascript:/i.test(rawUrl)) {
+		// Attempt to resolve the URL string to an entry in the archive, otherwise fast-track it to the injection list if it is an anchor or JavaScript code
+		const resolveUrlOutput = resolveUrl(rawUrl, archive, urlIndex, pathIndex);
+		if (!Array.isArray(resolveUrlOutput)) {
+			if (resolveUrlOutput !== null)
+				linkInject.url = resolveUrlOutput;
+
 			inject.links.push(linkInject);
 			const newStr = tagStart + quoteChar + urlPrefix + quoteChar;
 			offset += match.length - newStr.length;
 			return newStr;
 		}
-
-		// Extract the anchor from the URL string if it exists, and re-encode both
-		let anchor = '';
-		[rawUrl, anchor] = utils.splitAnchor(rawUrl);
-		rawUrl = encodeURI(utils.safeDecode(rawUrl)).replaceAll('#', '%23');
-		anchor = encodeURI(utils.safeDecode(anchor));
-
-		const isAbsolute = /^[a-z]+:/i.test(rawUrl);
-		let resolvedSource = null;
-		let resolvedUrl = null;
-		let resolvedOffset = null;
-		let unresolvedUrl = rawUrl;
-		let isOrphan = false;
-		let forceMissing = false;
-		// Relative links under sources with non-zero URL modes are assumed to have been modified to point within the source's filesystem
-		if (source.urlMode > 0 && !isAbsolute) {
-			// Extract full path from the link
-			const parsedPath = URL.parse(rawUrl, 'http://ignoreme/' + archive.path);
-			if (parsedPath !== null)
-				unresolvedUrl = parsedPath.pathname.substring(1);
-
-			// Normalize the full path and try to retrieve its entry in the path index
-			const pathEntries = pathIndex[archive.source];
-			let normalizedPath = utils.normalizePath(unresolvedUrl + anchor);
-			let pathEntry = pathEntries[normalizedPath];
-			if (pathEntry === undefined && anchor != '') {
-				// If the entry could not be retrieved, but an anchor exists, append the anchor to the path and try again
-				normalizedPath = utils.normalizePath(unresolvedUrl);
-				pathEntry = pathEntries[normalizedPath];
-			}
-			else
-				anchor = '';
-
-			// Check if an entry was found in the path index
-			if (pathEntry !== undefined) {
-				if (pathEntry.url !== null) {
-					// If the entry's associated URL is an anchor, fast-track it to the injection list
-					if (pathEntry.url.startsWith('#')) {
-						linkInject.url = pathEntry.url;
-						inject.links.push(linkInject);
-						const newStr = tagStart + quoteChar + urlPrefix + quoteChar;
-						offset += match.length - newStr.length;
-						return newStr;
-					}
-					// Otherwise, resolve the URL to the nearest valid archive and fetch relevant info
-					const urlEntries = urlIndex[pathEntry.normalizedUrl];
-					[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, normalizedPath);
-					if (anchor == '' && pathEntry.url.includes('#'))
-						anchor = utils.splitAnchor(pathEntry.url)[1];
-				}
-				else {
-					// If the entry does not have an associated URL, then it is an orphan
-					resolvedSource = archive.source;
-					resolvedUrl = pathEntry.path;
-					isOrphan = true;
-					// If the entry is invalid and the URL mode is 1, then the link needs to be marked as missing
-					forceMissing = source.urlMode == 1 && pathEntry.skip;
-				}
-			}
-		}
-
-		if (resolvedUrl === null) {
-			// If the URL could not be resolved as a path within the source's filesystem, interpret it as a URL proper
-			const parsedUrl = URL.parse(rawUrl, archive.url);
-			if (parsedUrl !== null)
-				unresolvedUrl = parsedUrl.href;
-
-			// Check if the entry can be found in the URL index
-			const normalizedUrl = utils.normalizeUrl(unresolvedUrl);
-			const urlEntries = urlIndex[normalizedUrl];
-			if (urlEntries !== undefined)
-				// If the entry was found, resolve it to the nearest valid archive and fetch relevant info
-				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
-		}
+		const [resolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
 
 		// Build replacement string that cuts out the URL to be re-inserted by the server
 		let newStr = tagStart;
-		if (forceMissing || (source.urlMode == 2 && resolvedUrl === null && !isAbsolute))
-			// If the source's URL mode is 2, unresolved relative links are assumed to be invalid
+		if (isInvalid)
+			// Unresolved relative links are assumed to be invalid if the source's URL mode is 2
 			newStr += quoteChar + urlPrefix + '/deadend' + quoteChar;
 		else {
 			newStr += quoteChar + urlPrefix + quoteChar;
 
 			// Update link info and push to injection list
 			linkInject.source = resolvedSource;
-			linkInject.url = (resolvedUrl ?? unresolvedUrl).replaceAll('#', '%23') + anchor;
+			linkInject.url = (resolvedUrl).replaceAll('#', '%23') + anchor;
 			linkInject.offset = resolvedOffset;
 			inject.links.push(linkInject);
 
 			// If the link is valid, add it to the inlinks directory list
-			const inlinkUrl = (resolvedUrl ?? unresolvedUrl).replace(/#.*$/, '');
+			const inlinkUrl = (resolvedUrl).replace(/#.*$/, '');
 			if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 				const normalizedUrl = !isOrphan
 					? utils.normalizeUrl(inlinkUrl)
@@ -767,48 +696,52 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			type: 'noframes',
 		});
 
-	// Identify references to the top window context in scripts so they can be rewritten when inside iframes
+	// Try to find start and end indexes of JavaScript segments that may need to be replaced, such as references to the top window context which need to be rewritten when inside iframes
 	const scriptExp = /(<script(?: [^>]+)?>)(.*?)<\/script>/gis;
-	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
-		const scriptBody = scriptMatch[2];
-
-		// Blank script comments while being mindful of strings so we don't get false positives
-		const scriptBodyNoStrings = scriptBody
-			.replace(/"(?:(?!(?<!\\)").)+"/g, match => ' '.repeat(match.length))
-			.replace(/'(?:(?!(?<!\\)').)+'/g, match => ' '.repeat(match.length));
-		const singleCommentSlices = [...scriptBodyNoStrings.matchAll(/\/\/.*$/gm)].map(commentMatch => ({
-			start: commentMatch.index,
-			end: commentMatch.index + commentMatch[0].length,
-			value: ' '.repeat(commentMatch[0].length),
-		}));
-		const multiCommentSlices = [...scriptBodyNoStrings.matchAll(/\/\*.*?(?:\*\/|$)/gs)].map(commentMatch => ({
-			start: commentMatch.index,
-			end: commentMatch.index + commentMatch[0].length,
-			value: ' '.repeat(commentMatch[0].length),
-		}));
-		const scriptBodyNoComments = utils.replaceSlices(scriptBody, singleCommentSlices.concat(multiCommentSlices));
-
-		// Add strings and variables referencing the top window context to the injection list
-		const topStringExp = /(?<=(['"]))_top(?=\1)/g;
-		const scriptBodyIndex = scriptMatch.index + scriptMatch[1].length;
-		for (let topStringMatch; (topStringMatch = topStringExp.exec(scriptBodyNoComments)) !== null;)
-			inject.scripts.push({
-				start: scriptBodyIndex + topStringMatch.index,
-				end: scriptBodyIndex + topStringMatch.index + topStringMatch[0].length,
-				type: 'topstring',
-			});
-		const topVarExp = /(?<![a-zA-Z0-9_-])top(?![a-zA-Z0-9_-])/g;
-		for (let topVarMatch; (topVarMatch = topVarExp.exec(scriptBodyNoComments)) !== null;)
-			inject.scripts.push({
-				start: scriptBodyIndex + topVarMatch.index,
-				end: scriptBodyIndex + topVarMatch.index + topVarMatch[0].length,
-				type: 'topvar',
-			});
-
-		inject.scripts.sort((a, b) => a.start - b.start);
-	}
+	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;)
+		inject.scripts.push(...buildScriptInject(scriptMatch[2], scriptMatch.index, scriptMatch[1].length));
+	inject.scripts.sort((a, b) => a.start - b.start);
 
 	return [newHtml, inject, inlinksDirs];
+}
+
+// Get the start and end indexes of JavaScript segments that may need to be replaced
+function buildScriptInject(script, startIndex) {
+	const scriptInject = [];
+
+	// Blank script comments while being mindful of strings so we don't get false positives
+	const scriptNoStrings = script
+		.replace(/"(?:(?!(?<!\\)").)+"/g, match => ' '.repeat(match.length))
+		.replace(/'(?:(?!(?<!\\)').)+'/g, match => ' '.repeat(match.length));
+	const singleCommentSlices = [...scriptNoStrings.matchAll(/\/\/.*$/gm)].map(commentMatch => ({
+		start: commentMatch.index,
+		end: commentMatch.index + commentMatch[0].length,
+		value: ' '.repeat(commentMatch[0].length),
+	}));
+	const multiCommentSlices = [...scriptNoStrings.matchAll(/\/\*.*?(?:\*\/|$)/gs)].map(commentMatch => ({
+		start: commentMatch.index,
+		end: commentMatch.index + commentMatch[0].length,
+		value: ' '.repeat(commentMatch[0].length),
+	}));
+	const scriptNoComments = utils.replaceSlices(script, singleCommentSlices.concat(multiCommentSlices));
+
+	// Add strings and variables referencing the top window context to the injection list
+	const topStringExp = /(?<=(['"]))_top(?=\1)/g;
+	for (let topStringMatch; (topStringMatch = topStringExp.exec(scriptNoComments)) !== null;)
+		scriptInject.push({
+			start: startIndex + topStringMatch.index,
+			end: startIndex + topStringMatch.index + topStringMatch[0].length,
+			type: 'topstring',
+		});
+	const topVarExp = /(?<![a-zA-Z0-9_-])top(?![a-zA-Z0-9_-])/g;
+	for (let topVarMatch; (topVarMatch = topVarExp.exec(scriptNoComments)) !== null;)
+		scriptInject.push({
+			start: startIndex + topVarMatch.index,
+			end: startIndex + topVarMatch.index + topVarMatch[0].length,
+			type: 'topvar',
+		});
+
+	return scriptInject;
 }
 
 // Add the archive as an inlink at the supplied locations
@@ -1061,6 +994,87 @@ function buildBrowse(archive, browseIndex) {
 		splitUrlIndex--;
 		fileDone = true;
 	}
+}
+
+// Attempt to associate a relative or absolute URL with an entry in the archive, given a base entry
+function resolveUrl(rawUrl, archive, urlIndex, pathIndex) {
+	// Anchor/JavaScript links don't need to be resolved
+	if (rawUrl.startsWith('#') || /^javascript:/i.test(rawUrl))
+		return null;
+
+	// Extract the anchor from the URL string if it exists, and re-encode both
+	let anchor = '';
+	[rawUrl, anchor] = utils.splitAnchor(rawUrl);
+	rawUrl = encodeURI(utils.safeDecode(rawUrl)).replaceAll('#', '%23');
+	anchor = encodeURI(utils.safeDecode(anchor));
+
+	const source = sources[archive.source];
+	const isAbsolute = /^[a-z]+:/i.test(rawUrl);
+	let resolvedSource = null;
+	let resolvedUrl = null;
+	let resolvedOffset = null;
+	let unresolvedUrl = rawUrl;
+	let isOrphan = false;
+	let forceMissing = false;
+	// Relative links under sources with non-zero URL modes are assumed to have been modified to point within the source's filesystem
+	if (source.urlMode > 0 && !isAbsolute) {
+		// Extract full path from the link
+		const parsedPath = URL.parse(rawUrl, 'http://ignoreme/' + archive.path);
+		if (parsedPath !== null)
+			unresolvedUrl = parsedPath.pathname.substring(1);
+
+		// Normalize the full path and try to retrieve its entry in the path index
+		const pathEntries = pathIndex[archive.source];
+		let normalizedPath = utils.normalizePath(unresolvedUrl + anchor);
+		let pathEntry = pathEntries[normalizedPath];
+		if (pathEntry === undefined && anchor != '') {
+			// If the entry could not be retrieved, but an anchor exists, append the anchor to the path and try again
+			normalizedPath = utils.normalizePath(unresolvedUrl);
+			pathEntry = pathEntries[normalizedPath];
+		}
+		else
+			anchor = '';
+
+		// Check if an entry was found in the path index
+		if (pathEntry !== undefined) {
+			if (pathEntry.url !== null) {
+				// If the entry's associated URL is an anchor, it doesn't need to be resolved any further
+				if (pathEntry.url.startsWith('#'))
+					return pathEntry.url;
+
+				// Otherwise, resolve the URL to the nearest valid archive and fetch relevant info
+				const urlEntries = urlIndex[pathEntry.normalizedUrl];
+				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, normalizedPath);
+				if (anchor == '' && pathEntry.url.includes('#'))
+					anchor = utils.splitAnchor(pathEntry.url)[1];
+			}
+			else {
+				// If the entry does not have an associated URL, then it is an orphan
+				resolvedSource = archive.source;
+				resolvedUrl = pathEntry.path;
+				isOrphan = true;
+				// If the entry is invalid and the URL mode is 1, then the link needs to be marked as missing
+				forceMissing = source.urlMode == 1 && pathEntry.skip;
+			}
+		}
+	}
+
+	if (resolvedUrl === null) {
+		// If the URL could not be resolved as a path within the source's filesystem, interpret it as a URL proper
+		const parsedUrl = URL.parse(rawUrl, archive.url);
+		if (parsedUrl !== null)
+			unresolvedUrl = parsedUrl.href;
+
+		// Check if the entry can be found in the URL index
+		const normalizedUrl = utils.normalizeUrl(unresolvedUrl);
+		const urlEntries = urlIndex[normalizedUrl];
+		if (urlEntries !== undefined)
+			// If the entry was found, resolve it to the nearest valid archive and fetch relevant info
+			[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
+	}
+
+	const isInvalid = forceMissing || (source.urlMode == 2 && resolvedUrl === null && !isAbsolute);
+	return [resolvedUrl ?? unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid];
 }
 
 // Determine which entry in a set of archives for a specific URL is closest date-wise to a supplied archive
