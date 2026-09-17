@@ -1067,12 +1067,7 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 			injectUrl = injectUrl.replaceAll('#', '%23');
 
 		let sliceValue = injectUrl;
-		if (injectUrl.startsWith('#') || /^javascript:/i.test(injectUrl)) {
-			// Also for iframes, force in-page anchor/JavaScript links to always trigger inside the iframe instead of reloading the parent page
-			if (flagIds.includes('i'))
-				sliceValue += injectLinkEntry.quoteChar + ' target=' + injectLinkEntry.quoteChar + '_self';
-		}
-		else if (flagIds.includes('e')) {
+		if (flagIds.includes('e')) {
 			// If the 'e' flag is supplied, don't process the link except to remove unnecessary anchors and prepend orphan paths with slashes
 			if (!/^[a-z]+:/i.test(sliceValue))
 				sliceValue = '/' + sliceValue;
@@ -1112,12 +1107,15 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 function getCodeSlices(codeInjectList) {
 	const slices = [];
 	for (const injectCodeEntry of codeInjectList) {
-		// Replace references to the top window context with a variable pointing to the iframe's window context
-		// This is a hacky way of lobotomizing scripts which try to break out of frames
 		let value = '';
-		if (injectCodeEntry.type == 'topdef')
+		if (injectCodeEntry.type == 'selfattr')
+			// Inject a target attribute into link elements to force them to only update the iframe's window context
+			value = ' target="_self"';
+		else if (injectCodeEntry.type == 'topdef')
+			// Define a JavaScript variable pointing to the iframe's window context
 			value = 'var ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent;\n';
 		else if (injectCodeEntry.type == 'topref')
+			// Replace JavaScript references to the top window context with the variable pointing to the iframe's window context
 			value = 'ARCHIVE95_TOP';
 
 		slices.push({

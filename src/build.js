@@ -601,18 +601,25 @@ function buildHtmlInjectLists(html, archive) {
 
 		const url = trimQuotes(rawUrl);
 		const rawUrlIndex = index - offset + tagStart.length;
-		quoteChar = quoteChar || '"';
 
-		// Populate link injection list based on whether the URL contains inline JavaScript code or not
-		let newStr = '';
-		if (/^javascript:/i.test(url)) {
-			buildInjectLinkEntriesFromScript(url, rawUrlIndex + rawUrl.indexOf(url), injectLists.links, inlinksDirs, archive);
+		// If the URL contains JavaScript code, check for any contained URLs and populate the link injection list accordingly
+		const isJavaScript = /^javascript:/i.test(url);
+		let javaScriptHasLinks = false;
+		if (isJavaScript)
+			javaScriptHasLinks = buildInjectLinkEntriesFromScript(url, rawUrlIndex + rawUrl.indexOf(url), injectLists.links, inlinksDirs, archive);
+
+		// If the URL is an anchor or has links inside JavaScript code, add a code injection list entry indicating that a target attribute should be added
+		if (url.startsWith('#') || javaScriptHasLinks) {
+			injectLists.code.push({
+				start: index - offset + match.length,
+				end: null,
+				type: 'selfattr',
+			});
 			return match;
 		}
-		else
-			newStr = buildInjectLinkEntry(rawUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar);
 
-		// Update the offset for link indexes and return the replacement string
+		// Add an entry to the link injection list and update the offset based on the length of the replacement string
+		const newStr = buildInjectLinkEntry(rawUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"');
 		offset += match.length - newStr.length;
 		return newStr;
 	});
@@ -737,7 +744,6 @@ function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectLi
 		isHref: /^href/i.test(tagStart),
 		isRefresh: /^http-equiv/i.test(tagStart),
 		doOrigin: doOrigin,
-		quoteChar: quoteChar,
 	};
 
 	// Attempt to resolve the URL string to an entry in the archive, otherwise fast-track it to the injection list if it is an anchor or JavaScript code
@@ -787,6 +793,8 @@ function buildInjectLinkEntriesFromScript(script, index, linkInjectList, inlinks
 		const codeIndex = index + codeLinkMatch.index + codeQuoteChar.length;
 		buildInjectLinkEntry(codeUrl, codeIndex, true, !codeUrl.startsWith('/'), linkInjectList, inlinksDirs, archive);
 	}
+
+	return codeLinkMatches.length > 0;
 }
 
 // Add the archive as an inlink at the supplied locations
