@@ -157,10 +157,9 @@ async function serverHandler(request, info) {
 			const archivePathInfo = getArchivePathInfo(archiveInfo, archiveDir, flagIds);
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
 			if (fileType == 'text/html' && (!modernMode || /[ndijk]/.test(flagIds))) {
-				// For HTML files, we build a list of slices from the injection list and pass it to replaceSlices
-				const inject = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
-				const framesetInject = inject.frames.find(frameInject => frameInject.type == 'frameset');
-				const doNavbar = !/[nijk]/.test(flagIds) && (framesetInject === undefined || flagIds.includes('f'));
+				const injectLists = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
+				const injectFramesetEntry = injectLists.frames.find(injectFrameEntry => injectFrameEntry.type == 'frameset');
+				const doNavbar = !/[nijk]/.test(flagIds) && (injectFramesetEntry === undefined || flagIds.includes('f'));
 				const slices = [];
 
 				// Build metadata slices
@@ -180,7 +179,7 @@ async function serverHandler(request, info) {
 				}
 				if (metadata.length > 0)
 					slices.push({
-						start: inject.metadata.index,
+						start: injectLists.metadata.index,
 						end: null,
 						value: metadata.join('\n'),
 					});
@@ -188,105 +187,54 @@ async function serverHandler(request, info) {
 				// Build navbar slice
 				if (doNavbar)
 					slices.push({
-						start: inject.navbar.index,
+						start: injectLists.navbar.index,
 						end: null,
 						value: buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
 					});
 
-				// Build frame-related slices if applicable
-				if (inject.frames.length > 0) {
+				// Build frame slices
+				if (injectLists.frames.length > 0) {
 					// If the 'f' flag is supplied, build a slice to remove <frameset> element and its contents
-					if (framesetInject !== undefined && flagIds.includes('f'))
+					if (injectFramesetEntry !== undefined && flagIds.includes('f'))
 						slices.push({
-							start: framesetInject.start,
-							end: framesetInject.end,
+							start: injectFramesetEntry.start,
+							end: injectFramesetEntry.end,
 							value: '',
 						});
 					// If <frameset> element doesn't exist or the 'f' flag is supplied, remove <noframes> tags to reveal their contents
-					if (framesetInject === undefined || flagIds.includes('f')) {
-						const noframesInjects = inject.frames.filter(frameInject => frameInject.type == 'noframes');
-						for (const noframesInject of noframesInjects)
+					if (injectFramesetEntry === undefined || flagIds.includes('f')) {
+						for (const injectNoframesEntry of injectLists.frames.filter(injectFrameEntry => injectFrameEntry.type == 'noframes'))
 							slices.push({
-								start: noframesInject.start,
-								end: noframesInject.end,
+								start: injectNoframesEntry.start,
+								end: injectNoframesEntry.end,
 								value: '',
 							});
 					}
 				}
 
-				// Build slices rewriting references to top window context if the page is being rendered inside an iframe
-				// This is a hacky way of lobotomizing scripts which try to break out of frames
-				if (flagIds.includes('i') && inject.scripts.length > 0) {
-					for (const scriptInject of inject.scripts)
-						slices.push({
-							start: scriptInject.start,
-							end: scriptInject.end,
-							value: scriptInject.type == 'topstring' ? '_self' : 'self',
-						});
-				}
+				// Build code slices if page is inside an iframe
+				if (injectLists.code.length > 0 && flagIds.includes('i'))
+					slices.push(...getCodeSlices(injectLists.code));
 
-				// Determine the most appropriate way to hide the navbar
-				let noNavbarFlagId = 'n';
-				if (/[ij]/.test(flagIds))
-					noNavbarFlagId = 'j';
-				else if (flagIds.includes('d'))
-					noNavbarFlagId = 'k';
+				// Build link slices
+				slices.push(...getLinkSlices(injectLists.links, archiveInfo, flagIds, requestUrl.origin));
 
-				// Build slices for each link on the page
-				const defaultFlagIds = flagIds.replace(/[ik]/g, '');
-				const iframeFlagIds = cleanFlags(defaultFlagIds + 'i');
-				const noNavbarFlagIds = cleanFlags(defaultFlagIds + noNavbarFlagId);
-				for (const linkInject of inject.links) {
-					// Determine which set of flag IDs to use for the current link
-					let linkFlagIds = defaultFlagIds;
-					if (flagIds.includes('i') && linkInject.iframe)
-						linkFlagIds = iframeFlagIds;
-					else if (!linkInject.navbar)
-						linkFlagIds = noNavbarFlagIds;
-
-					// For iframes, if the link exists in the archive and includes an anchor, encode the hash character so the anchor can be seen by the server
-					let injectUrl = linkInject.url;
-					if (/[ij]/.test(flagIds) && linkInject.source !== null && !injectUrl.includes('%23') && injectUrl.indexOf('#') > 0)
-						injectUrl = injectUrl.replaceAll('#', '%23');
-
-					let sliceValue = injectUrl;
-					if (injectUrl.startsWith('#') || /^javascript:/i.test(injectUrl)) {
-						// Also for iframes, force in-page anchor/JavaScript links to always trigger inside the iframe instead of reloading the parent page
-						if (flagIds.includes('i'))
-							sliceValue += linkInject.quote + ' target=' + linkInject.quote + '_self';
-					}
-					else if (flagIds.includes('e')) {
-						// If the 'e' flag is supplied, don't process the link except to remove unnecessary anchors and prepend orphan paths with slashes
-						if (!/^[a-z]+:/i.test(sliceValue))
-							sliceValue = '/' + sliceValue;
-						sliceValue = sliceValue.replace(/%23.*?(?=$|#)/, '');
-					}
-					else if (linkInject.source !== null)
-						// If the link is accompanied by a source, point it within the archive
-						sliceValue = `/${buildRoute('view', linkInject.source, linkInject.offset, linkFlagIds)}/${injectUrl}`;
-					else if (/^https?:/i.test(injectUrl)) {
-						if (!linkInject.wayback || flagIds.includes('w'))
-							// Do the same as above if the 'w' flag is supplied or if the link itself specifies it
-							// It's fine if the link goes nowhere - it's better than potentially loading off-site resources
-							sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkFlagIds)}/${injectUrl}`;
-						else
-							// Otherwise, point the link to the Wayback Machine
-							sliceValue = buildWaybackLink(injectUrl, archiveInfo);
-					}
-					else if (!/^[a-z]+:/i.test(injectUrl))
-						// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
-						sliceValue = `/${buildRoute('view', archiveInfo.source, null, linkFlagIds)}/${injectUrl.replace(/^\/+/, '')}`;
-
-					slices.push({
-						start: linkInject.index,
-						end: null,
-						value: sliceValue,
-					});
-				}
-
-				// Apply our built slices to the HTML and serve it
+				// Build HTML with replaced slices and serve it
 				const html = utils.replaceSlices(Deno.readTextFileSync(archivePathInfo.filePath), slices);
 				return new Response(html, { headers: headers });
+			}
+			else if (fileType == 'text/javascript' && /[ndijk]/.test(flagIds)) {
+				let script = Deno.readTextFileSync(archivePathInfo.filePath);
+
+				// Load injection list and build code and link slices
+				const injectLists = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
+				const codeSlices = getCodeSlices(injectLists.code);
+				const linkSlices = getLinkSlices(injectLists.links, archiveInfo, flagIds, requestUrl.origin);
+
+				// Build JavaScript with replaced slices and serve it
+				script = utils.replaceSlices(script, codeSlices.concat(linkSlices));
+				headers.set('Content-Type', fileType + (!ancientMode ? ';charset=UTF-8' : ''));
+				return new Response(script, { headers: headers });
 			}
 			else if (!/[nijk]/.test(flagIds)) {
 				// Embed files using the most appropriate template if the navbar is enabled
@@ -1089,6 +1037,97 @@ function getInlinksInfo(url, sourceId = undefined) {
 
 	displayUrl = sanitizeInject(displayUrl, true);
 	return [inlinksInfo, displayUrl];
+}
+
+// Create a list of replaceable slices from a link injection list
+function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
+	// Determine the most appropriate way to hide the navbar
+	let noNavbarFlagId = 'n';
+	if (/[ij]/.test(flagIds))
+		noNavbarFlagId = 'j';
+	else if (flagIds.includes('d'))
+		noNavbarFlagId = 'k';
+
+	// Build slices for each link on the page
+	const defaultFlagIds = flagIds.replace(/[ik]/g, '');
+	const iframeFlagIds = cleanFlags(defaultFlagIds + 'i');
+	const noNavbarFlagIds = cleanFlags(defaultFlagIds + noNavbarFlagId);
+	const slices = [];
+	for (const injectLinkEntry of linkInjectList) {
+		// Determine which set of flag IDs to use for the current link
+		let injectFlagIds = defaultFlagIds;
+		if (flagIds.includes('i') && injectLinkEntry.isRefresh)
+			injectFlagIds = iframeFlagIds;
+		else if (!injectLinkEntry.isRefresh && !injectLinkEntry.isHref)
+			injectFlagIds = noNavbarFlagIds;
+
+		// For iframes, if the link exists in the archive and includes an anchor, encode the hash character so the anchor can be seen by the server
+		let injectUrl = injectLinkEntry.url;
+		if (/[ij]/.test(flagIds) && injectLinkEntry.source !== null && !injectUrl.includes('%23') && injectUrl.indexOf('#') > 0)
+			injectUrl = injectUrl.replaceAll('#', '%23');
+
+		let sliceValue = injectUrl;
+		if (injectUrl.startsWith('#') || /^javascript:/i.test(injectUrl)) {
+			// Also for iframes, force in-page anchor/JavaScript links to always trigger inside the iframe instead of reloading the parent page
+			if (flagIds.includes('i'))
+				sliceValue += injectLinkEntry.quoteChar + ' target=' + injectLinkEntry.quoteChar + '_self';
+		}
+		else if (flagIds.includes('e')) {
+			// If the 'e' flag is supplied, don't process the link except to remove unnecessary anchors and prepend orphan paths with slashes
+			if (!/^[a-z]+:/i.test(sliceValue))
+				sliceValue = '/' + sliceValue;
+			sliceValue = sliceValue.replace(/%23.*?(?=$|#)/, '');
+		}
+		else if (injectLinkEntry.source !== null)
+			// If the link is accompanied by a source, point it within the archive
+			sliceValue = `/${buildRoute('view', injectLinkEntry.source, injectLinkEntry.offset, injectFlagIds)}/${injectUrl}`;
+		else if (/^https?:/i.test(injectUrl)) {
+			if (!injectLinkEntry.isHref || flagIds.includes('w'))
+				// Do the same as above if the 'w' flag is supplied or if the link itself specifies it
+				// It's fine if the link goes nowhere - it's better than potentially loading off-site resources
+				sliceValue = `/${buildRoute('view', archiveInfo.source, null, injectFlagIds)}/${injectUrl}`;
+			else
+				// Otherwise, point the link to the Wayback Machine
+				sliceValue = buildWaybackLink(injectUrl, archiveInfo);
+		}
+		else if (!/^[a-z]+:/i.test(injectUrl))
+			// If the link has no source and is not a full URL, point it within the archive even though it's guaranteed not to be a valid link
+			sliceValue = `/${buildRoute('view', archiveInfo.source, null, injectFlagIds)}/${injectUrl.replace(/^\/+/, '')}`;
+
+		// Make the slice value a fully-formed URL if specified
+		if (injectLinkEntry.doOrigin)
+			sliceValue = origin + sliceValue;
+
+		slices.push({
+			start: injectLinkEntry.start,
+			end: injectLinkEntry.end,
+			value: sliceValue,
+		});
+	}
+
+	return slices;
+}
+
+// Create a list of replaceable slices from a code injection list
+function getCodeSlices(codeInjectList) {
+	const slices = [];
+	for (const injectCodeEntry of codeInjectList) {
+		// Replace references to the top window context with a variable pointing to the iframe's window context
+		// This is a hacky way of lobotomizing scripts which try to break out of frames
+		let value = '';
+		if (injectCodeEntry.type == 'topdef')
+			value = 'var ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent;\n';
+		else if (injectCodeEntry.type == 'topref')
+			value = 'ARCHIVE95_TOP';
+
+		slices.push({
+			start: injectCodeEntry.start,
+			end: injectCodeEntry.end,
+			value: value,
+		});
+	}
+
+	return slices;
 }
 
 // Build home/search pages based on query strings

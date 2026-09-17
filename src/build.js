@@ -22,6 +22,10 @@ const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.inputPath
 const overridesPath = pathUtils.join(config.inputPath, 'overrides.json');
 const overrides = utils.getPathInfo(overridesPath)?.isFile ? JSON.parse(Deno.readTextFileSync(overridesPath)) : {};
 
+// Load type index if it already exists
+const typeIndexPath = pathUtils.join(config.buildPath, 'types.json');
+const typeIndex = !args['clean'] && utils.getPathInfo(typeIndexPath)?.isFile ? JSON.parse(Deno.readTextFileSync(typeIndexPath)) : {};
+
 // Get paths of temporary build directory
 const tempBuildPath = pathUtils.join(config.buildPath, '.temp');
 
@@ -36,6 +40,21 @@ const mimeFilePath = pathUtils.join(tempBuildPath, '.mimefile');
 const linkExp = /((?:href|src|action|background|code|codebase|rectangle|http-equiv\s*=\s*["']?refresh["']?[^>]+content)\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
 const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
+// Initialize indexes for quick lookup
+const urlIndex = {};
+const pathIndex = {};
+const screenshotIndex = {};
+const inlinksIndex = [];
+const browseIndex = [];
+
+// Initialize total entry statistics
+const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
+for (const sourceId in sources)
+	stats[sourceId] = { from: null, to: null, urls: 0, orphans: 0, screenshots: 0, errors: 0 };
+
+// Instantiate database and insert statement
+let database, insertStatement;
+
 // Do the build
 (async function performBuild() {
 	const startTime = Date.now();
@@ -48,17 +67,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 	// Build URL/path/screenshot indexes
 	utils.logMessage('building indexes...');
-	const [urlIndex, pathIndex, screenshotIndex] = buildIndexes();
-
-	// Load type index if it exists, or initialize it to be populated during the build process
-	const typeIndexPath = pathUtils.join(config.buildPath, 'types.json');
-	const typeIndex = !args['clean'] && utils.getPathInfo(typeIndexPath)?.isFile
-		? JSON.parse(Deno.readTextFileSync(typeIndexPath))
-		: {};
-
-	// Initialize indexes of build JSONs to be sorted later
-	const inlinksIndex = [];
-	const browseIndex = [];
+	buildIndexes();
 
 	// Create the build and temporary directories
 	Deno.mkdirSync(tempBuildPath, { recursive: true });
@@ -70,17 +79,12 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 	// Initialize the new database
 	utils.logMessage('creating new database...');
-	const database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
+	database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
 	database.exec('PRAGMA journal_mode = WAL');
 	database.exec('PRAGMA shrink_memory');
 	database.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url UNINDEXED, decodedUrl, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
 	database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 0, 1, 1000, 1000, 0, 0, 0)')");
-	const insertStatement = database.prepare('INSERT INTO search (source, url, decodedUrl, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-
-	// Initialize total entry statistics
-	const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
-	for (const sourceId in sources)
-		stats[sourceId] = { from: null, to: null, urls: 0, orphans: 0, screenshots: 0, errors: 0 };
+	insertStatement = database.prepare('INSERT INTO search (source, url, decodedUrl, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
 	// Gather the total amount of build steps
 	let total = 0, current = 0;
@@ -135,7 +139,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedUrl}...`);
-			await buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement);
+			await buildArchive(archive, targetDir);
 
 			// Increment URL totals
 			if (!archive.error) {
@@ -181,7 +185,7 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedPath}...`);
-			await buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement);
+			await buildArchive(archive, targetDir);
 
 			// Increment orphan totals
 			if (!archive.error) {
@@ -316,10 +320,8 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 	Deno.exit();
 })();
 
-// Build URL/path/screenshot indexes to speed up the build process
+// Populate URL/path/screenshot indexes
 function buildIndexes() {
-	const urlIndex = {};
-	const pathIndex = {};
 	for (const sourceId in sources) {
 		if (pathIndex[sourceId] === undefined)
 			pathIndex[sourceId] = {};
@@ -368,7 +370,6 @@ function buildIndexes() {
 	}
 
 	// Populate screenshot index
-	const screenshotIndex = {};
 	for (const sourceId in sources) {
 		// Not every source has screenshots
 		const entriesPath = pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json');
@@ -392,13 +393,11 @@ function buildIndexes() {
 			});
 		}
 	}
-
-	return [urlIndex, pathIndex, screenshotIndex];
 }
 
 // Parse an entry's file data, then add to database and file tree
-async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksIndex, browseIndex, stats, targetDir, insertStatement) {
-	const [file, type, changed] = await getFile(archive, urlIndex, pathIndex, typeIndex);
+async function buildArchive(archive, targetDir) {
+	const [file, type, changed] = await getFile(archive);
 	if (file === null)
 		return;
 	archive.size = file.byteLength;
@@ -418,28 +417,37 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 	if (archive.types[0] == 'text/html') {
 		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
 		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
-		const [newHtml, inject, inlinksDirs] = buildInject(html, archive, urlIndex, pathIndex);
+		const [newHtml, injectLists, inlinksDirs] = buildHtmlInjectLists(html, archive);
 		Deno.writeTextFileSync(targetPath, newHtml);
-		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(inject, null, '\t'));
+		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		archive.files.push('inject.json');
 
 		// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
 		const html_p = improvePresentation(html);
 		if (html != html_p) {
-			const [newHtml_p, inject_p, inlinksDirs_p] = buildInject(html_p, archive, urlIndex, pathIndex);
+			const [newHtml_p, injectLists_p, inlinksDirs_p] = buildHtmlInjectLists(html_p, archive);
 			Deno.writeTextFileSync(targetPath + '_p', newHtml_p);
-			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(inject_p, null, '\t'));
+			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(injectLists_p, null, '\t'));
 			archive.files.push('file_p', 'inject_p.json');
-			buildInlinks(archive, inlinksDirs_p, inlinksIndex);
+			buildInlinks(archive, inlinksDirs_p);
 		}
 		else
-			buildInlinks(archive, inlinksDirs, inlinksIndex);
+			buildInlinks(archive, inlinksDirs);
 
 		// Build title/content text
 		search = buildSearch(html_p, archive.types[0]);
 
 		// Update file size
 		archive.size = new TextEncoder().encode(html).byteLength;
+	}
+	else if (archive.types[0] == 'text/javascript') {
+		// Build injection list for JavaScript files
+		const script = decoder.decode(file);
+		const [codeInjectList, linkInjectList, inlinksDirs] = buildScriptInjectLists(script, 0, archive);
+		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify({ code: codeInjectList, links: linkInjectList }, null, '\t'));
+		Deno.writeTextFileSync(targetPath, script);
+		archive.files.push('inject.json');
+		buildInlinks(archive, inlinksDirs);
 	}
 	else {
 		// Convert certain file formats to ones that are more broadly supported by browsers
@@ -526,7 +534,7 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 
 	if (!archive.error) {
 		// Build directory browser indexes
-		buildBrowse(archive, browseIndex);
+		buildBrowse(archive);
 
 		// Add archive to database
 		insertStatement.run(
@@ -559,9 +567,9 @@ async function buildArchive(archive, urlIndex, pathIndex, typeIndex, inlinksInde
 	}
 }
 
-// Extract links from HTML, resolve them, and use to build injection list
-function buildInject(html, archive, urlIndex, pathIndex) {
-	const inject = {
+// Build injection list from the contents of an HTML file
+function buildHtmlInjectLists(html, archive) {
+	const injectLists = {
 		metadata: {
 			index: -1,
 		},
@@ -569,7 +577,7 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 			index: -1,
 		},
 		frames: [],
-		scripts: [],
+		code: [],
 		links: [],
 	};
 	const inlinksDirs = [];
@@ -577,87 +585,32 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 	// Remove <base> tag
 	html = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '');
 
-	// Skip link matches inside plaintext and JavaScript by identifying their indexes beforehand
+	// Identify indexes of links found inside plaintext segments and JavaScript code so they can be ignored later
 	const excludeIndexes = [...blankHtml(html, true).matchAll(linkExp)].map(linkMatch => linkMatch.index);
-	const eventExp = /\s+on[a-z]+\s*=\s*(["'])(?:(?!\1).)*?\1/gis;
+	const eventExp = /(\son[a-z]+\s*=\s*)(["'])((?:(?!\2).)*?)\2/gis;
 	for (let eventMatch; (eventMatch = eventExp.exec(html)) !== null;) {
-		const linkMatch = [...eventMatch[0].matchAll(linkExp)][0];
-		if (linkMatch !== undefined)
-			excludeIndexes.push(eventMatch.index + linkMatch.index);
+		for (let linkMatch; (linkMatch = linkExp.exec(eventMatch[3])) !== null;)
+			excludeIndexes.push(eventMatch.index + eventMatch[1].length + 1 + linkMatch.index);
 	}
 
 	let offset = 0;
-	const newHtml = html.replace(linkExp, (match, tagStart, url, quoteChar, index) => {
+	const newHtml = html.replace(linkExp, (match, tagStart, rawUrl, quoteChar, index) => {
 		// Don't process the match if its index is found inside the exclusion list
 		if (excludeIndexes.includes(index))
 			return match;
 
-		// Trim quotes from URL string and extract any excess data
-		let rawUrl = trimQuotes(url);
-		let urlPrefix = '';
-		if (/^http-equiv/i.test(tagStart))
-			urlPrefix = rawUrl.match(/^\d*[;,]? *(?:URL=)?/i)[0];
-		else if (/^rectangle/i.test(tagStart))
-			urlPrefix = rawUrl.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
-		rawUrl = rawUrl.substring(urlPrefix.length);
-
-		// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
+		const url = trimQuotes(rawUrl);
+		const rawUrlIndex = index - offset + tagStart.length;
 		quoteChar = quoteChar || '"';
-		if (rawUrl == '/deadend') {
-			const newStr = tagStart + quoteChar + urlPrefix + rawUrl + quoteChar;
-			offset += match.length - newStr.length;
-			return newStr;
+
+		// Populate link injection list based on whether the URL contains inline JavaScript code or not
+		let newStr = '';
+		if (/^javascript:/i.test(url)) {
+			buildInjectLinkEntriesFromScript(url, rawUrlIndex + rawUrl.indexOf(url), injectLists.links, inlinksDirs, archive);
+			return match;
 		}
-
-		// Initialize the injection list entry
-		const linkInject = {
-			index: index - offset + tagStart.length + 1 + urlPrefix.length,
-			source: null,
-			url: rawUrl,
-			offset: null,
-			iframe: /^http-equiv/i.test(tagStart),
-			wayback: /^href/i.test(tagStart),
-			navbar: /^(?:href|http-equiv)/i.test(tagStart),
-			quote: quoteChar,
-		};
-
-		// Attempt to resolve the URL string to an entry in the archive, otherwise fast-track it to the injection list if it is an anchor or JavaScript code
-		const resolveUrlOutput = resolveUrl(rawUrl, archive, urlIndex, pathIndex);
-		if (!Array.isArray(resolveUrlOutput)) {
-			if (resolveUrlOutput !== null)
-				linkInject.url = resolveUrlOutput;
-
-			inject.links.push(linkInject);
-			const newStr = tagStart + quoteChar + urlPrefix + quoteChar;
-			offset += match.length - newStr.length;
-			return newStr;
-		}
-		const [resolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
-
-		// Build replacement string that cuts out the URL to be re-inserted by the server
-		let newStr = tagStart;
-		if (isInvalid)
-			// Unresolved relative links are assumed to be invalid if the source's URL mode is 2
-			newStr += quoteChar + urlPrefix + '/deadend' + quoteChar;
-		else {
-			newStr += quoteChar + urlPrefix + quoteChar;
-
-			// Update link info and push to injection list
-			linkInject.source = resolvedSource;
-			linkInject.url = (resolvedUrl).replaceAll('#', '%23') + anchor;
-			linkInject.offset = resolvedOffset;
-			inject.links.push(linkInject);
-
-			// If the link is valid, add it to the inlinks directory list
-			const inlinkUrl = (resolvedUrl).replace(/#.*$/, '');
-			if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
-				const normalizedUrl = !isOrphan
-					? utils.normalizeUrl(inlinkUrl)
-					: pathUtils.join(linkInject.source, utils.normalizePath(inlinkUrl));
-				const inlinksDir = utils.getArchiveRootDir(normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath);
-				inlinksDirs.push(inlinksDir);
-			}
-		}
+		else
+			newStr = buildInjectLinkEntry(rawUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar);
 
 		// Update the offset for link indexes and return the replacement string
 		offset += match.length - newStr.length;
@@ -670,18 +623,18 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 	// Find index at which metadata can be inserted
 	const headExp = /<head(?:er)?(?:\s.*?)?>/i;
 	const headMatch = newHtmlNoComments.match(headExp);
-	inject.metadata.index = headMatch !== null ? headMatch.index + headMatch[0].length : 0;
+	injectLists.metadata.index = headMatch !== null ? headMatch.index + headMatch[0].length : 0;
 
 	// Find index at which the navbar can be inserted
 	const bodyExp = /^(?:\s*(?:<(?:!DOCTYPE.*?|html|head(?:\s.*?)?>(?:(?!<(?!title|meta|link|\/)).)*?<\/head|title(?:\s.*?)?>.*?<\/title|body(?:\s.*?)?)>\s*)+)?/is;
 	const bodyMatch = newHtmlNoComments.match(bodyExp);
-	inject.navbar.index = bodyMatch !== null ? bodyMatch[0].length : 0;
+	injectLists.navbar.index = bodyMatch !== null ? bodyMatch[0].length : 0;
 
 	// Try to find start and end indexes of frameset, so it can be removed if needed
 	const framesetExp = /<frameset.*?>.*<\/frameset> *\n?/is;
 	const framesetMatch = newHtmlNoComments.match(framesetExp);
 	if (framesetMatch !== null)
-		inject.frames.push({
+		injectLists.frames.push({
 			start: framesetMatch.index,
 			end: framesetMatch.index + framesetMatch[0].length,
 			type: 'frameset',
@@ -690,24 +643,34 @@ function buildInject(html, archive, urlIndex, pathIndex) {
 	// Try to find start and end indexes of noframes opening/closing tags, so they can be removed to display their inner contents if needed
 	const noframesExp = /<\/?no ?frames?> *\n?/gi;
 	for (let noframesMatch; (noframesMatch = noframesExp.exec(newHtmlNoComments)) !== null;)
-		inject.frames.push({
+		injectLists.frames.push({
 			start: noframesMatch.index,
 			end: noframesMatch.index + noframesMatch[0].length,
 			type: 'noframes',
 		});
 
-	// Try to find start and end indexes of JavaScript segments that may need to be replaced, such as references to the top window context which need to be rewritten when inside iframes
+	// Try to find start and end indexes of JavaScript segments that may need to be replaced, such as links and references to the top window context
 	const scriptExp = /(<script(?: [^>]+)?>)(.*?)<\/script>/gis;
-	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;)
-		inject.scripts.push(...buildScriptInject(scriptMatch[2], scriptMatch.index, scriptMatch[1].length));
-	inject.scripts.sort((a, b) => a.start - b.start);
+	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
+		const [_, scriptOpen, scriptBody] = scriptMatch;
+		const [codeInjectList, linkInjectList, scriptInlinksDirs] = buildScriptInjectLists(scriptBody, scriptMatch.index + scriptOpen.length, archive);
+		injectLists.code.push(...codeInjectList);
+		injectLists.links.push(...linkInjectList);
+		inlinksDirs.push(...scriptInlinksDirs);
+	}
 
-	return [newHtml, inject, inlinksDirs];
+	// Try to find start and end indexes of URLs inside event attributes
+	for (let eventMatch; (eventMatch = eventExp.exec(newHtml)) !== null;)
+		buildInjectLinkEntriesFromScript(eventMatch[3], eventMatch.index + eventMatch[1].length + 1, injectLists.links, inlinksDirs, archive);
+
+	return [newHtml, injectLists, inlinksDirs];
 }
 
-// Get the start and end indexes of JavaScript segments that may need to be replaced
-function buildScriptInject(script, startIndex) {
-	const scriptInject = [];
+// Build injection list from the contents of a JavaScript file
+function buildScriptInjectLists(script, index, archive) {
+	const codeInjectList = [];
+	const linkInjectList = [];
+	const inlinksDirs = [];
 
 	// Blank script comments while being mindful of strings so we don't get false positives
 	const scriptNoStrings = script
@@ -725,27 +688,109 @@ function buildScriptInject(script, startIndex) {
 	}));
 	const scriptNoComments = utils.replaceSlices(script, singleCommentSlices.concat(multiCommentSlices));
 
-	// Add strings and variables referencing the top window context to the injection list
-	const topStringExp = /(?<=(['"]))_top(?=\1)/g;
-	for (let topStringMatch; (topStringMatch = topStringExp.exec(scriptNoComments)) !== null;)
-		scriptInject.push({
-			start: startIndex + topStringMatch.index,
-			end: startIndex + topStringMatch.index + topStringMatch[0].length,
-			type: 'topstring',
-		});
-	const topVarExp = /(?<![a-zA-Z0-9_-])top(?![a-zA-Z0-9_-])/g;
-	for (let topVarMatch; (topVarMatch = topVarExp.exec(scriptNoComments)) !== null;)
-		scriptInject.push({
-			start: startIndex + topVarMatch.index,
-			end: startIndex + topVarMatch.index + topVarMatch[0].length,
-			type: 'topvar',
-		});
+	// Populate the code injection list with any references to the top window context
+	if (!/var\s+top\s*=/.test(scriptNoComments)) {
+		const topMatches = [...scriptNoComments.matchAll(/(?<![a-zA-Z0-9_-])top(?![a-zA-Z0-9_-])/g)];
+		if (topMatches.length > 0) {
+			codeInjectList.push({
+				start: index + scriptNoComments.match(/^\s*(?:<!-*\s*)?/s, '')[0].length,
+				end: null,
+				type: 'topdef',
+			});
 
-	return scriptInject;
+			for (const topMatch of topMatches)
+				codeInjectList.push({
+					start: index + topMatch.index,
+					end: index + topMatch.index + topMatch[0].length,
+					type: 'topref',
+				});
+		}
+	}
+
+	// Populate the link injection list with any apparent URLs in the script
+	buildInjectLinkEntriesFromScript(scriptNoComments, index, linkInjectList, inlinksDirs, archive);
+	return [codeInjectList, linkInjectList, inlinksDirs];
+}
+
+// Build and add an entry to the link injection list
+function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectList, inlinksDirs, archive, tagStart = '', quoteChar = '') {
+	// Trim quotes from URL string and extract any excess data
+	let url = trimQuotes(rawUrl);
+	let urlPrefix = '';
+	if (/^http-equiv/i.test(tagStart))
+		urlPrefix = url.match(/^\d*[;,]? *(?:URL=)?/i)[0];
+	else if (/^rectangle/i.test(tagStart))
+		urlPrefix = url.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
+	url = url.substring(urlPrefix.length);
+
+	// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
+	if (url == '/deadend')
+		return tagStart + quoteChar + urlPrefix + url + quoteChar;
+
+	// Initialize the injection list entry
+	const injectLinkEntry = {
+		start: index + (preserveUrl ? rawUrl.indexOf(urlPrefix) : 0) + urlPrefix.length,
+		end: preserveUrl ? index + rawUrl.length : null,
+		source: null,
+		url: url,
+		offset: null,
+		isHref: /^href/i.test(tagStart),
+		isRefresh: /^http-equiv/i.test(tagStart),
+		doOrigin: doOrigin,
+		quoteChar: quoteChar,
+	};
+
+	// Attempt to resolve the URL string to an entry in the archive, otherwise fast-track it to the injection list if it is an anchor or JavaScript code
+	const resolveUrlOutput = resolveUrl(url, archive);
+	if (!Array.isArray(resolveUrlOutput)) {
+		if (resolveUrlOutput !== null)
+			injectLinkEntry.url = resolveUrlOutput;
+
+		linkInjectList.push(injectLinkEntry);
+		return tagStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar;
+	}
+
+	const [resolvedUrl, unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
+
+	// Unresolved relative links are assumed to be invalid if the source's URL mode is 2
+	if (isInvalid)
+		return tagStart + quoteChar + urlPrefix + '/deadend' + quoteChar;
+
+	// Update link info and push to injection list
+	injectLinkEntry.source = resolvedSource;
+	injectLinkEntry.url = (preserveUrl ? unresolvedUrl : resolvedUrl).replaceAll('#', '%23') + anchor;
+	injectLinkEntry.offset = resolvedOffset;
+	linkInjectList.push(injectLinkEntry);
+
+	// If the link is valid, add it to the inlinks directory list
+	const inlinkUrl = resolvedUrl.replace(/#.*$/, '');
+	if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
+		const normalizedUrl = !isOrphan
+			? utils.normalizeUrl(inlinkUrl)
+			: pathUtils.join(injectLinkEntry.source, utils.normalizePath(inlinkUrl));
+		const inlinksDir = utils.getArchiveRootDir(normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath);
+		inlinksDirs.push(inlinksDir);
+	}
+
+	// Build replacement string that cuts out the URL to be re-inserted by the server
+	return tagStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar;
+}
+
+// Build and add link injection list entries from URLs identified in JavaScript code
+function buildInjectLinkEntriesFromScript(script, index, linkInjectList, inlinksDirs, archive) {
+	const codeLinkMatches = [...script.matchAll(/(?<!\+=?\s*)(\\?['"])(\s*(?:\/|[a-z]+:).*?)\1/gis)]
+		.concat([...script.matchAll(/(?<=['"][^'"]*=\s*)()((?:\/|[a-z]+:)[^\s'"<>]+)[^'"]*['"]/gis)])
+		.toSorted((a, b) => a.index - b.index);
+	for (const codeLinkMatch of codeLinkMatches) {
+		const codeQuoteChar = codeLinkMatch[1];
+		const codeUrl = codeLinkMatch[2];
+		const codeIndex = index + codeLinkMatch.index + codeQuoteChar.length;
+		buildInjectLinkEntry(codeUrl, codeIndex, true, !codeUrl.startsWith('/'), linkInjectList, inlinksDirs, archive);
+	}
 }
 
 // Add the archive as an inlink at the supplied locations
-function buildInlinks(archive, inlinksDirs, inlinksIndex) {
+function buildInlinks(archive, inlinksDirs) {
 	const inlinkEntry = {
 		source: archive.source,
 		url: archive.url ?? archive.path,
@@ -831,7 +876,7 @@ function buildSearch(text, type) {
 }
 
 // Build file/directory listings all the way up to the domain root directory
-function buildBrowse(archive, browseIndex) {
+function buildBrowse(archive) {
 	// Return whichever string contains more granular usage of uppercase letters
 	const getBetterString = (str1, str2) => {
 		// If the strings are identical, then return immediately
@@ -997,9 +1042,9 @@ function buildBrowse(archive, browseIndex) {
 }
 
 // Attempt to associate a relative or absolute URL with an entry in the archive, given a base entry
-function resolveUrl(rawUrl, archive, urlIndex, pathIndex) {
-	// Anchor/JavaScript links don't need to be resolved
-	if (rawUrl.startsWith('#') || /^javascript:/i.test(rawUrl))
+function resolveUrl(rawUrl, archive) {
+	// Anchor links don't need to be resolved
+	if (rawUrl.startsWith('#'))
 		return null;
 
 	// Extract the anchor from the URL string if it exists, and re-encode both
@@ -1073,8 +1118,12 @@ function resolveUrl(rawUrl, archive, urlIndex, pathIndex) {
 			[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
 	}
 
+	// If the unresolved URL has an added trailing slash in its parsed form, remove it
+	if (unresolvedUrl.endsWith('/') && !rawUrl.endsWith('/'))
+		unresolvedUrl = unresolvedUrl.slice(0, -1);
+
 	const isInvalid = forceMissing || (source.urlMode == 2 && resolvedUrl === null && !isAbsolute);
-	return [resolvedUrl ?? unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid];
+	return [resolvedUrl ?? unresolvedUrl, unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid];
 }
 
 // Determine which entry in a set of archives for a specific URL is closest date-wise to a supplied archive
@@ -1623,7 +1672,7 @@ function getLinks(html, baseUrl = undefined) {
 }
 
 // Retrieve a file's data and parse it
-async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {}) {
+async function getFile(archive) {
 	// Make sure the file exists, otherwise return an empty byte array
 	const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
 	const fileInfo = utils.getPathInfo(filePath);
@@ -1729,7 +1778,7 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 		// If the raw type is text-based, re-encode the file to slightly increase the odds of getting a trustworthy magic type
 		const typeEntry = typeIndex[typeField];
 		if (utils.isTextType(typeEntry.rawType)) {
-			file = await convertText(file, filePath, archive, urlIndex, pathIndex);
+			file = await convertText(file, filePath, archive);
 			[changed, converted] = [true, true];
 		}
 
@@ -1746,7 +1795,7 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 
 	// If the final determined type is text-based and we didn't re-encode the file earlier, do it now
 	if (!converted && utils.isTextType(type)) {
-		file = await convertText(file, filePath, archive, urlIndex, pathIndex);
+		file = await convertText(file, filePath, archive);
 		changed = true;
 	}
 
@@ -1760,7 +1809,7 @@ async function getFile(archive, urlIndex = null, pathIndex = null, typeIndex = {
 }
 
 // Identify the encoding of a piece of text, convert it to UTF-8 and normalize newlines
-async function convertText(file, filePath, archive, urlIndex = null, pathIndex = null) {
+async function convertText(file, filePath, archive) {
 	const decoder = new TextDecoder();
 
 	// World Wide Web Directory files are double-encoded
@@ -1833,7 +1882,7 @@ async function convertText(file, filePath, archive, urlIndex = null, pathIndex =
 
 	// Text files in World Wide Catalog Summer 1995 have all locally-available URLs converted into paths, even in non-HTML files
 	// So we need to resolve them and convert them back into URLs
-	if (archive.source == 'wwcatalog' && urlIndex !== null && pathIndex !== null) {
+	if (archive.source == 'wwcatalog') {
 		const blankedHtml = archive.path.endsWith('.HTM') ? blankHtml(text) : text;
 		const inlinePathExp = new RegExp(`(?:\\.\\./)+(${archive.path.substring(0, archive.path.indexOf('/')).toLowerCase()}.*?)(?=\\s)`, 'g');
 		const inlinePathSlices = [];
