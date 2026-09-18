@@ -624,8 +624,16 @@ function buildHtmlInjectLists(html, archive) {
 		}
 
 		// Add an entry to the link injection list and update the offset based on the length of the replacement string
-		const newStr = buildInjectLinkEntry(rawUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"');
+		const [newStr, isAnchor] = buildInjectLinkEntry(rawUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"');
 		offset += match.length - newStr.length;
+
+		// If the URL was resolved to an anchor, do the same thing as above but with the updated offset
+		if (isAnchor)
+			injectLists.code.push({
+				start: index - offset + match.length,
+				end: null,
+				type: 'forceself',
+			});
 		return newStr;
 	});
 
@@ -740,7 +748,7 @@ function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectLi
 
 	// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
 	if (url == '/deadend')
-		return tagStart + quoteChar + urlPrefix + url + quoteChar;
+		return [tagStart + quoteChar + urlPrefix + url + quoteChar, false];
 
 	// Initialize the injection list entry
 	const injectLinkEntry = {
@@ -754,21 +762,16 @@ function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectLi
 		doOrigin: doOrigin,
 	};
 
-	// Attempt to resolve the URL string to an entry in the archive, otherwise fast-track it to the injection list if it is an anchor or JavaScript code
+	// Attempt to resolve the URL string to an entry in the archive, and return immediately if it is an anchor
 	const resolveUrlOutput = resolveUrl(url, archive);
-	if (!Array.isArray(resolveUrlOutput)) {
-		if (resolveUrlOutput !== null)
-			injectLinkEntry.url = resolveUrlOutput;
-
-		linkInjectList.push(injectLinkEntry);
-		return tagStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar;
-	}
+	if (!Array.isArray(resolveUrlOutput))
+		return [tagStart + quoteChar + (preserveUrl ? rawUrl : resolveUrlOutput) + quoteChar, true];
 
 	const [resolvedUrl, unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
 
 	// Unresolved relative links are assumed to be invalid if the source's URL mode is 2
 	if (isInvalid)
-		return tagStart + quoteChar + urlPrefix + '/deadend' + quoteChar;
+		return [tagStart + quoteChar + urlPrefix + '/deadend' + quoteChar, false];
 
 	// Update link info and push to injection list
 	injectLinkEntry.source = resolvedSource;
@@ -787,7 +790,7 @@ function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectLi
 	}
 
 	// Build replacement string that cuts out the URL to be re-inserted by the server
-	return tagStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar;
+	return [tagStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar, false];
 }
 
 // Identify URLs in JavaScript code and add entries to the link injection list
@@ -1060,7 +1063,7 @@ function buildBrowse(archive) {
 function resolveUrl(rawUrl, archive) {
 	// Anchor links don't need to be resolved
 	if (rawUrl.startsWith('#'))
-		return null;
+		return rawUrl;
 
 	// Extract the anchor from the URL string if it exists, and re-encode both
 	let anchor = '';
