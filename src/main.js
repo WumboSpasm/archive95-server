@@ -212,9 +212,8 @@ async function serverHandler(request, info) {
 					}
 				}
 
-				// Build code slices if page is inside an iframe
-				if (injectLists.code.length > 0 && /[ij]/.test(flagIds))
-					slices.push(...getCodeSlices(injectLists.code, flagIds));
+				// Build code slices
+				slices.push(...getCodeSlices(injectLists.code, flagIds));
 
 				// Build link slices
 				slices.push(...getLinkSlices(injectLists.links, archiveInfo, flagIds, requestUrl.origin));
@@ -1106,18 +1105,30 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 // Create a list of replaceable slices from a code injection list
 function getCodeSlices(codeInjectList, flagIds) {
 	const slices = [];
+	const [sFlag, iFlag, jFlag] = [flagIds.includes('s'), flagIds.includes('i'), flagIds.includes('j')];
 	for (const injectCodeEntry of codeInjectList) {
-		let value = '';
-		if (injectCodeEntry.type == 'selfattr')
+		let value;
+		if (iFlag && injectCodeEntry.type == 'forceself')
 			// Inject a target attribute into link elements to force them to only update the iframe's window context
 			value = ' target="_self"';
-		else if (injectCodeEntry.type == 'topdef')
-			// Define a JavaScript variable pointing to the iframe's window context
-			value = 'window.ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent; ';
-		else if (injectCodeEntry.type == 'topref' || injectCodeEntry.type == 'parentref' && !flagIds.includes('j'))
-			// Replace JavaScript references to the top window context with the variable pointing to the iframe's window context
-			value = 'ARCHIVE95_TOP';
-		else
+		else if (sFlag) {
+			if (injectCodeEntry.type == 'jselem')
+				// Blank script tags and their contents
+				value = '';
+			else if (injectCodeEntry.type == 'jsattr')
+				// Make JavaScript links and event attributes do nothing
+				value = 'void(0)';
+		}
+		else if (iFlag || jFlag) {
+			if (injectCodeEntry.type == 'topdef')
+				// Define a JavaScript variable pointing to the iframe's window context
+				value = 'window.ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent; ';
+			else if (injectCodeEntry.type == 'topref' || injectCodeEntry.type == 'parentref' && !jFlag)
+				// Replace JavaScript references to the top window context with the variable pointing to the iframe's window context
+				value = 'ARCHIVE95_TOP';
+		}
+
+		if (value === undefined)
 			continue;
 
 		slices.push({

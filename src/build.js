@@ -445,7 +445,7 @@ async function buildArchive(archive, targetDir) {
 		const script = decoder.decode(file);
 		const injectLists = { code: [], links: [] };
 		const inlinksDirs = [];
-		buildScriptInjectLists(script, 0, injectLists.code, injectLists.links, inlinksDirs, archive);
+		buildScriptInjectLists(script, 0, null, null, null, injectLists, inlinksDirs, archive);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, script);
 		archive.files.push('inject.json');
@@ -609,7 +609,8 @@ function buildHtmlInjectLists(html, archive) {
 		let javaScriptHasLinks = false;
 		if (isJavaScript) {
 			const codeUrl = url.substring(11);
-			javaScriptHasLinks = buildScriptInjectLists(codeUrl, rawUrlIndex + rawUrl.indexOf(codeUrl), injectLists.code, injectLists.links, inlinksDirs, archive);
+			const codeUrlIndex = rawUrlIndex + rawUrl.indexOf(codeUrl);
+			javaScriptHasLinks = buildScriptInjectLists(codeUrl, codeUrlIndex, codeUrlIndex, codeUrlIndex + codeUrl.length, 'jsattr', injectLists, inlinksDirs, archive);
 		}
 
 		// If the URL is an anchor or has links inside JavaScript code, add a code injection list entry indicating that a target attribute should be added
@@ -617,7 +618,7 @@ function buildHtmlInjectLists(html, archive) {
 			injectLists.code.push({
 				start: index - offset + match.length,
 				end: null,
-				type: 'selfattr',
+				type: 'forceself',
 			});
 			return match;
 		}
@@ -664,18 +665,30 @@ function buildHtmlInjectLists(html, archive) {
 	const scriptExp = /(<script(?: [^>]+)?>)(.*?)<\/script>/gis;
 	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
 		const [_, scriptOpen, scriptBody] = scriptMatch;
-		buildScriptInjectLists(scriptBody, scriptMatch.index + scriptOpen.length, injectLists.code, injectLists.links, inlinksDirs, archive);
+		const [contentIndex, startIndex, endIndex] = [scriptMatch.index + scriptOpen.length, scriptMatch.index, scriptMatch.index + scriptMatch[0].length];
+		buildScriptInjectLists(scriptBody, contentIndex, startIndex, endIndex, 'jselem', injectLists, inlinksDirs, archive);
 	}
 
 	// Populate injection lists based on contents of event attributes
-	for (let eventMatch; (eventMatch = eventExp.exec(newHtml)) !== null;)
-		buildScriptInjectLists(eventMatch[3], eventMatch.index + eventMatch[1].length + 1, injectLists.code, injectLists.links, inlinksDirs, archive);
+	for (let eventMatch; (eventMatch = eventExp.exec(newHtml)) !== null;) {
+		const contentIndex = eventMatch.index + eventMatch[1].length + 1;
+		const endIndex = contentIndex + eventMatch[3].length;
+		buildScriptInjectLists(eventMatch[3], contentIndex, contentIndex, endIndex, 'jsattr', injectLists, inlinksDirs, archive);
+	}
 
 	return [newHtml, injectLists, inlinksDirs];
 }
 
 // Build injection list from JavaScript code
-function buildScriptInjectLists(script, index, codeInjectList, linkInjectList, inlinksDirs, archive) {
+function buildScriptInjectLists(script, contentIndex, startIndex, endIndex, type, injectLists, inlinksDirs, archive) {
+	// Add entry to code injection list comprising the entire JavaScript content, so it can be replaced by the server if applicable
+	if (type !== null)
+		injectLists.code.push({
+			start: startIndex,
+			end: endIndex,
+			type: type,
+		});
+
 	// Blank script comments while being mindful of strings so we don't get false positives
 	const scriptNoStrings = script
 		.replace(/"(?:(?!(?<!\\)").)+"/g, match => ' '.repeat(match.length))
@@ -696,22 +709,22 @@ function buildScriptInjectLists(script, index, codeInjectList, linkInjectList, i
 	if (!/var\s+(?:top|parent)\s*=/.test(scriptNoComments)) {
 		const contextMatches = [...scriptNoComments.matchAll(/(?<![a-zA-Z0-9._-])(window\.|)(top|parent)(?![a-zA-Z0-9_-])/g)];
 		if (contextMatches.length > 0)
-			codeInjectList.push({
-				start: index + scriptNoComments.match(/^\s*(?:<!-*\s*)?/s, '')[0].length,
+			injectLists.code.push({
+				start: contentIndex + scriptNoComments.match(/^\s*(?:<!-*\s*)?/s, '')[0].length,
 				end: null,
 				type: 'topdef',
 			});
 
 		for (const contextMatch of contextMatches)
-			codeInjectList.push({
-				start: index + contextMatch.index + contextMatch[1].length,
-				end: index + contextMatch.index + contextMatch[0].length,
+			injectLists.code.push({
+				start: contentIndex + contextMatch.index + contextMatch[1].length,
+				end: contentIndex + contextMatch.index + contextMatch[0].length,
 				type: contextMatch[2] == 'top' ? 'topref' : 'parentref',
 			});
 	}
 
 	// Check for any URLs in the script and add them to the link injection list, returning whether or not any were found
-	return buildInjectLinkEntriesFromScript(scriptNoComments, index, linkInjectList, inlinksDirs, archive);
+	return buildInjectLinkEntriesFromScript(scriptNoComments, contentIndex, injectLists.links, inlinksDirs, archive);
 }
 
 // Add a URL within an HTML file to the link injection list
