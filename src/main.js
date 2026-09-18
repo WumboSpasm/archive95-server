@@ -213,8 +213,8 @@ async function serverHandler(request, info) {
 				}
 
 				// Build code slices if page is inside an iframe
-				if (injectLists.code.length > 0 && flagIds.includes('i'))
-					slices.push(...getCodeSlices(injectLists.code));
+				if (injectLists.code.length > 0 && /[ij]/.test(flagIds))
+					slices.push(...getCodeSlices(injectLists.code, flagIds));
 
 				// Build link slices
 				slices.push(...getLinkSlices(injectLists.links, archiveInfo, flagIds, requestUrl.origin));
@@ -228,7 +228,7 @@ async function serverHandler(request, info) {
 
 				// Load injection list and build code and link slices
 				const injectLists = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
-				const codeSlices = getCodeSlices(injectLists.code);
+				const codeSlices = getCodeSlices(injectLists.code, flagIds);
 				const linkSlices = getLinkSlices(injectLists.links, archiveInfo, flagIds, requestUrl.origin);
 
 				// Build JavaScript with replaced slices and serve it
@@ -1104,7 +1104,7 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 }
 
 // Create a list of replaceable slices from a code injection list
-function getCodeSlices(codeInjectList) {
+function getCodeSlices(codeInjectList, flagIds) {
 	const slices = [];
 	for (const injectCodeEntry of codeInjectList) {
 		let value = '';
@@ -1113,10 +1113,12 @@ function getCodeSlices(codeInjectList) {
 			value = ' target="_self"';
 		else if (injectCodeEntry.type == 'topdef')
 			// Define a JavaScript variable pointing to the iframe's window context
-			value = 'var ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent;\n';
-		else if (injectCodeEntry.type == 'topref')
+			value = 'window.ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent; ';
+		else if (injectCodeEntry.type == 'topref' || injectCodeEntry.type == 'parentref' && !flagIds.includes('j'))
 			// Replace JavaScript references to the top window context with the variable pointing to the iframe's window context
 			value = 'ARCHIVE95_TOP';
+		else
+			continue;
 
 		slices.push({
 			start: injectCodeEntry.start,

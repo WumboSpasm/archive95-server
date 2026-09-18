@@ -443,8 +443,10 @@ async function buildArchive(archive, targetDir) {
 	else if (archive.types[0] == 'text/javascript') {
 		// Build injection list for JavaScript files
 		const script = decoder.decode(file);
-		const [codeInjectList, linkInjectList, inlinksDirs] = buildScriptInjectLists(script, 0, archive);
-		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify({ code: codeInjectList, links: linkInjectList }, null, '\t'));
+		const injectLists = { code: [], links: [] };
+		const inlinksDirs = [];
+		buildScriptInjectLists(script, 0, injectLists.code, injectLists.links, inlinksDirs, archive);
+		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, script);
 		archive.files.push('inject.json');
 		buildInlinks(archive, inlinksDirs);
@@ -567,7 +569,7 @@ async function buildArchive(archive, targetDir) {
 	}
 }
 
-// Build injection list from the contents of an HTML file
+// Build injection list from HTML content
 function buildHtmlInjectLists(html, archive) {
 	const injectLists = {
 		metadata: {
@@ -602,11 +604,13 @@ function buildHtmlInjectLists(html, archive) {
 		const url = trimQuotes(rawUrl);
 		const rawUrlIndex = index - offset + tagStart.length;
 
-		// If the URL contains JavaScript code, check for any contained URLs and populate the link injection list accordingly
+		// If the URL contains JavaScript code, populate the injection lists accordingly
 		const isJavaScript = /^javascript:/i.test(url);
 		let javaScriptHasLinks = false;
-		if (isJavaScript)
-			javaScriptHasLinks = buildInjectLinkEntriesFromScript(url, rawUrlIndex + rawUrl.indexOf(url), injectLists.links, inlinksDirs, archive);
+		if (isJavaScript) {
+			const codeUrl = url.substring(11);
+			javaScriptHasLinks = buildScriptInjectLists(codeUrl, rawUrlIndex + rawUrl.indexOf(codeUrl), injectLists.code, injectLists.links, inlinksDirs, archive);
+		}
 
 		// If the URL is an anchor or has links inside JavaScript code, add a code injection list entry indicating that a target attribute should be added
 		if (url.startsWith('#') || javaScriptHasLinks) {
@@ -656,29 +660,22 @@ function buildHtmlInjectLists(html, archive) {
 			type: 'noframes',
 		});
 
-	// Try to find start and end indexes of JavaScript segments that may need to be replaced, such as links and references to the top window context
+	// Populate injection lists based on contents of script elements
 	const scriptExp = /(<script(?: [^>]+)?>)(.*?)<\/script>/gis;
 	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
 		const [_, scriptOpen, scriptBody] = scriptMatch;
-		const [codeInjectList, linkInjectList, scriptInlinksDirs] = buildScriptInjectLists(scriptBody, scriptMatch.index + scriptOpen.length, archive);
-		injectLists.code.push(...codeInjectList);
-		injectLists.links.push(...linkInjectList);
-		inlinksDirs.push(...scriptInlinksDirs);
+		buildScriptInjectLists(scriptBody, scriptMatch.index + scriptOpen.length, injectLists.code, injectLists.links, inlinksDirs, archive);
 	}
 
-	// Try to find start and end indexes of URLs inside event attributes
+	// Populate injection lists based on contents of event attributes
 	for (let eventMatch; (eventMatch = eventExp.exec(newHtml)) !== null;)
-		buildInjectLinkEntriesFromScript(eventMatch[3], eventMatch.index + eventMatch[1].length + 1, injectLists.links, inlinksDirs, archive);
+		buildScriptInjectLists(eventMatch[3], eventMatch.index + eventMatch[1].length + 1, injectLists.code, injectLists.links, inlinksDirs, archive);
 
 	return [newHtml, injectLists, inlinksDirs];
 }
 
-// Build injection list from the contents of a JavaScript file
-function buildScriptInjectLists(script, index, archive) {
-	const codeInjectList = [];
-	const linkInjectList = [];
-	const inlinksDirs = [];
-
+// Build injection list from JavaScript code
+function buildScriptInjectLists(script, index, codeInjectList, linkInjectList, inlinksDirs, archive) {
 	// Blank script comments while being mindful of strings so we don't get false positives
 	const scriptNoStrings = script
 		.replace(/"(?:(?!(?<!\\)").)+"/g, match => ' '.repeat(match.length))
@@ -695,31 +692,29 @@ function buildScriptInjectLists(script, index, archive) {
 	}));
 	const scriptNoComments = utils.replaceSlices(script, singleCommentSlices.concat(multiCommentSlices));
 
-	// Populate the code injection list with any references to the top window context
-	if (!/var\s+top\s*=/.test(scriptNoComments)) {
-		const topMatches = [...scriptNoComments.matchAll(/(?<![a-zA-Z0-9_-])top(?![a-zA-Z0-9_-])/g)];
-		if (topMatches.length > 0) {
+	// Populate the code injection list with any references to the top or parent window contexts
+	if (!/var\s+(?:top|parent)\s*=/.test(scriptNoComments)) {
+		const contextMatches = [...scriptNoComments.matchAll(/(?<![a-zA-Z0-9._-])(window\.|)(top|parent)(?![a-zA-Z0-9_-])/g)];
+		if (contextMatches.length > 0)
 			codeInjectList.push({
 				start: index + scriptNoComments.match(/^\s*(?:<!-*\s*)?/s, '')[0].length,
 				end: null,
 				type: 'topdef',
 			});
 
-			for (const topMatch of topMatches)
-				codeInjectList.push({
-					start: index + topMatch.index,
-					end: index + topMatch.index + topMatch[0].length,
-					type: 'topref',
-				});
-		}
+		for (const contextMatch of contextMatches)
+			codeInjectList.push({
+				start: index + contextMatch.index + contextMatch[1].length,
+				end: index + contextMatch.index + contextMatch[0].length,
+				type: contextMatch[2] == 'top' ? 'topref' : 'parentref',
+			});
 	}
 
-	// Populate the link injection list with any apparent URLs in the script
-	buildInjectLinkEntriesFromScript(scriptNoComments, index, linkInjectList, inlinksDirs, archive);
-	return [codeInjectList, linkInjectList, inlinksDirs];
+	// Check for any URLs in the script and add them to the link injection list, returning whether or not any were found
+	return buildInjectLinkEntriesFromScript(scriptNoComments, index, linkInjectList, inlinksDirs, archive);
 }
 
-// Build and add an entry to the link injection list
+// Add a URL within an HTML file to the link injection list
 function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectList, inlinksDirs, archive, tagStart = '', quoteChar = '') {
 	// Trim quotes from URL string and extract any excess data
 	let url = trimQuotes(rawUrl);
@@ -782,19 +777,18 @@ function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectLi
 	return tagStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar;
 }
 
-// Build and add link injection list entries from URLs identified in JavaScript code
+// Identify URLs in JavaScript code and add entries to the link injection list
 function buildInjectLinkEntriesFromScript(script, index, linkInjectList, inlinksDirs, archive) {
-	const codeLinkMatches = [...script.matchAll(/(?<!\+=?\s*)(\\?['"])(\s*(?:\/|[a-z]+:).*?)\1/gis)]
+	const linkMatches = [...script.matchAll(/(?<!\+=?\s*)(\\?['"])(\s*(?:\/|[a-z]+:).*?)\1/gis)]
 		.concat([...script.matchAll(/(?<=['"][^'"]*=\s*)()((?:\/|[a-z]+:)[^\s'"<>]+)[^'"]*['"]/gis)])
 		.toSorted((a, b) => a.index - b.index);
-	for (const codeLinkMatch of codeLinkMatches) {
-		const codeQuoteChar = codeLinkMatch[1];
-		const codeUrl = codeLinkMatch[2];
-		const codeIndex = index + codeLinkMatch.index + codeQuoteChar.length;
-		buildInjectLinkEntry(codeUrl, codeIndex, true, !codeUrl.startsWith('/'), linkInjectList, inlinksDirs, archive);
+	for (const linkMatch of linkMatches) {
+		const quoteChar = linkMatch[1];
+		const url = linkMatch[2];
+		buildInjectLinkEntry(url, index + linkMatch.index + quoteChar.length, true, !url.startsWith('/'), linkInjectList, inlinksDirs, archive);
 	}
 
-	return codeLinkMatches.length > 0;
+	return linkMatches.length > 0;
 }
 
 // Add the archive as an inlink at the supplied locations
