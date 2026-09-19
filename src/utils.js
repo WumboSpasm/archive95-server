@@ -164,8 +164,8 @@ export function logMessage(message) {
 		console.log(message);
 }
 
-// Run Deno.lstat without throwing an error if the path doesn't exist
+// Run Deno.stat without throwing an error if the path doesn't exist
 export function getPathInfo(path) {
-	try { return Deno.lstatSync(path); } catch {}
+	try { return Deno.statSync(path); } catch {}
 	return null;
 }
