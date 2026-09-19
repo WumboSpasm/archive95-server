@@ -164,8 +164,8 @@ async function serverHandler(request, info) {
 
 				// Build metadata slices
 				const metadata = [];
-				if (flagIds.includes('i'))
-					metadata.push('<base target="_top">');
+				if (flagIds.includes('i') || injectLists.metadata.target !== null)
+					metadata.push(`<base target="${injectLists.metadata.target ?? '_top'}">`);
 				else if (flagIds.includes('j'))
 					metadata.push('<script src="/scripts/frames.js"></script>');
 				if (modernMode) {

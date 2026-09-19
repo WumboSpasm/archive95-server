@@ -445,7 +445,7 @@ async function buildArchive(archive, targetDir) {
 		const script = decoder.decode(file);
 		const injectLists = { code: [], links: [] };
 		const inlinksDirs = [];
-		buildScriptInjectLists(script, 0, null, null, null, injectLists, inlinksDirs, archive);
+		buildScriptInjectLists(script, null, 0, null, null, null, injectLists, inlinksDirs, archive);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, script);
 		archive.files.push('inject.json');
@@ -574,6 +574,7 @@ function buildHtmlInjectLists(html, archive) {
 	const injectLists = {
 		metadata: {
 			index: -1,
+			target: null,
 		},
 		navbar: {
 			index: -1,
@@ -583,9 +584,28 @@ function buildHtmlInjectLists(html, archive) {
 		links: [],
 	};
 	const inlinksDirs = [];
+	let baseUrl = null;
 
-	// Remove <base> tag
-	html = html.replace(/<base .*?>(?:.*?<\/base>)?/gis, '');
+	// Extract information from base tags and remove them
+	html = html.replace(/<base\s+(.*?)>(?:(.*?)<\/base>)?/gis, (_, baseAttrs, baseBody) => {
+		if (injectLists.metadata.target === null) {
+			const targetMatch = baseAttrs.match(/target\s*=\s*((["'])(?:(?!\2|>).)+\2|[^>\s]+)/is);
+			if (targetMatch !== null)
+				injectLists.metadata.target = trimQuotes(targetMatch[1]);
+		}
+
+		if (baseUrl === null) {
+			const hrefMatch = baseAttrs.match(/href\s*=\s*((["'])(?:(?!\2|>).)+\2|[^>\s]+)/is);
+			if (hrefMatch !== null)
+				baseUrl = trimQuotes(hrefMatch[1]);
+		}
+
+		return baseBody ?? '';
+	});
+
+	// If a base URL exists, ensure it is fully-formed
+	if (baseUrl !== null)
+		baseUrl = URL.parse(baseUrl, archive.url ?? 'http://archive95-path/' + archive.path)?.href;
 
 	// Identify indexes of links found inside plaintext segments and JavaScript code so they can be ignored later
 	const excludeIndexes = [...blankHtml(html, true).matchAll(linkExp)].map(linkMatch => linkMatch.index);
@@ -610,7 +630,7 @@ function buildHtmlInjectLists(html, archive) {
 		if (isJavaScript) {
 			const codeUrl = url.substring(11);
 			const codeUrlIndex = rawUrlIndex + rawUrl.indexOf(codeUrl);
-			javaScriptHasLinks = buildScriptInjectLists(codeUrl, codeUrlIndex, codeUrlIndex, codeUrlIndex + codeUrl.length, 'jsattr', injectLists, inlinksDirs, archive);
+			javaScriptHasLinks = buildScriptInjectLists(codeUrl, baseUrl, codeUrlIndex, codeUrlIndex, codeUrlIndex + codeUrl.length, 'jsattr', injectLists, inlinksDirs, archive);
 		}
 
 		// If the URL is an anchor or has links inside JavaScript code, add a code injection list entry indicating that a target attribute should be added
@@ -624,7 +644,7 @@ function buildHtmlInjectLists(html, archive) {
 		}
 
 		// Add an entry to the link injection list and update the offset based on the length of the replacement string
-		const [newStr, isAnchor] = buildInjectLinkEntry(rawUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"');
+		const [newStr, isAnchor] = buildInjectLinkEntry(rawUrl, baseUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"');
 		offset += match.length - newStr.length;
 
 		// If the URL was resolved to an anchor, do the same thing as above but with the updated offset
@@ -674,21 +694,21 @@ function buildHtmlInjectLists(html, archive) {
 	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
 		const [_, scriptOpen, scriptBody] = scriptMatch;
 		const [contentIndex, startIndex, endIndex] = [scriptMatch.index + scriptOpen.length, scriptMatch.index, scriptMatch.index + scriptMatch[0].length];
-		buildScriptInjectLists(scriptBody, contentIndex, startIndex, endIndex, 'jselem', injectLists, inlinksDirs, archive);
+		buildScriptInjectLists(scriptBody, baseUrl, contentIndex, startIndex, endIndex, 'jselem', injectLists, inlinksDirs, archive);
 	}
 
 	// Populate injection lists based on contents of event attributes
 	for (let eventMatch; (eventMatch = eventExp.exec(newHtml)) !== null;) {
 		const contentIndex = eventMatch.index + eventMatch[1].length + 1;
 		const endIndex = contentIndex + eventMatch[3].length;
-		buildScriptInjectLists(eventMatch[3], contentIndex, contentIndex, endIndex, 'jsattr', injectLists, inlinksDirs, archive);
+		buildScriptInjectLists(eventMatch[3], baseUrl, contentIndex, contentIndex, endIndex, 'jsattr', injectLists, inlinksDirs, archive);
 	}
 
 	return [newHtml, injectLists, inlinksDirs];
 }
 
 // Build injection list from JavaScript code
-function buildScriptInjectLists(script, contentIndex, startIndex, endIndex, type, injectLists, inlinksDirs, archive) {
+function buildScriptInjectLists(script, baseUrl, contentIndex, startIndex, endIndex, type, injectLists, inlinksDirs, archive) {
 	// Add entry to code injection list comprising the entire JavaScript content, so it can be replaced by the server if applicable
 	if (type !== null)
 		injectLists.code.push({
@@ -732,11 +752,11 @@ function buildScriptInjectLists(script, contentIndex, startIndex, endIndex, type
 	}
 
 	// Check for any URLs in the script and add them to the link injection list, returning whether or not any were found
-	return buildInjectLinkEntriesFromScript(scriptNoComments, contentIndex, injectLists.links, inlinksDirs, archive);
+	return buildInjectLinkEntriesFromScript(scriptNoComments, baseUrl, contentIndex, injectLists.links, inlinksDirs, archive);
 }
 
 // Add a URL within an HTML file to the link injection list
-function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectList, inlinksDirs, archive, tagStart = '', quoteChar = '') {
+function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, doOrigin, linkInjectList, inlinksDirs, archive, tagStart = '', quoteChar = '') {
 	// Trim quotes from URL string and extract any excess data
 	let url = trimQuotes(rawUrl);
 	let urlPrefix = '';
@@ -749,6 +769,17 @@ function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectLi
 	// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
 	if (url == '/deadend')
 		return [tagStart + quoteChar + urlPrefix + url + quoteChar, false];
+
+	// If a base URL is specified, change the destination of relative URLs accordingly
+	if (baseUrl !== null) {
+		const newUrl = URL.parse(url, baseUrl);
+		if (newUrl !== null) {
+			if (newUrl.origin == 'http://archive95-path')
+				url = newUrl.pathname;
+			else
+				url = newUrl.href;
+		}
+	}
 
 	// Initialize the injection list entry
 	const injectLinkEntry = {
@@ -794,14 +825,14 @@ function buildInjectLinkEntry(rawUrl, index, preserveUrl, doOrigin, linkInjectLi
 }
 
 // Identify URLs in JavaScript code and add entries to the link injection list
-function buildInjectLinkEntriesFromScript(script, index, linkInjectList, inlinksDirs, archive) {
+function buildInjectLinkEntriesFromScript(script, baseUrl, index, linkInjectList, inlinksDirs, archive) {
 	const linkMatches = [...script.matchAll(/(?<!\+=?\s*)(\\?['"])(\s*(?:\/|[a-z]+:).*?)\1/gis)]
 		.concat([...script.matchAll(/(?<=['"][^'"]*=\s*)()((?:\/|[a-z]+:)[^\s'"<>]+)[^'"]*['"]/gis)])
 		.toSorted((a, b) => a.index - b.index);
 	for (const linkMatch of linkMatches) {
 		const quoteChar = linkMatch[1];
 		const url = linkMatch[2];
-		buildInjectLinkEntry(url, index + linkMatch.index + quoteChar.length, true, !url.startsWith('/'), linkInjectList, inlinksDirs, archive);
+		buildInjectLinkEntry(url, baseUrl, index + linkMatch.index + quoteChar.length, true, !url.startsWith('/'), linkInjectList, inlinksDirs, archive);
 	}
 
 	return linkMatches.length > 0;
@@ -1082,7 +1113,7 @@ function resolveUrl(rawUrl, archive) {
 	// Relative links under sources with non-zero URL modes are assumed to have been modified to point within the source's filesystem
 	if (source.urlMode > 0 && !isAbsolute) {
 		// Extract full path from the link
-		const parsedPath = URL.parse(rawUrl, 'http://ignoreme/' + archive.path);
+		const parsedPath = URL.parse(rawUrl, 'http://archive95-path/' + archive.path);
 		if (parsedPath !== null)
 			unresolvedUrl = parsedPath.pathname.substring(1);
 
