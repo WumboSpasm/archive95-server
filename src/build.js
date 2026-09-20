@@ -122,14 +122,6 @@ let database, insertStatement;
 		if (archives.length == 0)
 			continue;
 
-		// Sort archives by date, then URL if the dates match
-		archives.sort((a, b) => {
-			if (a.date != b.date)
-				return utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date);
-			else
-				return a.url.localeCompare(b.url, 'en', { sensitivity: 'base' });
-		});
-
 		// Create the containing directory for the current URL
 		const urlDir = utils.getArchiveRootDir(normalizedUrl, 'urls', tempBuildPath);
 		Deno.mkdirSync(urlDir, { recursive: true });
@@ -340,9 +332,6 @@ function buildIndexes() {
 
 			const normalizedUrl = entry.url !== null ? (!entry.url.startsWith('#') ? utils.normalizeUrl(entry.url) : entry.url) : null;
 			const normalizedPath = utils.normalizePath(entry.path);
-			const offset = (urlIndex[normalizedUrl] ?? []).filter(urlEntry =>
-				!urlEntry.skip && sourceId == urlEntry.source && entry.url == urlEntry.url
-			).length || null;
 
 			// Build entry to insert into indexes
 			const indexEntry = {
@@ -355,7 +344,7 @@ function buildIndexes() {
 				warn: entry.warn,
 				error: entry.error,
 				skip: entry.skip,
-				offset: offset,
+				offset: null,
 			};
 
 			// Add entry to URL index
@@ -371,6 +360,38 @@ function buildIndexes() {
 			// (Unless the URL mode is 1, otherwise we need to know its path so we can mark it as invalid)
 			if (!entry.skip || normalizedUrl !== null || sources[sourceId].urlMode == 1)
 				pathIndex[sourceId][normalizedPath] = indexEntry;
+		}
+	}
+
+	for (const normalizedUrl in urlIndex) {
+		const urlEntries = urlIndex[normalizedUrl];
+
+		// Sort entries by error status, then date, then URL
+		urlEntries.sort((a, b) => {
+			if (a.source == b.source && a.error != b.error)
+				return a.error - b.error;
+			else if (a.date != b.date)
+				return utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date);
+			else
+				return a.url.localeCompare(b.url, 'en', { sensitivity: 'base' });
+		});
+
+		// Build offsets for entries with identical sources and URLs
+		const doneUrls = {};
+		for (const urlEntry of urlEntries) {
+			if (urlEntry.skip)
+				continue;
+
+			if (doneUrls[urlEntry.source] === undefined)
+				doneUrls[urlEntry.source] = {};
+
+			const doneSourceUrls = doneUrls[urlEntry.source];
+			if (doneSourceUrls[urlEntry.url] === undefined)
+				doneSourceUrls[urlEntry.url] = 1;
+			else {
+				urlEntry.offset = doneSourceUrls[urlEntry.url];
+				doneSourceUrls[urlEntry.url]++;
+			}
 		}
 	}
 
