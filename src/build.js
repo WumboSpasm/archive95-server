@@ -1462,7 +1462,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			};
 			html = html.replace(
 				// Remove injected CloudFlare scripts
-				/<script [^>]*src="[^"]+\/cloudflare-static\/.*?" data-cf-settings="[0-9a-f]{24}-\|49"(?: defer(?:="")?)?><\/script>/g,
+				/<script [^>]*src="[^"]+\/cloudflare-static\/[^"]+"[^>]*><\/script>/g,
 				'',
 			).replace(
 				// Remove indicators of modified script elements
