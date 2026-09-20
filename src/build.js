@@ -122,8 +122,13 @@ let database, insertStatement;
 		if (archives.length == 0)
 			continue;
 
-		// Sort archives by date
-		archives.sort((a, b) => utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date));
+		// Sort archives by date, then URL if the dates match
+		archives.sort((a, b) => {
+			if (a.date != b.date)
+				return utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date);
+			else
+				return a.url.localeCompare(b.url, 'en', { sensitivity: 'base' });
+		});
 
 		// Create the containing directory for the current URL
 		const urlDir = utils.getArchiveRootDir(normalizedUrl, 'urls', tempBuildPath);
