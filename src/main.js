@@ -1555,6 +1555,9 @@ function sanitizeInject(str, amp = false) {
 		'<': '&lt;',
 		'>': '&gt;',
 		'"': '&quot;',
+		// Not worth rendering these
+		'\r': ' ',
+		'\n': ' ',
 	};
 	if (amp)
 		charMap['&'] = '&amp;';
