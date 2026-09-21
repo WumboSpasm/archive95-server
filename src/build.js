@@ -222,9 +222,12 @@ let database, insertStatement;
 
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${normalizedUrl}...`);
-			const sourcePath = pathUtils.join(config.inputPath, 'screenshots', screenshot.source, utils.safeDecode(screenshot.path));
+			const sourcePath = pathUtils.join(Deno.cwd(), config.inputPath, 'screenshots', screenshot.source, utils.safeDecode(screenshot.path));
 			const thumbnail = Deno.spawnAndWaitSync('convert', [sourcePath, '-geometry', 'x64', '-']).stdout;
-			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
+			if (config.buildSymlinks)
+				Deno.symlinkSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
+			else
+				Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
 			Deno.writeFileSync(pathUtils.join(targetDir, 'thumbnail'), thumbnail);
 
 			// Increment screenshot totals
@@ -431,9 +434,12 @@ async function buildArchive(archive, targetDir) {
 	archive.files.push('file');
 
 	// If the loaded file data was changed, copy over the raw file
+	const sourcePath = pathUtils.join(Deno.cwd(), config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
 	if (changed) {
-		const filePath = pathUtils.join(config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
-		Deno.copyFileSync(filePath, pathUtils.join(targetDir, 'raw'));
+		if (config.buildSymlinks)
+			Deno.symlinkSync(sourcePath, pathUtils.join(targetDir, 'raw'));
+		else
+			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'raw'));
 		archive.files.push('raw');
 	}
 
@@ -551,7 +557,10 @@ async function buildArchive(archive, targetDir) {
 				Deno.removeSync(convertOutputPath);
 		}
 
-		Deno.writeFileSync(targetPath, file);
+		if (!changed && config.buildSymlinks)
+			Deno.symlinkSync(sourcePath, targetPath);
+		else
+			Deno.writeFileSync(targetPath, file);
 	}
 
 	// Write title/content text to file

@@ -9,6 +9,7 @@
 	"logFile": "server.log",
 	"logToConsole": true,
 	"logBlockedRequests": true,
+	"buildSymlinks": false,
 	"doModernMode": true,
 	"doHoneypot": false,
 	"doHoneypotBlock": false,
