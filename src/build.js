@@ -457,26 +457,29 @@ async function buildArchive(archive, targetDir) {
 	if (archive.types[0] == 'text/html') {
 		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
 		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
-		const [newHtml, injectLists, inlinksDirs] = buildHtmlInjectLists(html, archive);
+		let [newHtml, injectLists, inlinksDirs] = buildHtmlInjectLists(html, archive);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		archive.files.push('inject.json');
 
-		// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
-		const html_p = improvePresentation(html);
-		if (html != html_p) {
-			const [newHtml_p, injectLists_p, inlinksDirs_p] = buildHtmlInjectLists(html_p, archive);
-			Deno.writeTextFileSync(targetPath + '_p', newHtml_p);
-			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(injectLists_p, null, '\t'));
-			archive.files.push('file_p', 'inject_p.json');
-			if (config.buildInlinks)
-				buildInlinks(archive, inlinksDirs_p);
+		let html_p;
+		if (config.buildPresentation) {
+			html_p = improvePresentation(html);
+			if (html != html_p) {
+				// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
+				[newHtml, injectLists, inlinksDirs] = buildHtmlInjectLists(html_p, archive);
+				Deno.writeTextFileSync(targetPath + '_p', newHtml);
+				Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(injectLists, null, '\t'));
+				archive.files.push('file_p', 'inject_p.json');
+			}
 		}
-		else if (config.buildInlinks)
-			buildInlinks(archive, inlinksDirs);
 
 		// Build title/content text
-		search = buildSearch(html_p, archive.types[0]);
+		search = buildSearch(html_p ?? html, archive.types[0]);
+
+		// Build inlinks
+		if (config.buildInlinks)
+			buildInlinks(archive, inlinksDirs);
 
 		// Update file size
 		archive.size = new TextEncoder().encode(html).byteLength;
@@ -496,81 +499,83 @@ async function buildArchive(archive, targetDir) {
 	else {
 		// Convert certain file formats to ones that are more broadly supported by browsers
 		// They will be used when presentation improvements are active
-		let convertCommand, doStdin = true, doStdout = true, type_p;
-		switch (archive.types[0]) {
-			case 'image/x-xbitmap': {
-				// XBM to GIF
-				convertCommand = ['convert', ['XBM:-', 'GIF:-']];
-				type_p = 'image/gif';
-				break;
-			}
-			case 'image/x-xpixmap': {
-				// XPM to GIF
-				convertCommand = ['convert', ['XPM:-', 'GIF:-']];
-				type_p = 'image/gif';
-				break;
-			}
-			case 'audio/basic':
-			case 'audio/mp2':
-			case 'audio/vnd.rn-realaudio':
-			case 'audio/x-aifc':
-			case 'audio/x-aiff': {
-				// AU/MP2/RA/AIFC/AIFF to WAV
-				convertCommand = ['ffmpeg', ['-y', '-i', 'pipe:', '-f', 'wav', convertOutputPath]];
-				doStdout = false;
-				type_p = 'audio/wav';
-				break;
-			}
-			case 'video/mpeg':
-			case 'video/quicktime':
-			case 'video/vnd.avi': {
-				// Work around FFmpeg failing to convert MOV files from stdin
-				if (archive.types[0] == 'video/quicktime') {
-					Deno.writeFileSync(convertInputPath, file);
-					doStdin = false;
+		if (config.buildPresentation) {
+			let convertCommand, doStdin = true, doStdout = true, type_p;
+			switch (archive.types[0]) {
+				case 'image/x-xbitmap': {
+					// XBM to GIF
+					convertCommand = ['convert', ['XBM:-', 'GIF:-']];
+					type_p = 'image/gif';
+					break;
 				}
-				// MPG/MOV/AVI to MP4
-				convertCommand = ['ffmpeg', [
-					'-y', '-i', doStdin ? 'pipe:' : convertInputPath,
-					'-crf', '1', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', convertOutputPath,
-				]];
-				doStdout = false;
-				type_p = 'video/mp4';
-				break;
+				case 'image/x-xpixmap': {
+					// XPM to GIF
+					convertCommand = ['convert', ['XPM:-', 'GIF:-']];
+					type_p = 'image/gif';
+					break;
+				}
+				case 'audio/basic':
+				case 'audio/mp2':
+				case 'audio/vnd.rn-realaudio':
+				case 'audio/x-aifc':
+				case 'audio/x-aiff': {
+					// AU/MP2/RA/AIFC/AIFF to WAV
+					convertCommand = ['ffmpeg', ['-y', '-i', 'pipe:', '-f', 'wav', convertOutputPath]];
+					doStdout = false;
+					type_p = 'audio/wav';
+					break;
+				}
+				case 'video/mpeg':
+				case 'video/quicktime':
+				case 'video/vnd.avi': {
+					// Work around FFmpeg failing to convert MOV files from stdin
+					if (archive.types[0] == 'video/quicktime') {
+						Deno.writeFileSync(convertInputPath, file);
+						doStdin = false;
+					}
+					// MPG/MOV/AVI to MP4
+					convertCommand = ['ffmpeg', [
+						'-y', '-i', doStdin ? 'pipe:' : convertInputPath,
+						'-crf', '1', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', convertOutputPath,
+					]];
+					doStdout = false;
+					type_p = 'video/mp4';
+					break;
+				}
 			}
-			default: {
-				// If the file doesn't need to be converted and is text-based, just build its content text
-				if (utils.isTextType(archive.types[0]))
-					search = buildSearch(decoder.decode(file), archive.types[0]);
-			}
-		}
 
-		if (convertCommand !== undefined) {
-			// Perform the conversion and utilize our helper files in case we cannot use stdin or stdout
-			let file_p = (doStdin ? await inputAndExecute(file, ...convertCommand) : Deno.spawnAndWaitSync(...convertCommand)).stdout;
-			if (!doStdout) {
+			if (convertCommand !== undefined) {
+				// Perform the conversion and utilize our helper files in case we cannot use stdin or stdout
+				let file_p = (doStdin ? await inputAndExecute(file, ...convertCommand) : Deno.spawnAndWaitSync(...convertCommand)).stdout;
+				if (!doStdout) {
+					if (utils.getPathInfo(convertOutputPath)?.isFile)
+						file_p = Deno.readFileSync(convertOutputPath);
+					else
+						file_p = new Uint8Array();
+				}
+				if (file_p.byteLength > 0) {
+					Deno.writeFileSync(targetPath + '_p', file_p);
+					archive.types.push(type_p);
+					archive.files.push('file_p');
+				}
+
+				// Delete any conversion helper files now that we no longer need them
+				if (utils.getPathInfo(convertInputPath)?.isFile)
+					Deno.removeSync(convertInputPath);
 				if (utils.getPathInfo(convertOutputPath)?.isFile)
-					file_p = Deno.readFileSync(convertOutputPath);
-				else
-					file_p = new Uint8Array();
+					Deno.removeSync(convertOutputPath);
 			}
-			if (file_p.byteLength > 0) {
-				Deno.writeFileSync(targetPath + '_p', file_p);
-				archive.types.push(type_p);
-				archive.files.push('file_p');
-			}
-
-			// Delete any conversion helper files now that we no longer need them
-			if (utils.getPathInfo(convertInputPath)?.isFile)
-				Deno.removeSync(convertInputPath);
-			if (utils.getPathInfo(convertOutputPath)?.isFile)
-				Deno.removeSync(convertOutputPath);
 		}
 
 		if (!changed && config.buildSymlinks)
 			Deno.symlinkSync(sourcePath, targetPath);
 		else
 			Deno.writeFileSync(targetPath, file);
+
+		// If the file is text-based in its most fixed/converted form, build its content text
+		const lastType = archive.types[archive.types.length - 1];
+		if (utils.isTextType(lastType))
+			search = buildSearch(decoder.decode(file), lastType);
 	}
 
 	// Write title/content text to file

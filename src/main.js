@@ -507,7 +507,7 @@ async function serverHandler(request, info) {
 			// The "Apply changes" link simply returns you to the viewer with the flags from the current URL
 			const optionsList = [];
 			for (const flag of flags) {
-				if (flag.hidden || (!modernMode && flag.modern))
+				if (flag.hidden || !modernMode && (flag.modern || flag.id == 'p' && !config.buildPresentation))
 					continue;
 
 				const checked = flagIds.includes(flag.id);
