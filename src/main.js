@@ -33,28 +33,34 @@ const staticFileInfo = cacheStaticFileInfo();
 const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
 const sourcesContent = buildSourcesContent();
 
-// Load the database workers
+let httpServer, httpsServer;
 let searchDatabase, randomDatabase;
-const searchDatabaseWorker = new Worker(new URL('./db/search.js', import.meta.url), { type: 'module' });
-const randomDatabaseWorker = new Worker(new URL('./db/random.js', import.meta.url), { type: 'module' });
-const databasePath = pathUtils.join(config.buildPath, 'archive95.sqlite');
 
-Promise.all([
-	new Promise(resolve => searchDatabaseWorker.addEventListener('message', () => {
-		searchDatabase = Comlink.wrap(searchDatabaseWorker);
-		searchDatabase.open(databasePath).then(resolve);
-	}, { once: true })),
-	new Promise(resolve => randomDatabaseWorker.addEventListener('message', () => {
-		randomDatabase = Comlink.wrap(randomDatabaseWorker);
-		randomDatabase.open(databasePath, config.randomCacheSize).then(resolve);
-	}, { once: true })),
-]).then(() => {
-	utils.logMessage('loaded database workers');
+if (config.buildDatabase) {
+	// Create the database workers
+	const searchDatabaseWorker = new Worker(new URL('./db/search.js', import.meta.url), { type: 'module' });
+	const randomDatabaseWorker = new Worker(new URL('./db/random.js', import.meta.url), { type: 'module' });
+	const databasePath = pathUtils.join(config.buildPath, 'archive95.sqlite');
+
+	// Initiate the workers and start the server once ready
+	Promise.all([
+		new Promise(resolve => searchDatabaseWorker.addEventListener('message', () => {
+			searchDatabase = Comlink.wrap(searchDatabaseWorker);
+			searchDatabase.open(databasePath).then(resolve);
+		}, { once: true })),
+		new Promise(resolve => randomDatabaseWorker.addEventListener('message', () => {
+			randomDatabase = Comlink.wrap(randomDatabaseWorker);
+			randomDatabase.open(databasePath, config.randomCacheSize).then(resolve);
+		}, { once: true })),
+	]).then(() => {
+		utils.logMessage('loaded database workers');
+		startServer();
+	});
+}
+else
 	startServer();
-});
 
 // Start the server
-let httpServer, httpsServer;
 function startServer() {
 	// ...over HTTP
 	httpServer = Deno.serve({
@@ -322,7 +328,7 @@ async function serverHandler(request, info) {
 			const archiveDir = archiveDirs[archiveInfoIndex];
 
 			const archiveRawPath = pathUtils.join(archiveDir, archiveInfo.files.includes('raw') ? 'raw' : 'file');
-			const archiveRawFile = Deno.openSync(archiveRawPath)
+			const archiveRawFile = Deno.openSync(archiveRawPath);
 			headers.set('Content-Type', archiveInfo.types[0]);
 			if (ancientMode)
 				headers.set('Content-Length', archiveRawFile.statSync().size);
@@ -583,6 +589,9 @@ async function serverHandler(request, info) {
 			return new Response(screenshotFile.readable, { headers: headers });
 		}
 		case 'random': {
+			if (!config.buildDatabase)
+				throw new NotFoundError(modernMode);
+
 			// Query for a random archive
 			const archiveInfo = await randomDatabase.query(!flagIds.includes('m'), flagIds.includes('o'), sourceId);
 			if (archiveInfo === null)
@@ -745,11 +754,13 @@ async function serverShutdown() {
 
 	utils.logMessage('shutting down server...');
 	const serverPromises = [];
+	const databasePromises = [];
 	if (httpServer)
 		serverPromises.push(httpServer.shutdown());
 	if (httpsServer)
 		serverPromises.push(httpsServer.shutdown());
-	const databasePromises = [searchDatabase.close(), randomDatabase.close()];
+	if (config.buildDatabase)
+		databasePromises.push(searchDatabase.close(), randomDatabase.close());
 
 	// Try to shut everything down gracefully within the set timeout, otherwise kill the process
 	await Promise.race([
@@ -816,33 +827,8 @@ async function performSearch(params) {
 	if (sourceCondition !== undefined)
 		whereString += ' AND ' + sourceCondition;
 
-	// Parse the search query
-	const query = params.get('query').replaceAll('#', '%23');
-	const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
-		// FTS5 is used for database searches, and it's very easy to make invalid queries
-		// An easy fix would be to surround every word in quotation marks, but that would prevent most advanced features from being used
-		// So instead we will selectively and meticulously escape the most problematic characters
-		if (match == '"')
-			// Escape loose quotation marks that aren't surrounding a segment
-			return '""';
-		else if (match.startsWith('"') && match.endsWith('"'))
-			// If the segment is already surrounded by quotation marks, we don't need to do anything
-			return match;
-		else if (/^(?:https?|ftp):\/\/[^ ]+$/i.test(match))
-			// If the segment appears to be a URL, normalize it and surround in quotation marks to maximize potential results
-			// This fails to match some URLs and is made mostly redundant by the below code, but meh. When it works it works
-			return '"' + utils.normalizeUrl(match) + '"';
-		else
-			// Loose words need most non-alphanumeric characters to be escaped
-			return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
-				const realOffset = offset + subOffset;
-				const leftPlus = realOffset > 0 && /[\w"]/.test(str[realOffset - 1]) ? '+' : '';
-				const rightPlus = realOffset + subMatch.length < str.length && /[\w"]/.test(str[realOffset + subMatch.length]) ? '+' : '';
-				return leftPlus + '"' + subMatch.split('').join('"+"') + '"' + rightPlus;
-			});
-	});
-
 	// Check if the search query matches any URLs when normalized, and add them to the top of the search results
+	const query = params.get('query').replaceAll('#', '%23');
 	const searchResults = [];
 	let searchOffset = 0;
 	if (searchFilters.inUrl && !/[ "]/.test(query)) {
@@ -894,21 +880,48 @@ async function performSearch(params) {
 		}
 	}
 
-	try {
+	if (config.buildDatabase) {
+		// Parse the search query
+		const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
+			// FTS5 is used for database searches, and it's very easy to make invalid queries
+			// An easy fix would be to surround every word in quotation marks, but that would prevent most advanced features from being used
+			// So instead we will selectively and meticulously escape the most problematic characters
+			if (match == '"')
+				// Escape loose quotation marks that aren't surrounding a segment
+				return '""';
+			else if (match.startsWith('"') && match.endsWith('"'))
+				// If the segment is already surrounded by quotation marks, we don't need to do anything
+				return match;
+			else if (/^(?:https?|ftp):\/\/[^ ]+$/i.test(match))
+				// If the segment appears to be a URL, normalize it and surround in quotation marks to maximize potential results
+				// This fails to match some URLs and is made mostly redundant by the below code, but meh. When it works it works
+				return '"' + utils.normalizeUrl(match) + '"';
+			else
+				// Loose words need most non-alphanumeric characters to be escaped
+				return match.replace(/[^\w"+:*^]+/g, (subMatch, subOffset) => {
+					const realOffset = offset + subOffset;
+					const leftPlus = realOffset > 0 && /[\w"]/.test(str[realOffset - 1]) ? '+' : '';
+					const rightPlus = realOffset + subMatch.length < str.length && /[\w"]/.test(str[realOffset + subMatch.length]) ? '+' : '';
+					return leftPlus + '"' + subMatch.split('').join('"+"') + '"' + rightPlus;
+				});
+		});
+
 		// Attempt to perform the search
 		// If there's an error, we just pretend there were no results
-		const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
-		const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
-		searchResults.push(...await searchDatabase.query(`
-			SELECT source, url, orphan, offset,
-				highlight(search, 2, '<b>', '</b>') displayUrl,
-				highlight(search, 3, '<b>', '</b>') title,
-				snippet(search, 4, '<b>', '</b>', '...', 24) content
-			FROM search WHERE ${whereString}
-			ORDER BY rank LIMIT ?2 OFFSET ?3
-		`, parsedQuery, limit, offset));
+		try {
+			const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
+			const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
+			searchResults.push(...await searchDatabase.query(`
+				SELECT source, url, orphan, offset,
+					highlight(search, 2, '<b>', '</b>') displayUrl,
+					highlight(search, 3, '<b>', '</b>') title,
+					snippet(search, 4, '<b>', '</b>', '...', 24) content
+				FROM search WHERE ${whereString}
+				ORDER BY rank LIMIT ?2 OFFSET ?3
+			`, parsedQuery, limit, offset));
+		}
+		catch {}
 	}
-	catch {}
 
 	return [searchResults, searchFilters, page];
 }
@@ -1170,14 +1183,21 @@ async function buildSearch(params, modernMode) {
 		'QUERY': '',
 		'TOTAL': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
 		'FOCUS': '',
-		'INTITLE': searchFilters.inTitle ? ' checked' : '',
-		'INCONTENT': searchFilters.inContent ? ' checked' : '',
-		'INURL': searchFilters.inUrl ? ' checked' : '',
-		'FORMATSALL': searchFilters.formatsAll ? ' checked' : '',
-		'FORMATSTEXT': searchFilters.formatsText ? ' checked' : '',
-		'FORMATSMEDIA': searchFilters.formatsMedia ? ' checked' : '',
+		'OPTIONS': '',
 		'HEADER': 'Welcome to Archive95',
 	};
+
+	// Build search options
+	if (config.buildDatabase)
+		searchDefs['OPTIONS'] = buildHtml(templates[modernMode ? 'modern' : 'compat'].search.options, {
+			'INTITLE': searchFilters.inTitle ? ' checked' : '',
+			'INCONTENT': searchFilters.inContent ? ' checked' : '',
+			'INURL': searchFilters.inUrl ? ' checked' : '',
+			'FORMATSALL': searchFilters.formatsAll ? ' checked' : '',
+			'FORMATSTEXT': searchFilters.formatsText ? ' checked' : '',
+			'FORMATSMEDIA': searchFilters.formatsMedia ? ' checked' : '',
+			'SOURCES': Object.keys(sources).map(sourceId => `<option value="${sourceId}"${sourceId == searchFilters.source ? ' selected' : ''}>${sourceId}</option>`).join('\n'),
+		});
 
 	// Render the homepage if no search query was supplied
 	if (!params.has('query')) {
@@ -1261,12 +1281,6 @@ async function buildSearch(params, modernMode) {
 		searchDefs['HIGHLIGHTS'] = '';
 	}
 
-	// Populate search source dropdown
-	const sourceOptions = [];
-	for (const sourceId in sources)
-		sourceOptions.push(`<option value="${sourceId}"${sourceId == searchFilters.source ? ' selected' : ''}>${sourceId}</option>`);
-	searchDefs['SOURCES'] = sourceOptions.join('\n');
-
 	shellDefs['CONTENT'] = buildHtml(templates[modernMode ? 'modern' : 'compat'].search.main, searchDefs);
 	return buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, shellDefs);
 }
@@ -1304,7 +1318,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'BROWSE': config.buildBrowse ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}" target="_blank">Browse</a>` : '',
 			'INLINKS': config.buildInlinks ? `<a href="/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}" target="_blank">Inlinks</a>` : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
-			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
+			'RANDOM': config.buildDatabase ? buildHtml(templates.modern.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
 		};
 
 		const archiveButtons = [];
@@ -1346,7 +1360,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	}
 	else {
 		const navbarDefs = {
-			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
+			'RANDOM': config.buildDatabase ? buildHtml(templates.compat.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'INLINKS': config.buildInlinks ? buildHtml(templates.compat.navbar.inlinks, { 'URL': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}` }) : '',
 			'BROWSE': config.buildBrowse ? buildHtml(templates.compat.navbar.browse, { 'URL': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}` }) : '',
@@ -1658,6 +1672,7 @@ function buildHomeContent() {
 			'TOTALENTRIES': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
 			'TOTALSOURCES': Object.keys(sources).length.toLocaleString('en-US'),
 			'HIGHLIGHTS': highlightsHtml,
+			'RANDOM': config.buildDatabase ? templates.compat.search.random : '',
 		}),
 		buildHtml(templates.modern.search.highlights, {
 			'HIGHLIGHTS': highlightsHtml,

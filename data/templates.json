@@ -3,6 +3,8 @@
 		"shell": [],
 		"search": [
 			"home",
+			"options",
+			"random",
 			"result"
 		],
 		"about": [],
@@ -13,11 +15,12 @@
 			"stats"
 		],
 		"navbar": [
+			"screenshot",
 			"wayback",
 			"live",
 			"browse",
 			"inlinks",
-			"screenshot"
+			"random"
 		],
 		"embed": [
 			"text",
@@ -42,13 +45,15 @@
 		"shell": [],
 		"search": [
 			"home",
+			"options",
 			"highlights",
 			"navigate",
 			"result"
 		],
 		"navbar": [
 			"archive",
-			"screenshot"
+			"screenshot",
+			"random"
 		],
 		"embed": [
 			"frame"

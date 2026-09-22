@@ -78,13 +78,15 @@ let database, insertStatement;
 	Deno.writeTextFileSync(sourcesPath, JSON.stringify(sources, null, '\t'));
 
 	// Initialize the new database
-	utils.logMessage('creating new database...');
-	database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
-	database.exec('PRAGMA journal_mode = WAL');
-	database.exec('PRAGMA shrink_memory');
-	database.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url UNINDEXED, decodedUrl, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
-	database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 0, 1, 1000, 1000, 0, 0, 0)')");
-	insertStatement = database.prepare('INSERT INTO search (source, url, decodedUrl, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+	if (config.buildDatabase) {
+		utils.logMessage('creating new database...');
+		database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
+		database.exec('PRAGMA journal_mode = WAL');
+		database.exec('PRAGMA shrink_memory');
+		database.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url UNINDEXED, decodedUrl, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
+		database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 0, 1, 1000, 1000, 0, 0, 0)')");
+		insertStatement = database.prepare('INSERT INTO search (source, url, decodedUrl, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+	}
 
 	// Gather the total amount of build steps
 	let total = 0, current = 0;
@@ -201,8 +203,10 @@ let database, insertStatement;
 	}
 
 	// Close the database and disable journaling since we won't be performing write operations ever again
-	database.exec('PRAGMA journal_mode = OFF');
-	database.close();
+	if (config.buildDatabase) {
+		database.exec('PRAGMA journal_mode = OFF');
+		database.close();
+	}
 
 	// Build the screenshot file tree
 	if (config.buildScreenshots) {
@@ -590,16 +594,17 @@ async function buildArchive(archive, targetDir) {
 			buildBrowse(archive);
 
 		// Add archive to database
-		insertStatement.run(
-			archive.source,
-			archive.url ?? archive.path,
-			utils.safeDecode(archive.url ?? archive.path),
-			search?.title || null,
-			search?.content || null,
-			archive.types[0],
-			archive.url === null,
-			archive.offset,
-		);
+		if (config.buildDatabase)
+			insertStatement.run(
+				archive.source,
+				archive.url ?? archive.path,
+				utils.safeDecode(archive.url ?? archive.path),
+				search?.title || null,
+				search?.content || null,
+				archive.types[0],
+				archive.url === null,
+				archive.offset,
+			);
 	}
 
 	// If the archive is an orphan, set its path as the URL

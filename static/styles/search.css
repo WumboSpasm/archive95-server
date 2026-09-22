@@ -15,7 +15,7 @@
 	max-width: 640px;
 	margin: 12px auto;
 	display: flex;
-
+	justify-content: center;
 	gap: 12px;
 }
 .archive95-search-lower fieldset {
@@ -38,6 +38,8 @@
 }
 
 .archive95-search-content {
+	max-width: 480px;
+
 	flex-grow: 1;
 }
 .archive95-search-break {
