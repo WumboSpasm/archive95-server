@@ -1848,43 +1848,55 @@ async function getFile(archive) {
 
 	let converted = false;
 	if (type === null) {
-		// Query candidates for the file's type using several different methods if not already cached in types.json
-		// Otherwise, add the gathered types to the cache
 		const typeField = archive.source + '/' + archive.path;
 		if (typeIndex[typeField] === undefined) {
 			if (changed)
 				Deno.writeFileSync(mimeFilePath, file);
 
-			const urlExtMatch = URL.parse(archive.url)?.pathname.match(/[^/]+(\.[^/.]+)$/i);
-			const typePromises = [
-				new Deno.Command('file', { args: ['-b', '--mime-type', changed ? mimeFilePath : filePath], stdout: 'piped' }).output(),
-				new Deno.Command('mimetype', { args: ['-b', filePath], stdout: 'piped' }).output(),
-				urlExtMatch
-					? new Deno.Command('mimetype', { args: ['-b', urlExtMatch[1]], stdout: 'piped' }).output()
-					: new ArrayBuffer(), // This will eventually resolve to null
-			];
+			if (config.buildSmartTypes) {
+				// Query candidates for the file's type using several different methods
+				const urlExtMatch = URL.parse(archive.url)?.pathname.match(/[^/]+(\.[^/.]+)$/i);
+				const typePromises = [
+					new Deno.Command('file', { args: ['-b', '--mime-type', changed ? mimeFilePath : filePath], stdout: 'piped' }).output(),
+					new Deno.Command('mimetype', { args: ['-b', filePath], stdout: 'piped' }).output(),
+					urlExtMatch
+						? new Deno.Command('mimetype', { args: ['-b', urlExtMatch[1]], stdout: 'piped' }).output()
+						: new ArrayBuffer(), // This will eventually resolve to null
+				];
 
-			const [rawType, pathType, urlType] = (await Promise.all(typePromises)).map(type => decoder.decode(type.stdout).trim() || null);
-			const [magicType, chosenType] = [null, null];
-			typeIndex[typeField] = { rawType, magicType, pathType, urlType, chosenType };
+				const [rawType, pathType, urlType] = (await Promise.all(typePromises)).map(type => decoder.decode(type.stdout).trim() || null);
+				const [magicType, chosenType] = [null, null];
+				typeIndex[typeField] = { rawType, magicType, pathType, urlType, chosenType };
+			}
+			else {
+				// If smart type detection is disabled, rely solely on the file command to guess a file's type
+				const rawType = decoder.decode(Deno.spawnAndWaitSync('file', ['-b', '--mime-type', changed ? mimeFilePath : filePath]).stdout).trim();
+				const [magicType, pathType, urlType, chosenType] = [null, null, null, null];
+				typeIndex[typeField] = { rawType, magicType, pathType, urlType, chosenType };
+			}
 
 			if (changed)
 				Deno.removeSync(mimeFilePath);
 		}
 
-		// If the raw type is text-based, re-encode the file to slightly increase the odds of getting a trustworthy magic type
 		const typeEntry = typeIndex[typeField];
-		if (utils.isTextType(typeEntry.rawType)) {
-			file = await convertText(file, filePath, archive);
-			[changed, converted] = [true, true];
+		if (config.buildSmartTypes) {
+			// If the raw type is text-based, re-encode the file to slightly increase the odds of getting a trustworthy magic type
+			if (utils.isTextType(typeEntry.rawType)) {
+				file = await convertText(file, filePath, archive);
+				[changed, converted] = [true, true];
+			}
+
+			// Get the magic type if not already cached
+			if (typeEntry.magicType === null)
+				typeEntry.magicType = decoder.decode((await inputAndExecute(file, 'mimetype', ['-b', '--stdin'])).stdout).trim();
+
+			// Use the information we've gathered to determine the most appropriate MIME type
+			type = mimeType(file, typeEntry);
 		}
-
-		// Get the magic type if not already cached
-		if (typeEntry.magicType === null)
-			typeEntry.magicType = decoder.decode((await inputAndExecute(file, 'mimetype', ['-b', '--stdin'])).stdout).trim();
-
-		// Use the information we've gathered to determine the most appropriate MIME type
-		type = mimeType(file, typeEntry);
+		else
+			// Just post-process the raw type if smart type detection is disabled
+			type = fixType(typeEntry.rawType);
 
 		// This serves no purpose except to make my life easier
 		typeEntry.chosenType = type;
@@ -2043,14 +2055,6 @@ function mimeType(file, typeEntry) {
 		// Otherwise, if the magic type is not text-based, use the generic plaintext type
 		else if (!utils.isTextType(magicType, false))
 			chosenType = 'text/plain';
-
-		// Normalize types which are never correct
-		if (chosenType == 'application/typescript' || chosenType == 'text/x-devicetree-source' || chosenType == 'text/x-c++src')
-			chosenType = 'text/x-csrc';
-
-		// ASP files should always be treated as HTML
-		if (chosenType == 'application/x-asp')
-			chosenType = 'text/html';
 	}
 	else {
 		// If the magic type is text-based or generic, use the file extension type if it's not text-based
@@ -2059,17 +2063,30 @@ function mimeType(file, typeEntry) {
 		// Otherwise, use the generic binary type
 		else if (utils.isTextType(magicType))
 			chosenType = 'application/octet-stream';
-
-		// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
-		if (chosenType == 'audio/vnd.wave')
-			chosenType = 'audio/wav';
-
-		// Neither file nor mimetype seem to know what a Shockwave file is
-		if (chosenType == 'image/x-kodak-dcr')
-			chosenType = 'application/x-director';
 	}
 
-	return chosenType;
+	return fixType(chosenType);
+}
+
+// Post-process a MIME type
+function fixType(type) {
+	// Normalize types which are never correct
+	if (type == 'application/typescript' || type == 'text/x-devicetree-source' || type == 'text/x-c++src')
+		type = 'text/x-csrc';
+
+	// ASP files should always be treated as HTML
+	if (type == 'application/x-asp')
+		type = 'text/html';
+
+	// mimetype gives WAV files a type that browsers refuse to play, so replace it with a better one
+	if (type == 'audio/vnd.wave')
+		type = 'audio/wav';
+
+	// Neither file nor mimetype seem to know what a Shockwave file is
+	if (type == 'image/x-kodak-dcr')
+		type = 'application/x-director';
+
+	return type;
 }
 
 // Guess if a piece of text is HTML

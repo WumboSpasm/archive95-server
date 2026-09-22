@@ -13,6 +13,7 @@
 	"buildBrowse": true,
 	"buildInlinks": true,
 	"buildScreenshots": true,
+	"buildSmartTypes": true,
 	"doModernMode": true,
 	"doHoneypot": false,
 	"doHoneypotBlock": false,
