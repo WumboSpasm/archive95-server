@@ -205,39 +205,41 @@ let database, insertStatement;
 	database.close();
 
 	// Build the screenshot file tree
-	for (const normalizedUrl in screenshotIndex) {
-		const screenshots = screenshotIndex[normalizedUrl];
+	if (config.buildScreenshots) {
+		for (const normalizedUrl in screenshotIndex) {
+			const screenshots = screenshotIndex[normalizedUrl];
 
-		// Create the containing directory for the current URL
-		const urlDir = utils.getArchiveRootDir(normalizedUrl, 'screenshots', tempBuildPath);
-		Deno.mkdirSync(urlDir, { recursive: true });
+			// Create the containing directory for the current URL
+			const urlDir = utils.getArchiveRootDir(normalizedUrl, 'screenshots', tempBuildPath);
+			Deno.mkdirSync(urlDir, { recursive: true });
 
-		// Create subdirectories for each screenshot of the current URL with file data and important information
-		for (let i = 0; i < screenshots.length; i++) {
-			const screenshot = screenshots[i];
+			// Create subdirectories for each screenshot of the current URL with file data and important information
+			for (let i = 0; i < screenshots.length; i++) {
+				const screenshot = screenshots[i];
 
-			// Create subdirectory with the naming format <index>_<source>
-			const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + screenshot.source);
-			Deno.mkdirSync(targetDir, { recursive: true });
+				// Create subdirectory with the naming format <index>_<source>
+				const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + screenshot.source);
+				Deno.mkdirSync(targetDir, { recursive: true });
 
-			// Create the files
-			utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${normalizedUrl}...`);
-			const sourcePath = pathUtils.join(Deno.cwd(), config.inputPath, 'screenshots', screenshot.source, utils.safeDecode(screenshot.path));
-			const thumbnail = Deno.spawnAndWaitSync('convert', [sourcePath, '-geometry', 'x64', '-']).stdout;
-			if (config.buildSymlinks)
-				Deno.symlinkSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
-			else
-				Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
-			Deno.writeFileSync(pathUtils.join(targetDir, 'thumbnail'), thumbnail);
+				// Create the files
+				utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${normalizedUrl}...`);
+				const sourcePath = pathUtils.join(Deno.cwd(), config.inputPath, 'screenshots', screenshot.source, utils.safeDecode(screenshot.path));
+				const thumbnail = Deno.spawnAndWaitSync('convert', [sourcePath, '-geometry', 'x64', '-']).stdout;
+				if (config.buildSymlinks)
+					Deno.symlinkSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
+				else
+					Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
+				Deno.writeFileSync(pathUtils.join(targetDir, 'thumbnail'), thumbnail);
 
-			// Increment screenshot totals
-			stats[screenshot.source].screenshots++;
-			stats.total.screenshots++;
+				// Increment screenshot totals
+				stats[screenshot.source].screenshots++;
+				stats.total.screenshots++;
+			}
+
+			// Save screenshot info to file
+			const screenshotsPath = pathUtils.join(urlDir, 'screenshots.json');
+			Deno.writeTextFileSync(screenshotsPath, JSON.stringify(screenshots, null, '\t'));
 		}
-
-		// Save screenshot info to file
-		const screenshotsPath = pathUtils.join(urlDir, 'screenshots.json');
-		Deno.writeTextFileSync(screenshotsPath, JSON.stringify(screenshots, null, '\t'));
 	}
 
 	// Sort inlinks.json files
@@ -402,28 +404,30 @@ function buildIndexes() {
 		}
 	}
 
-	// Populate screenshot index
-	for (const sourceId in sources) {
-		// Not every source has screenshots
-		const entriesPath = pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json');
-		if (!utils.getPathInfo(entriesPath)?.isFile)
-			continue;
+	if (config.buildScreenshots) {
+		// Populate screenshot index
+		for (const sourceId in sources) {
+			// Not every source has screenshots
+			const entriesPath = pathUtils.join(config.inputPath, 'screenshots', sourceId + '.json');
+			if (!utils.getPathInfo(entriesPath)?.isFile)
+				continue;
 
-		const entries = JSON.parse(Deno.readTextFileSync(entriesPath));
-		for (const entry of entries) {
-			const normalizedUrl = utils.normalizeUrl(entry.url);
-			if (screenshotIndex[normalizedUrl] === undefined)
-				screenshotIndex[normalizedUrl] = [];
+			const entries = JSON.parse(Deno.readTextFileSync(entriesPath));
+			for (const entry of entries) {
+				const normalizedUrl = utils.normalizeUrl(entry.url);
+				if (screenshotIndex[normalizedUrl] === undefined)
+					screenshotIndex[normalizedUrl] = [];
 
-			screenshotIndex[normalizedUrl].push({
-				source: sourceId,
-				url: entry.url,
-				path: entry.path,
-				type: entry.type,
-				offset: screenshotIndex[normalizedUrl].filter(screenshotEntry =>
-					!screenshotEntry.skip && sourceId == screenshotEntry.source && entry.url == screenshotEntry.url
-				).length || null,
-			});
+				screenshotIndex[normalizedUrl].push({
+					source: sourceId,
+					url: entry.url,
+					path: entry.path,
+					type: entry.type,
+					offset: screenshotIndex[normalizedUrl].filter(screenshotEntry =>
+						!screenshotEntry.skip && sourceId == screenshotEntry.source && entry.url == screenshotEntry.url
+					).length || null,
+				});
+			}
 		}
 	}
 }
@@ -576,10 +580,9 @@ async function buildArchive(archive, targetDir) {
 	}
 
 	if (!archive.error) {
-		if (config.buildBrowse) {
-			// Build directory browser indexes
+		// Build directory browser indexes
+		if (config.buildBrowse)
 			buildBrowse(archive);
-		}
 
 		// Add archive to database
 		insertStatement.run(

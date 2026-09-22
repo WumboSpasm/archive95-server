@@ -12,6 +12,7 @@
 	"buildSymlinks": false,
 	"buildBrowse": true,
 	"buildInlinks": true,
+	"buildScreenshots": true,
 	"doModernMode": true,
 	"doHoneypot": false,
 	"doHoneypotBlock": false,

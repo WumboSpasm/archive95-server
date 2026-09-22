@@ -545,6 +545,9 @@ async function serverHandler(request, info) {
 		}
 		case 'screenshot':
 		case 'thumbnail': {
+			if (!config.buildScreenshots)
+				throw new NotFoundError(modernMode);
+
 			// Check if the screenshot exists
 			const screenshotUrl = urlStr.replaceAll('%23', '#');
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(screenshotUrl), 'screenshots');
@@ -1320,7 +1323,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		navbarDefs['ARCHIVES'] = archiveButtons.join('\n');
 
 		const screenshots = [];
-		if (!isOrphan) {
+		if (config.buildScreenshots && !isOrphan) {
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
@@ -1370,7 +1373,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		navbarDefs['ARCHIVES'] = archiveButtons.join(', ');
 
 		const screenshots = [];
-		if (!isOrphan) {
+		if (config.buildScreenshots && !isOrphan) {
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
@@ -1689,14 +1692,15 @@ function buildSourcesContent() {
 
 		const sourceGrandTotalNoErrors = stats[sourceId].urls + stats[sourceId].orphans;
 		const sourceGrandTotal = sourceGrandTotalNoErrors + stats[sourceId].errors;
-		const sourceStats = buildHtml(templates.compat.sources.stats, {
+		let sourceStats = buildHtml(templates.compat.sources.stats, {
 			'URLTOTAL': stats[sourceId].urls.toLocaleString('en-US') + getPercentString(stats[sourceId].urls, stats.total.urls),
 			'ORPHANTOTAL': stats[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats[sourceId].orphans, stats.total.orphans),
 			'ERRORTOTAL': stats[sourceId].errors.toLocaleString('en-US') + getPercentString(stats[sourceId].errors, stats.total.errors),
 			'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal),
 			'GRANDTOTALNOERRORS': sourceGrandTotalNoErrors.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoErrors, grandTotalNoErrors),
-			'SCREENSHOTTOTAL': stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots),
 		});
+		if (config.buildScreenshots)
+			sourceStats += `\n\n<b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots)}`;
 
 		let integrity = '<dd>N/A</dd>';
 		if (source.integrity.length > 0)
@@ -1715,22 +1719,23 @@ function buildSourcesContent() {
 			'DESCRIPTION': source.description,
 			'INTEGRITY': integrity,
 			'REMEDIATIONS': remediations,
-			'STATS': { value: sourceStats, indent: 'first' },
+			'STATS': { value: '<pre>' + sourceStats + '</pre>', indent: 'first' },
 			'PERCENT': Math.round((sourceGrandTotal / grandTotal) * 1000) / 10,
 		}));
 	}
 
-	const overallStats = buildHtml(templates.compat.sources.stats, {
+	let overallStats = buildHtml(templates.compat.sources.stats, {
 		'URLTOTAL': stats.total.urls.toLocaleString('en-US'),
 		'ORPHANTOTAL': stats.total.orphans.toLocaleString('en-US'),
 		'ERRORTOTAL': stats.total.errors.toLocaleString('en-US'),
 		'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
 		'GRANDTOTALNOERRORS': grandTotalNoErrors.toLocaleString('en-US'),
-		'SCREENSHOTTOTAL': stats.total.screenshots.toLocaleString('en-US'),
 	});
+	if (config.buildScreenshots)
+		overallStats += `\n\n<b>Screenshots:</b> ${stats.total.screenshots.toLocaleString('en-US')}`;
 
 	return buildHtml(templates.compat.sources.main, {
-		'OVERALLSTATS': { value: overallStats, indent: 'first' },
+		'OVERALLSTATS': { value: '<pre>' + overallStats + '</pre>', indent: 'first' },
 		'SOURCES': { value: sourceRows.join('\n'), indent: 'none' },
 	});
 }
