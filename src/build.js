@@ -241,34 +241,38 @@ let database, insertStatement;
 	}
 
 	// Sort inlinks.json files
-	utils.logMessage('sorting inlinks...');
-	for (const inlinksPath of inlinksIndex) {
-		const inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
-		if (inlinks.length > 1) {
-			inlinks.sort((a, b) => {
-				const protocolExp = /^(?:https?|ftp):/i;
-				const aIsUrl = protocolExp.test(a.url);
-				const bIsUrl = protocolExp.test(b.url);
-				return aIsUrl == bIsUrl
-					? a.url.localeCompare(b.url, 'en', { sensitivity: 'base' })
-					: (aIsUrl ? -1 : 1);
-			});
-			Deno.writeTextFileSync(inlinksPath, JSON.stringify(inlinks, null, '\t'));
+	if (config.buildInlinks) {
+		utils.logMessage('sorting inlinks...');
+		for (const inlinksPath of inlinksIndex) {
+			const inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
+			if (inlinks.length > 1) {
+				inlinks.sort((a, b) => {
+					const protocolExp = /^(?:https?|ftp):/i;
+					const aIsUrl = protocolExp.test(a.url);
+					const bIsUrl = protocolExp.test(b.url);
+					return aIsUrl == bIsUrl
+						? a.url.localeCompare(b.url, 'en', { sensitivity: 'base' })
+						: (aIsUrl ? -1 : 1);
+				});
+				Deno.writeTextFileSync(inlinksPath, JSON.stringify(inlinks, null, '\t'));
+			}
 		}
 	}
 
-	// Sort and format size field of browse.json files
-	utils.logMessage('sorting directory browser entries...');
-	const formatSize = size => format(size, { maximumFractionDigits: 1 }).replace(/ (.).*$/, (_, c) => c == 'B' ? '' : c.toUpperCase());
-	for (const browsePath of browseIndex) {
-		const browse = JSON.parse(Deno.readTextFileSync(browsePath));
-		browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
-		browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
-		for (const browseFile of browse.files)
-			browseFile.size = formatSize(browseFile.size);
-		for (const browseDir of browse.dirs)
-			browseDir.size = formatSize(browseDir.size);
-		Deno.writeTextFileSync(browsePath, JSON.stringify(browse, null, '\t'));
+	// Sort browse.json files and format size field
+	if (config.buildBrowse) {
+		utils.logMessage('sorting directory browser entries...');
+		const formatSize = size => format(size, { maximumFractionDigits: 1 }).replace(/ (.).*$/, (_, c) => c == 'B' ? '' : c.toUpperCase());
+		for (const browsePath of browseIndex) {
+			const browse = JSON.parse(Deno.readTextFileSync(browsePath));
+			browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+			browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+			for (const browseFile of browse.files)
+				browseFile.size = formatSize(browseFile.size);
+			for (const browseDir of browse.dirs)
+				browseDir.size = formatSize(browseDir.size);
+			Deno.writeTextFileSync(browsePath, JSON.stringify(browse, null, '\t'));
+		}
 	}
 
 	// Save type index to file
@@ -461,9 +465,10 @@ async function buildArchive(archive, targetDir) {
 			Deno.writeTextFileSync(targetPath + '_p', newHtml_p);
 			Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(injectLists_p, null, '\t'));
 			archive.files.push('file_p', 'inject_p.json');
-			buildInlinks(archive, inlinksDirs_p);
+			if (config.buildInlinks)
+				buildInlinks(archive, inlinksDirs_p);
 		}
-		else
+		else if (config.buildInlinks)
 			buildInlinks(archive, inlinksDirs);
 
 		// Build title/content text
@@ -481,7 +486,8 @@ async function buildArchive(archive, targetDir) {
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, script);
 		archive.files.push('inject.json');
-		buildInlinks(archive, inlinksDirs);
+		if (config.buildInlinks)
+			buildInlinks(archive, inlinksDirs);
 	}
 	else {
 		// Convert certain file formats to ones that are more broadly supported by browsers
@@ -570,8 +576,10 @@ async function buildArchive(archive, targetDir) {
 	}
 
 	if (!archive.error) {
-		// Build directory browser indexes
-		buildBrowse(archive);
+		if (config.buildBrowse) {
+			// Build directory browser indexes
+			buildBrowse(archive);
+		}
 
 		// Add archive to database
 		insertStatement.run(
@@ -846,13 +854,15 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, doOrigin, lin
 	linkInjectList.push(injectLinkEntry);
 
 	// If the link is valid, add it to the inlinks directory list
-	const inlinkUrl = resolvedUrl.replace(/#.*$/, '');
-	if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
-		const normalizedUrl = !isOrphan
-			? utils.normalizeUrl(inlinkUrl)
-			: pathUtils.join(injectLinkEntry.source, utils.normalizePath(inlinkUrl));
-		const inlinksDir = utils.getArchiveRootDir(normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath);
-		inlinksDirs.push(inlinksDir);
+	if (config.buildInlinks) {
+		const inlinkUrl = resolvedUrl.replace(/#.*$/, '');
+		if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
+			const normalizedUrl = !isOrphan
+				? utils.normalizeUrl(inlinkUrl)
+				: pathUtils.join(injectLinkEntry.source, utils.normalizePath(inlinkUrl));
+			const inlinksDir = utils.getArchiveRootDir(normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath);
+			inlinksDirs.push(inlinksDir);
+		}
 	}
 
 	// Build replacement string that cuts out the URL to be re-inserted by the server

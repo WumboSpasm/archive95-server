@@ -10,6 +10,8 @@
 	"logToConsole": true,
 	"logBlockedRequests": true,
 	"buildSymlinks": false,
+	"buildBrowse": true,
+	"buildInlinks": true,
 	"doModernMode": true,
 	"doHoneypot": false,
 	"doHoneypotBlock": false,

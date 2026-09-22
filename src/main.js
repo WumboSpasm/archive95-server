@@ -329,6 +329,9 @@ async function serverHandler(request, info) {
 			return new Response(archiveRawFile.readable, { headers: headers });
 		}
 		case 'browse': {
+			if (!config.buildBrowse)
+				throw new NotFoundError(modernMode);
+
 			// Look for the directory listing file and load it
 			const browseInfoSpread = getBrowseInfo(urlStr, sourceId);
 			if (browseInfoSpread === null)
@@ -462,6 +465,9 @@ async function serverHandler(request, info) {
 			return new Response(browsePage, { headers: headers });
 		}
 		case 'inlinks': {
+			if (!config.buildInlinks)
+				throw new NotFoundError(modernMode);
+
 			const [inlinksInfo, displayUrl] = getInlinksInfo(urlStr, sourceId);
 
 			let content;
@@ -648,6 +654,9 @@ async function serverHandler(request, info) {
 					return new Response('{}', { headers: headers });
 				}
 				case 'browse': {
+					if (!config.buildBrowse)
+						break;
+
 					// Return the contents of the given directory
 					const browseInfoSpread = getBrowseInfo(params.get('url') || '', params.get('source') || undefined);
 					if (browseInfoSpread !== null) {
@@ -658,6 +667,9 @@ async function serverHandler(request, info) {
 					return new Response('{}', { headers: headers });
 				}
 				case 'inlinks': {
+					if (!config.buildInlinks)
+						break;
+
 					// Return all archived pages which link to the given URL
 					const [inlinksInfo] = getInlinksInfo(params.get('url') || '', params.get('source') || undefined);
 					return new Response(JSON.stringify(inlinksInfo), { headers: headers });
@@ -1286,8 +1298,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">Wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">Live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
-			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}`,
-			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}`,
+			'BROWSE': config.buildBrowse ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}" target="_blank">Browse</a>` : '',
+			'INLINKS': config.buildInlinks ? `<a href="/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}" target="_blank">Inlinks</a>` : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 		};
@@ -1333,8 +1345,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		const navbarDefs = {
 			'RANDOM': `/${buildRoute('random', null, null, flagIds)}`,
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
-			'INLINKS': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}`,
-			'BROWSE': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}`,
+			'INLINKS': config.buildInlinks ? buildHtml(templates.compat.navbar.inlinks, { 'URL': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}` }) : '',
+			'BROWSE': config.buildBrowse ? buildHtml(templates.compat.navbar.browse, { 'URL': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}` }) : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',
@@ -1788,9 +1800,9 @@ class UnarchivedError extends ArchiveError {
 		const urlDir = splitUrl.join('/');
 
 		const options = [];
-		if (getBrowseInfo(urlDir) !== null)
+		if (config.buildBrowse && getBrowseInfo(urlDir) !== null)
 			options.push(`<li><a href="/browse/${encodeURI(urlDir)}">Browse files in this directory</a></li>`);
-		if (getInlinksInfo(url)[0].length > 0)
+		if (config.buildInlinks && getInlinksInfo(url)[0].length > 0)
 			options.push(`<li><a href="/inlinks/${url}">See which pages link here</a></li>`);
 		if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(url))
 			options.push(`<li><a href="http://web.archive.org/web/0/${url}">Go to the Wayback Machine</a></li>`);
