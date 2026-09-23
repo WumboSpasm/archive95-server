@@ -21,6 +21,15 @@ Archive95 is an independent web archive focused on material that predates or has
    - Note that this will take a ***very*** long time by default; see below for configuration options that can be changed to speed up the build process
 5. Run the server with `deno task start`
 
+## Command-Line Flags
+
+### General
+- `--config=<path>` - Load a config file at the specified path
+   - Default is `config.json` in the repository root, or `data/config_template.json` if it does not exist
+
+### Build
+- `--clean` - Perform a clean build
+
 ## Configuration Options
 A template configuration file containing the default values of each option can be found at `data/config_template.json`.
 
@@ -60,15 +69,6 @@ A template configuration file containing the default values of each option can b
 - `randomCacheSize` - The amount of random pages to store in memory before querying the search database again
 - `resultsPerPage` - The maximum amount of search results that can be displayed on a single page
 - `maxPage` - The maximum amount of pages of search results that can be retrieved in a search query
-
-## Command-Line Flags
-
-### General
-- `--config=<path>` - Load a config file at the specified path
-   - Default is `config.json` in the repository root, or `data/config_template.json` if it does not exist
-
-### Build Only
-- `--clean` - Perform a clean build
 
 ## Endpoints
 - `view` - View archived file
