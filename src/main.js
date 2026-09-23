@@ -1315,8 +1315,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">Wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">Live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
-			'BROWSE': config.buildBrowse ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}" target="_blank">Browse</a>` : '',
-			'INLINKS': config.buildInlinks ? `<a href="/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}" target="_blank">Inlinks</a>` : '',
+			'BROWSE': config.buildBrowse ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}">Browse</a>` : '',
+			'INLINKS': config.buildInlinks ? `<a href="/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}">Inlinks</a>` : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'RANDOM': config.buildDatabase ? buildHtml(templates.modern.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
 		};
