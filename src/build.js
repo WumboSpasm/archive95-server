@@ -1598,6 +1598,11 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				});
 			break;
 		}
+		case 'cdweb': {
+			// Remove URLs from usemap attributes
+			html = html.replace(/(usemap=")[^"#]+/gi, '$1');
+			break;
+		}
 		case 'amigaplus': {
 			// Convert CD-ROM local links into path links
 			html = html.replaceAll('file:///d:/Amiga_HTML/', '/');

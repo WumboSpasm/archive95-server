@@ -43,7 +43,7 @@ export function normalizeUrl(url, doLowerCase = true) {
 		// Remove imagemap coordinates
 		.replace(/\?\d+,\d+$/, '')
 		// Remove index file
-		.replace(/(?<!\?.*)\/(?:index\.[a-z]?html?|default\.htm)$/i, '')
+		.replace(/(?<!\?.*)\/(?:index\.[a-z]?html?|default\.(?:htm|asp))$/i, '')
 		// Collapse sequences of slashes
 		.replace(/(?<!\?.*)\/{2,}/g, '/')
 		// Remove trailing slash
