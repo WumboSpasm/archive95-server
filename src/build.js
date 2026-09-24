@@ -682,15 +682,14 @@ function buildHtmlInjectLists(html, archive) {
 
 		// If the URL contains JavaScript code, populate the injection lists accordingly
 		const isJavaScript = /^javascript:/i.test(url);
-		let javaScriptHasLinks = false;
 		if (isJavaScript) {
 			const codeUrl = url.substring(11);
 			const codeUrlIndex = rawUrlIndex + rawUrl.indexOf(codeUrl);
-			javaScriptHasLinks = buildScriptInjectLists(codeUrl, baseUrl, codeUrlIndex, codeUrlIndex, codeUrlIndex + codeUrl.length, 'jsattr', injectLists, inlinksDirs, archive);
+			buildScriptInjectLists(codeUrl, baseUrl, codeUrlIndex, codeUrlIndex, codeUrlIndex + codeUrl.length, 'jsattr', injectLists, inlinksDirs, archive);
 		}
 
-		// If the URL is an anchor or has links inside JavaScript code, add a code injection list entry indicating that a target attribute should be added
-		if (url.startsWith('#') || javaScriptHasLinks) {
+		// If the URL is an anchor or has JavaScript code, add a code injection list entry indicating that a target attribute should be added
+		if (url.startsWith('#') || isJavaScript) {
 			injectLists.code.push({
 				start: index - offset + match.length,
 				end: null,
