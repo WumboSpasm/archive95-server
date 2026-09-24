@@ -5,6 +5,8 @@ import * as pathUtils from '@std/path';
 
 import * as utils from './utils.js';
 
+globalThis.scriptContext = 'build';
+
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
 	boolean: ['clean'],
@@ -78,7 +80,7 @@ let database, insertStatement;
 	Deno.writeTextFileSync(sourcesPath, JSON.stringify(sources, null, '\t'));
 
 	// Initialize the new database
-	if (config.buildDatabase) {
+	if (config.buildFeatures.includes('database')) {
 		utils.logMessage('creating new database...');
 		database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
 		database.exec('PRAGMA journal_mode = WAL');
@@ -203,13 +205,13 @@ let database, insertStatement;
 	}
 
 	// Close the database and disable journaling since we won't be performing write operations ever again
-	if (config.buildDatabase) {
+	if (config.buildFeatures.includes('database')) {
 		database.exec('PRAGMA journal_mode = OFF');
 		database.close();
 	}
 
 	// Build the screenshot file tree
-	if (config.buildScreenshots) {
+	if (config.buildFeatures.includes('screenshots')) {
 		for (const normalizedUrl in screenshotIndex) {
 			const screenshots = screenshotIndex[normalizedUrl];
 
@@ -229,7 +231,7 @@ let database, insertStatement;
 				utils.logMessage(`[${++current}/${total}] building ${screenshot.source} screenshot for ${normalizedUrl}...`);
 				const sourcePath = pathUtils.join(Deno.cwd(), config.inputPath, 'screenshots', screenshot.source, utils.safeDecode(screenshot.path));
 				const thumbnail = Deno.spawnAndWaitSync('convert', [sourcePath, '-geometry', 'x64', '-']).stdout;
-				if (config.buildSymlinks)
+				if (config.buildFeatures.includes('symlinks'))
 					Deno.symlinkSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
 				else
 					Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
@@ -247,7 +249,7 @@ let database, insertStatement;
 	}
 
 	// Sort inlinks.json files
-	if (config.buildInlinks) {
+	if (config.buildFeatures.includes('inlinks')) {
 		utils.logMessage('sorting inlinks...');
 		for (const inlinksPath of inlinksIndex) {
 			const inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
@@ -266,7 +268,7 @@ let database, insertStatement;
 	}
 
 	// Sort browse.json files and format size field
-	if (config.buildBrowse) {
+	if (config.buildFeatures.includes('browse')) {
 		utils.logMessage('sorting directory browser entries...');
 		const formatSize = size => format(size, { maximumFractionDigits: 1 }).replace(/ (.).*$/, (_, c) => c == 'B' ? '' : c.toUpperCase());
 		for (const browsePath of browseIndex) {
@@ -281,14 +283,11 @@ let database, insertStatement;
 		}
 	}
 
-	// Save type index to file
-	utils.logMessage('saving type index...');
+	// Save build information to files
+	utils.logMessage('saving build information...');
 	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'types.json'), JSON.stringify(typeIndex, null, '\t'));
-
-	// Save total entry statistics to file
-	utils.logMessage('saving entry statistics...');
-	const statsPath = pathUtils.join(tempBuildPath, 'stats.json');
-	Deno.writeTextFileSync(statsPath, JSON.stringify(stats, null, '\t'));
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'stats.json'), JSON.stringify(stats, null, '\t'));
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'features.json'), JSON.stringify(config.buildFeatures, null, '\t'));
 
 	// Create a directory to store old build files for deletion
 	const deleteBuildPath = pathUtils.join(config.buildPath, '.delete');
@@ -298,6 +297,7 @@ let database, insertStatement;
 	utils.logMessage('moving files out of temp directory...');
 	const buildEntries = [
 		'archive95.sqlite',
+		'features.json',
 		'sources.json',
 		'stats.json',
 		'types.json',
@@ -408,7 +408,7 @@ function buildIndexes() {
 		}
 	}
 
-	if (config.buildScreenshots) {
+	if (config.buildFeatures.includes('screenshots')) {
 		// Populate screenshot index
 		for (const sourceId in sources) {
 			// Not every source has screenshots
@@ -448,7 +448,7 @@ async function buildArchive(archive, targetDir) {
 	// If the loaded file data was changed, copy over the raw file
 	const sourcePath = pathUtils.join(Deno.cwd(), config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
 	if (changed) {
-		if (config.buildSymlinks)
+		if (config.buildFeatures.includes('symlinks'))
 			Deno.symlinkSync(sourcePath, pathUtils.join(targetDir, 'raw'));
 		else
 			Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'raw'));
@@ -467,7 +467,7 @@ async function buildArchive(archive, targetDir) {
 		archive.files.push('inject.json');
 
 		let html_p;
-		if (config.buildPresentation) {
+		if (config.buildFeatures.includes('presentation')) {
 			html_p = improvePresentation(html);
 			if (html != html_p) {
 				// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
@@ -482,7 +482,7 @@ async function buildArchive(archive, targetDir) {
 		search = buildSearch(html_p ?? html, archive.types[0]);
 
 		// Build inlinks
-		if (config.buildInlinks)
+		if (config.buildFeatures.includes('inlinks'))
 			buildInlinks(archive, inlinksDirs);
 
 		// Update file size
@@ -497,13 +497,13 @@ async function buildArchive(archive, targetDir) {
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, script);
 		archive.files.push('inject.json');
-		if (config.buildInlinks)
+		if (config.buildFeatures.includes('inlinks'))
 			buildInlinks(archive, inlinksDirs);
 	}
 	else {
 		// Convert certain file formats to ones that are more broadly supported by browsers
 		// They will be used when presentation improvements are active
-		if (config.buildPresentation) {
+		if (config.buildFeatures.includes('presentation')) {
 			let convertCommand, doStdin = true, doStdout = true, type_p;
 			switch (archive.types[0]) {
 				case 'image/x-xbitmap': {
@@ -571,7 +571,7 @@ async function buildArchive(archive, targetDir) {
 			}
 		}
 
-		if (!changed && config.buildSymlinks)
+		if (!changed && config.buildFeatures.includes('symlinks'))
 			Deno.symlinkSync(sourcePath, targetPath);
 		else
 			Deno.writeFileSync(targetPath, file);
@@ -590,11 +590,11 @@ async function buildArchive(archive, targetDir) {
 
 	if (!archive.error) {
 		// Build directory browser indexes
-		if (config.buildBrowse)
+		if (config.buildFeatures.includes('browse'))
 			buildBrowse(archive);
 
 		// Add archive to database
-		if (config.buildDatabase)
+		if (config.buildFeatures.includes('database'))
 			insertStatement.run(
 				archive.source,
 				archive.url ?? archive.path,
@@ -866,7 +866,7 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, doOrigin, lin
 	linkInjectList.push(injectLinkEntry);
 
 	// If the link is valid, add it to the inlinks directory list
-	if (config.buildInlinks) {
+	if (config.buildFeatures.includes('inlinks')) {
 		const inlinkUrl = resolvedUrl.replace(/#.*$/, '');
 		if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
 			const normalizedUrl = !isOrphan
@@ -1862,7 +1862,7 @@ async function getFile(archive) {
 			if (changed)
 				Deno.writeFileSync(mimeFilePath, file);
 
-			if (config.buildSmartTypes) {
+			if (config.buildFeatures.includes('smartTypes')) {
 				// Query candidates for the file's type using several different methods
 				const urlExtMatch = URL.parse(archive.url)?.pathname.match(/[^/]+(\.[^/.]+)$/i);
 				const typePromises = [
@@ -1889,7 +1889,7 @@ async function getFile(archive) {
 		}
 
 		const typeEntry = typeIndex[typeField];
-		if (config.buildSmartTypes) {
+		if (config.buildFeatures.includes('smartTypes')) {
 			// If the raw type is text-based, re-encode the file to slightly increase the odds of getting a trustworthy magic type
 			if (utils.isTextType(typeEntry.rawType)) {
 				file = await convertText(file, filePath, archive);

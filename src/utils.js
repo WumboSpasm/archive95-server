@@ -158,8 +158,9 @@ export function isTextType(type, includeHtml = true, includeImages = true) {
 // Log to the appropriate places based on the configuration
 export function logMessage(message) {
 	message = `[${new Date().toLocaleString()}] ${message}`;
-	if (config.logFile)
-		try { Deno.writeTextFile(config.logFile, message + '\n', { append: true }); } catch {}
+	const logFile = scriptContext == 'build' ? config.buildLogFile : config.serverLogFile;
+	if (logFile)
+		try { Deno.writeTextFile(logFile, message + '\n', { append: true }); } catch {}
 	if (config.logToConsole)
 		console.log(message);
 }

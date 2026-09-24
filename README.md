@@ -18,7 +18,7 @@ Archive95 is an independent web archive focused on material that predates or has
 2. Download the latest revision of the dataset from [here](https://archive.org/details/archive95-dataset) and extract into the `data` folder
 3. Install package dependencies with `deno install`
 4. Build the filesystem and search database with `deno task build`
-   - Note that this will take a ***very*** long time by default; see below for configuration options that can be changed to speed up the build process
+   - Note that this will take a ***very*** long time by default; [see below](#feature-options) for information on features that can be turned off to speed up the build process
 5. Run the server with `deno task start`
 
 ## Command-Line Flags
@@ -33,35 +33,20 @@ Archive95 is an independent web archive focused on material that predates or has
 ## Configuration Options
 A template configuration file containing the default values of each option can be found at `data/config_template.json`.
 
-### General
-- `inputPath` - The directory of an extracted [Archive95 dataset](https://archive.org/details/archive95-dataset) from which the server database and file tree will be built
-- `buildPath` - The directory of the built server database and file tree
-- `logFile` - The file path to which log entries should be saved; if empty or `null`, log entries will not be saved to a file
-- `logToConsole` - Controls if log entries should appear in the console
-
-### Build
-- `buildDatabase` - Controls if the search database should be created during the build process
-   - Turning this off will disable the random button and all search functionality outside of exact URL searches
-- `buildSmartTypes` - Controls if the MIME types of files should be identified using a more reliable but significantly slower method
-   - Turning this off will decrease the initial build time by orders of magnitude, but subsequent builds will be identical in speed regardless of how this option is set
-- `buildScreenshots` - Controls if screenshots should be included in the build process
-   - Turning this off will produce a noticeable difference in build time only if it is already relatively short
-- `buildPresentation` - Controls if fixed/converted versions of files should be created during the build process, to be served when the presentation improvements flag is active
-   - Turning this off will prevent most audio/video files from being played in modern browsers, and will remove the presentation improvements flag in compatibility mode
-- `buildBrowse` - Controls if data files pertaining to the directory browser should be created during the build process
-   - Turning this off will result in a slightly smaller amount of build files and will disable the directory browser
-- `buildInlinks` - Controls if data files pertaining to the inlinks page should be created during the build process
-   - Turning this off will result in a significantly smaller amount of build files and will disable the inlinks page
-- `buildSymlinks` - Controls if unchanged files created during the build process should instead be symlinked to their equivalents in the input directory
-   - Turning this on will significantly decrease the build size but will create a dependency on the input directory existing in its current location
-
-### Server
 - `httpPort` - The HTTP port on which to start the server
 - `httpsPort` - The HTTPS port on which to start the server if `httpsCert` and `httpsKey` are specified
 - `httpsCert` - The file path of the TLS certificate needed to start the server on HTTPS
 - `httpsKey` - The file path of the TLS private key needed to start the server on HTTPS
 - `accessHosts` - An array of hostnames through which connections are allowed; if empty, all hostnames are allowed
+- `inputPath` - The directory of an extracted [Archive95 dataset](https://archive.org/details/archive95-dataset) from which the server database and file tree will be built
+- `buildPath` - The directory of the built server database and file tree
+- `buildLogFile` - The file path to which build log entries should be saved
+- `serverLogFile` - The file path to which server log entries should be saved
+- `blocklistFile` - The file path to the blocklist
+- `honeypotFile` - The file path to which IP addresses caught in the honeypot should be saved
+- `logToConsole` - Controls if log entries should appear in the console
 - `logBlockedRequests` - Controls if blocked requests should be logged
+- `buildFeatures` - An array of strings denoting which features should be made available via the build process; [see below](#feature-options) for a full list of features
 - `doModernMode` - Controls if modern browsers should be served an enhanced HTML5 frontend
 - `doHoneypot` - Controls if the options page should contain hidden honeypot links which will permanently log IP addresses to a `honeypot.txt` file
 - `doHoneypotBlock` - Controls if requests from IP addresses caught in the honeypot should be blocked
@@ -69,6 +54,22 @@ A template configuration file containing the default values of each option can b
 - `randomCacheSize` - The amount of random pages to store in memory before querying the search database again
 - `resultsPerPage` - The maximum amount of search results that can be displayed on a single page
 - `maxPage` - The maximum amount of pages of search results that can be retrieved in a search query
+
+### Feature Options
+- `database` - Enables the creation of a database file providing full-text search functionality and the random button
+   - Turning this off will cause the search box to process only exact URL matches, similar to the Wayback Machine
+- `smartTypes` - Enables the identification of file types using a slow but highly reliable method
+   - Turning this off will decrease the initial build time by orders of magnitude, but subsequent builds will be identical in speed regardless of how this option is set
+- `screenshots` - Enables vintage page screenshots to be accessible from the navigation bar where available
+   - Turning this off will produce a noticeable difference in build time only if it is already relatively short
+- `presentation` - Enables the creation of fixed/converted versions of files, to be served when the presentation improvements flag is active
+   - Turning this off will prevent most audio/video files from being playable in modern browsers, and will remove the presentation improvements flag in compatibility mode
+- `browse` - Enables the directory browser
+   - Turning this off will moderately decrease the total amount of build files
+- `inlinks` - Enables the inlinks page
+   - Turning this off will significantly decrease the total amount of build files
+- `symlinks` - Enables the creation of symlinks to the input paths of unchanged archive files
+   - Turning this on will significantly decrease the total build size, but will create a post-build dependency on the input directory
 
 ## Endpoints
 - `view` - View archived file

@@ -7,20 +7,18 @@ import { walkSync } from '@std/fs/walk';
 
 import * as utils from './utils.js';
 
+globalThis.scriptContext = 'server';
+
 // Parse command-line arguments
 const args = parseArgs(Deno.args, {
-	string: ['config', 'blocklist'],
-	default: {
-		'config': 'config.json',
-		'blocklist': 'blocklist.json',
-		'honeypot': 'honeypot.txt',
-	},
+	string: ['config'],
+	default: { config: 'config.json' },
 });
 
 // Load configuration/blocklist/honeypot files
 utils.loadConfig(args['config']);
-loadBlocklist(args['blocklist']);
-loadHoneypot(args['honeypot']);
+const blocklist = loadBlocklist();
+const honeypot = loadHoneypot();
 
 const templates = loadTemplates();
 const modes = JSON.parse(Deno.readTextFileSync('data/modes.json'));
@@ -28,6 +26,7 @@ const flags = JSON.parse(Deno.readTextFileSync('data/flags.json'));
 const highlights = JSON.parse(Deno.readTextFileSync('data/highlights.json'));
 const sources = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'sources.json')));
 const stats = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'stats.json')));
+const features = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'features.json')));
 
 const staticFileInfo = cacheStaticFileInfo();
 const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
@@ -36,7 +35,7 @@ const sourcesContent = buildSourcesContent();
 let httpServer, httpsServer;
 let searchDatabase, randomDatabase;
 
-if (config.buildDatabase) {
+if (features.includes('database')) {
 	// Create the database workers
 	const searchDatabaseWorker = new Worker(new URL('./db/search.js', import.meta.url), { type: 'module' });
 	const randomDatabaseWorker = new Worker(new URL('./db/random.js', import.meta.url), { type: 'module' });
@@ -335,7 +334,7 @@ async function serverHandler(request, info) {
 			return new Response(archiveRawFile.readable, { headers: headers });
 		}
 		case 'browse': {
-			if (!config.buildBrowse)
+			if (!features.includes('browse'))
 				throw new NotFoundError(modernMode);
 
 			// Look for the directory listing file and load it
@@ -471,7 +470,7 @@ async function serverHandler(request, info) {
 			return new Response(browsePage, { headers: headers });
 		}
 		case 'inlinks': {
-			if (!config.buildInlinks)
+			if (!features.includes('inlinks'))
 				throw new NotFoundError(modernMode);
 
 			const [inlinksInfo, displayUrl] = getInlinksInfo(urlStr, sourceId);
@@ -513,7 +512,7 @@ async function serverHandler(request, info) {
 			// The "Apply changes" link simply returns you to the viewer with the flags from the current URL
 			const optionsList = [];
 			for (const flag of flags) {
-				if (flag.hidden || !modernMode && (flag.modern || flag.id == 'p' && !config.buildPresentation))
+				if (flag.hidden || !modernMode && (flag.modern || flag.id == 'p' && !features.includes('presentation')))
 					continue;
 
 				const checked = flagIds.includes(flag.id);
@@ -551,7 +550,7 @@ async function serverHandler(request, info) {
 		}
 		case 'screenshot':
 		case 'thumbnail': {
-			if (!config.buildScreenshots)
+			if (!features.includes('screenshots'))
 				throw new NotFoundError(modernMode);
 
 			// Check if the screenshot exists
@@ -589,7 +588,7 @@ async function serverHandler(request, info) {
 			return new Response(screenshotFile.readable, { headers: headers });
 		}
 		case 'random': {
-			if (!config.buildDatabase)
+			if (!features.includes('database'))
 				throw new NotFoundError(modernMode);
 
 			// Query for a random archive
@@ -666,7 +665,7 @@ async function serverHandler(request, info) {
 					return new Response('{}', { headers: headers });
 				}
 				case 'browse': {
-					if (!config.buildBrowse)
+					if (!features.includes('browse'))
 						break;
 
 					// Return the contents of the given directory
@@ -679,7 +678,7 @@ async function serverHandler(request, info) {
 					return new Response('{}', { headers: headers });
 				}
 				case 'inlinks': {
-					if (!config.buildInlinks)
+					if (!features.includes('inlinks'))
 						break;
 
 					// Return all archived pages which link to the given URL
@@ -759,7 +758,7 @@ async function serverShutdown() {
 		serverPromises.push(httpServer.shutdown());
 	if (httpsServer)
 		serverPromises.push(httpsServer.shutdown());
-	if (config.buildDatabase)
+	if (features.includes('database'))
 		databasePromises.push(searchDatabase.close(), randomDatabase.close());
 
 	// Try to shut everything down gracefully within the set timeout, otherwise kill the process
@@ -880,7 +879,7 @@ async function performSearch(params) {
 		}
 	}
 
-	if (config.buildDatabase) {
+	if (features.includes('database')) {
 		// Parse the search query
 		const parsedQuery = query.replace(/"[^"]+"|[^ "]+|"/g, (match, offset, str) => {
 			// FTS5 is used for database searches, and it's very easy to make invalid queries
@@ -1188,7 +1187,7 @@ async function buildSearch(params, modernMode) {
 	};
 
 	// Build search options
-	if (config.buildDatabase)
+	if (features.includes('database'))
 		searchDefs['OPTIONS'] = buildHtml(templates[modernMode ? 'modern' : 'compat'].search.options, {
 			'INTITLE': searchFilters.inTitle ? ' checked' : '',
 			'INCONTENT': searchFilters.inContent ? ' checked' : '',
@@ -1315,10 +1314,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">Wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">Live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
-			'BROWSE': config.buildBrowse ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}">Browse</a>` : '',
-			'INLINKS': config.buildInlinks ? `<a href="/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}">Inlinks</a>` : '',
+			'BROWSE': features.includes('browse') ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}">Browse</a>` : '',
+			'INLINKS': features.includes('inlinks') ? `<a href="/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}">Inlinks</a>` : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
-			'RANDOM': config.buildDatabase ? buildHtml(templates.modern.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
+			'RANDOM': features.includes('database') ? buildHtml(templates.modern.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
 		};
 
 		const archiveButtons = [];
@@ -1337,7 +1336,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		navbarDefs['ARCHIVES'] = archiveButtons.join('\n');
 
 		const screenshots = [];
-		if (config.buildScreenshots && !isOrphan) {
+		if (features.includes('screenshots') && !isOrphan) {
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
@@ -1360,10 +1359,10 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	}
 	else {
 		const navbarDefs = {
-			'RANDOM': config.buildDatabase ? buildHtml(templates.compat.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
+			'RANDOM': features.includes('database') ? buildHtml(templates.compat.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
-			'INLINKS': config.buildInlinks ? buildHtml(templates.compat.navbar.inlinks, { 'URL': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}` }) : '',
-			'BROWSE': config.buildBrowse ? buildHtml(templates.compat.navbar.browse, { 'URL': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}` }) : '',
+			'INLINKS': features.includes('inlinks') ? buildHtml(templates.compat.navbar.inlinks, { 'URL': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}` }) : '',
+			'BROWSE': features.includes('browse') ? buildHtml(templates.compat.navbar.browse, { 'URL': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}` }) : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',
@@ -1387,7 +1386,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		navbarDefs['ARCHIVES'] = archiveButtons.join(', ');
 
 		const screenshots = [];
-		if (config.buildScreenshots && !isOrphan) {
+		if (features.includes('screenshots') && !isOrphan) {
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(archiveInfo.url), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (utils.getPathInfo(screenshotInfoSetPath)?.isFile) {
@@ -1595,21 +1594,25 @@ function sanitizeInject(str, amp = false) {
 }
 
 // Attempt to load blocklist file
-function loadBlocklist(blocklistPath) {
-	globalThis.blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
-	if (utils.getPathInfo(blocklistPath)?.isFile) {
-		try { Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(blocklistPath))); } catch {}
-		utils.logMessage(`loaded blocklist file at ${Deno.realPathSync(blocklistPath)}`);
+function loadBlocklist() {
+	const blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
+	if (utils.getPathInfo(config.blocklistFile)?.isFile) {
+		try { Object.assign(blocklist, JSON.parse(Deno.readTextFileSync(config.blocklistFile))); } catch {}
+		utils.logMessage(`loaded blocklist file at ${Deno.realPathSync(config.blocklistFile)}`);
 	}
+
+	return blocklist;
 }
 
 // If enabled, load honeypot file and transform it into an object
-function loadHoneypot(honeypotPath) {
-	globalThis.honeypot = {};
-	if (config.doHoneypot && utils.getPathInfo(honeypotPath)?.isFile) {
-		honeypot = Object.fromEntries(Deno.readTextFileSync(honeypotPath).trim().split(/[\r\n]+/).map(line => [line, true]));
-		utils.logMessage(`loaded honeypot file at ${Deno.realPathSync(honeypotPath)}`);
+function loadHoneypot() {
+	let honeypot = {};
+	if (config.doHoneypot && utils.getPathInfo(config.honeypotFile)?.isFile) {
+		honeypot = Object.fromEntries(Deno.readTextFileSync(config.honeypotFile).trim().split(/[\r\n]+/).map(line => [line, true]));
+		utils.logMessage(`loaded honeypot file at ${Deno.realPathSync(config.honeypotFile)}`);
 	}
+
+	return honeypot;
 }
 
 // Load HTML templates into memory
@@ -1672,7 +1675,7 @@ function buildHomeContent() {
 			'TOTALENTRIES': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
 			'TOTALSOURCES': Object.keys(sources).length.toLocaleString('en-US'),
 			'HIGHLIGHTS': highlightsHtml,
-			'RANDOM': config.buildDatabase ? templates.compat.search.random : '',
+			'RANDOM': features.includes('database') ? templates.compat.search.random : '',
 		}),
 		buildHtml(templates.modern.search.highlights, {
 			'HIGHLIGHTS': highlightsHtml,
@@ -1714,7 +1717,7 @@ function buildSourcesContent() {
 			'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal),
 			'GRANDTOTALNOERRORS': sourceGrandTotalNoErrors.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoErrors, grandTotalNoErrors),
 		});
-		if (config.buildScreenshots)
+		if (features.includes('screenshots'))
 			sourceStats += `\n\n<b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots)}`;
 
 		let integrity = '<dd>N/A</dd>';
@@ -1746,7 +1749,7 @@ function buildSourcesContent() {
 		'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
 		'GRANDTOTALNOERRORS': grandTotalNoErrors.toLocaleString('en-US'),
 	});
-	if (config.buildScreenshots)
+	if (features.includes('screenshots'))
 		overallStats += `\n\n<b>Screenshots:</b> ${stats.total.screenshots.toLocaleString('en-US')}`;
 
 	return buildHtml(templates.compat.sources.main, {
@@ -1820,9 +1823,9 @@ class UnarchivedError extends ArchiveError {
 		const urlDir = splitUrl.join('/');
 
 		const options = [];
-		if (config.buildBrowse && getBrowseInfo(urlDir) !== null)
+		if (features.includes('browse') && getBrowseInfo(urlDir) !== null)
 			options.push(`<li><a href="/browse/${encodeURI(urlDir)}">Browse files in this directory</a></li>`);
-		if (config.buildInlinks && getInlinksInfo(url)[0].length > 0)
+		if (features.includes('inlinks') && getInlinksInfo(url)[0].length > 0)
 			options.push(`<li><a href="/inlinks/${url}">See which pages link here</a></li>`);
 		if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(url))
 			options.push(`<li><a href="http://web.archive.org/web/0/${url}">Go to the Wayback Machine</a></li>`);
