@@ -1147,10 +1147,13 @@ function getCodeSlices(codeInjectList, flagIds) {
 				value = 'void(0)';
 		}
 		else if (iFlag || jFlag) {
-			if (injectCodeEntry.type == 'topdef')
+			if (injectCodeEntry.type == 'selfref' && !jFlag)
+				// Prevent self-targeted links from updating the iframe's window context and creating two navigation bars
+				value = '_top';
+			else if (injectCodeEntry.type == 'jstopdef')
 				// Define a JavaScript variable pointing to the iframe's window context
 				value = 'window.ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent; ';
-			else if (injectCodeEntry.type == 'topref' || injectCodeEntry.type == 'parentref' && !jFlag)
+			else if (injectCodeEntry.type == 'jstopref' || injectCodeEntry.type == 'jsparentref' && !jFlag)
 				// Replace JavaScript references to the top window context with the variable pointing to the iframe's window context
 				value = 'ARCHIVE95_TOP';
 		}

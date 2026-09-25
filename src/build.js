@@ -744,6 +744,20 @@ function buildHtmlInjectLists(html, archive) {
 			type: 'noframes',
 		});
 
+	// Try to find start and end indexes of target attributes, so they can be replaced if needed
+	const targetExp = /(target\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
+	for (let targetMatch; (targetMatch = targetExp.exec(newHtml)) !== null;) {
+		const targetValue = trimQuotes(targetMatch[2]);
+		if (targetValue == '_self') {
+			const targetIndex = targetMatch.index + targetMatch[1].length + targetMatch[2].indexOf(targetValue);
+			injectLists.code.push({
+				start: targetIndex,
+				end: targetIndex + targetValue.length,
+				type: 'selfref',
+			});
+		}
+	}
+
 	// Populate injection lists based on contents of script elements
 	const scriptExp = /(<script(?: [^>]+)?>)(.*?)<\/script>/gis;
 	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
@@ -795,14 +809,14 @@ function buildScriptInjectLists(script, baseUrl, contentIndex, startIndex, endIn
 			injectLists.code.push({
 				start: contentIndex + scriptNoComments.match(/^\s*(?:<!-*\s*)?/s, '')[0].length,
 				end: null,
-				type: 'topdef',
+				type: 'jstopdef',
 			});
 
 		for (const contextMatch of contextMatches)
 			injectLists.code.push({
 				start: contentIndex + contextMatch.index + contextMatch[1].length,
 				end: contentIndex + contextMatch.index + contextMatch[0].length,
-				type: contextMatch[2] == 'top' ? 'topref' : 'parentref',
+				type: contextMatch[2] == 'top' ? 'jstopref' : 'jsparentref',
 			});
 	}
 
