@@ -173,6 +173,8 @@ async function serverHandler(request, info) {
 					metadata.push(`<base target="${injectLists.metadata.target ?? '_top'}">`);
 				else if (flagIds.includes('j'))
 					metadata.push('<script src="/scripts/frames.js"></script>');
+				if (/[ijk]/.test(flagIds))
+					metadata.push(`<script src="/scripts/redirect.js"></script>`);
 				if (modernMode) {
 					if (doNavbar)
 						metadata.push(
@@ -1071,11 +1073,11 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 	let noNavbarFlagId = 'n';
 	if (/[ij]/.test(flagIds))
 		noNavbarFlagId = 'j';
-	else if (flagIds.includes('d'))
+	else if (/[dk]/.test(flagIds))
 		noNavbarFlagId = 'k';
 
 	// Build slices for each link on the page
-	const defaultFlagIds = flagIds.replace(/[ik]/g, '');
+	const defaultFlagIds = flagIds.replace('i', '');
 	const iframeFlagIds = cleanFlags(defaultFlagIds + 'i');
 	const noNavbarFlagIds = cleanFlags(defaultFlagIds + noNavbarFlagId);
 	const slices = [];
