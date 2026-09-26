@@ -726,7 +726,7 @@ function buildHtmlInjectLists(html, archive) {
 	injectLists.navbar.index = bodyMatch !== null ? bodyMatch[0].length : 0;
 
 	// Try to find start and end indexes of frameset, so it can be removed if needed
-	const framesetExp = /<frameset.*?>.*<\/frameset> *\n?/is;
+	const framesetExp = /<frameset.*?>.*?<\/frameset> *\n?/is;
 	const framesetMatch = newHtmlNoComments.match(framesetExp);
 	if (framesetMatch !== null)
 		injectLists.frames.push({
