@@ -1310,12 +1310,14 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			// Fix a link to GNN on the EUnet homepage
 			if (path == 'EUNET/INDEX.HTM')
 				html = html.replace('/magazin/www/html', '..');
+
 			break;
 		}
 		case 'sgi': {
 			// Fix anomaly with HTML files in the Edu/ directory
 			if (path.startsWith('Edu/'))
 				html = html.replace(/(?<!")\.\.\//g, '/');
+
 			break;
 		}
 		case 'riscdisc': {
@@ -1345,6 +1347,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					/"[./]+no_imagemap\.htm"/gi,
 					'"/deadend"',
 				);
+
 			break;
 		}
 		case 'wwcatalog': {
@@ -1359,6 +1362,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					/<(?:A|IMG|(?=\/))([^> \n]+\.[a-zA-Z]+)"/g,
 					(_, imagePath) => {
 						imagePath = imagePath.replace(/^[./]+/, '').replace(/^([^/]+)\/\1\//, '$1/');
+
 						let upDirs = 0;
 						if (!url.startsWith('http://www.census.gov/')) {
 							const dirDepth = url.replace(/^http:\/\/[^/]+\/?/, '').split('/').length - 1;
@@ -1381,6 +1385,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 							else if (dirDepth == 5)
 								upDirs = 4;
 						}
+
 						return '<IMG SRC="' + (upDirs > 0 ? '../'.repeat(upDirs) : '/') + imagePath + '"';
 					},
 				).replace(
@@ -1395,6 +1400,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 							else
 								imageUrl = new URL(imageUrl.replace(/([^/]+\/[^/]+$)/, '../../$1')).href;
 						}
+
 						return `<IMG SRC="${imageUrl}"${attrs}>`;
 					},
 				).replace(
@@ -1402,6 +1408,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					/(mailto:)\/\/[^@]+\//gi,
 					'$1',
 				);
+
 			// Remove stray comment closing sequences
 			const closeMatch = html.match(/>\.?(\s*(?:-->)+)/);
 			if (closeMatch !== null) {
@@ -1411,6 +1418,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					html = html.substring(0, closeIndex) + html.substring(closeIndex + closeMatch[1].length);
 				}
 			}
+
 			break;
 		}
 		case 'einblicke': {
@@ -1443,6 +1451,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				/(?<=<a .*?href=")[./]*fehler.htm(?=".*?>.*?<\/a>)/gis,
 				'/deadend',
 			);
+
 			break;
 		}
 		case 'chipfun':
@@ -1461,32 +1470,35 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					const dirMatch = url.match(/\/[a-z]+:/i);
 					if (dirMatch !== null)
 						url = url.substring(dirMatch.index + 1);
+
 					return tagStart + '"' + url.replace(/~.+?\/~/, '~') + '"';
 				});
+
 			break;
 		}
 		case 'pcpress': {
 			// Attempt to fix broken external links
-			const links = getLinks(html, url)
-				.filter(link => link.hasHttp && URL.canParse(link.rawUrl))
-				.toSorted((a, b) => a.index - b.index);
+			const links = getLinks(html, url).filter(link => link.hasHttp && URL.canParse(link.rawUrl)).toSorted((a, b) => a.index - b.index);
 			for (const link of links) {
-				const httpExp = /^http:(?=\/?[^/])/i;
-				const badDomainExp = /(?<=http:\/\/)[^./]+(?=\/)/i;
-				const badAnchorExp = /(?<=#[^/]+)\//i;
-				const badExtensionExp = /(?<=\.(html?|cgi|gif))\//i;
 				link.url = link.rawUrl;
+				const httpExp = /^http:(?=\/?[^/])/i;
 				if (httpExp.test(link.url))
 					link.url = URL.parse(link.url.replace(httpExp, ''), link.baseUrl)?.href ?? link.url;
+
+				const badDomainExp = /(?<=http:\/\/)[^./]+(?=\/)/i;
 				if (link.baseUrl !== undefined && badDomainExp.test(link.url))
 					link.url = URL.parse(
 						link.url.replace(/^http:\/\/.*?\//i, '/'),
 						link.baseUrl.replace(/(?<=http:\/\/).*?(?=\.)/i, link.url.match(badDomainExp)[0])
 					)?.href ?? link.url;
+
 				link.url = (URL.parse(link.url)?.href
 					.replace(/(?<![a-z]+:)\/\//i, '/')
 					.replace(/(?<=\.html?)\/$/i, '')
 				) ?? link.url;
+
+				const badAnchorExp = /(?<=#[^/]+)\//i;
+				const badExtensionExp = /(?<=\.(html?|cgi|gif))\//i;
 				const hasBadAnchor = badAnchorExp.test(link.url);
 				const hasBadExtension = badExtensionExp.test(link.url);
 				if (hasBadAnchor || hasBadExtension) {
@@ -1496,15 +1508,14 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					link.url = URL.parse(after, before)?.href ?? link.url;
 				}
 			}
+
 			// Inject fixed links into markup
-			let offset = 0;
-			for (const link of links.filter(filterLink => filterLink.url != filterLink.rawUrl)) {
-				const start = link.index;
-				const inject = `${link.attribute}"${link.url}"`;
-				const end = link.index + link.fullMatch.length;
-				html = html.substring(0, start + offset) + inject + html.substring(end + offset);
-				offset += inject.length - link.fullMatch.length;
-			}
+			html = utils.replaceSlices(html, links.filter(filterLink => filterLink.url != filterLink.rawUrl).map(mapLink => ({
+				start: mapLink.index,
+				end: mapLink.index + mapLink.fullMatch.length,
+				value: `${mapLink.attribute}"${mapLink.url}"`,
+			})));
+
 			break;
 		}
 		case 'roteiro': {
@@ -1515,6 +1526,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				.replace(/"?\.\.\/\.\.\/dium.htm"?/g, '"/deadend"')
 				// Fix broken port injects (what even is this?)
 				.replace(/<(:[78]0)/g, '$1/<');
+
 			break;
 		}
 		case 'netcontrol96':
@@ -1527,11 +1539,13 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			// Fix incorrect file paths on some pages
 			if (sourceId == 'netcontrol98')
 				html = html.replace(/nomorehere\/404\/sorry\/\/[^"]+\//g, '');
+
 			// Reverse encryption of email strings
 			const decodeEmail = encodedEmail => {
 				const bytes = encodedEmail.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
 				return bytes.slice(1).map(byte => String.fromCharCode(byte ^ bytes[0])).join('');
 			};
+
 			html = html.replace(
 				// Remove injected CloudFlare scripts
 				/<script [^>]*src="[^"]+\/cloudflare-static\/[^"]+"[^>]*><\/script>/g,
@@ -1603,7 +1617,48 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				// Remove footer HTML (variation 2)
 				/<br><center><br>(?:<!--#include virtual=".*?" -->)?<BR><img src="[^"]+\/okto-banner.gif" border=0><\/a>/g,
 				'',
+			).replace(
+				// Fix broken select elements
+				/(<select(?:\s+[^>]+)?>)(.*?)(<\/select>)/gis,
+				(match, selectOpen, selectBody, selectClose) => {
+					const elemMatches = [...selectBody.matchAll(/(?:<(?!option)[a-z]+(?:\s+[^>]*)?>\s*)+/gis)];
+					if (elemMatches.length == 0)
+						return match;
+
+					const slices = [];
+					for (const elemMatch of elemMatches) {
+						const elemBodyIndex = elemMatch.index + elemMatch[0].length;
+						if (elemBodyIndex == selectBody.length)
+							continue;
+
+						const closeTags = elemMatch[0].match(/(?<=<)[a-z]+/gi).toReversed().map(tagName => '</' + tagName + '>').join('');
+						const trimmedSelectBody = selectBody.substring(elemBodyIndex);
+						const closeIndex = trimmedSelectBody.indexOf(closeTags);
+						const elemBody = closeIndex != -1 ? trimmedSelectBody.substring(0, closeIndex) : trimmedSelectBody;
+						const optionMatch = elemBody.match(/<option/i);
+						if (optionMatch === null)
+							continue;
+
+						slices.push({
+							start: elemBodyIndex + optionMatch.index,
+							end: null,
+							value: closeTags,
+						});
+
+						if (closeIndex != -1)
+							slices.push({
+								start: elemBodyIndex + closeIndex,
+								end: elemBodyIndex + closeIndex + closeTags.length,
+								value: '',
+							});
+					}
+
+					return slices.length > 0
+						? selectOpen + utils.replaceSlices(selectBody, slices) + selectClose
+						: match;
+				},
 			);
+
 			// Fix images on pages with base URL
 			if (baseExp.test(html))
 				html = html.replace(linkExp, (_, tagStart, url) => {
@@ -1611,6 +1666,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 						url = `"${trimQuotes(url.substring(url.lastIndexOf('/') + 1))}"`;
 					return tagStart + url;
 				});
+
 			break;
 		}
 		case 'cdweb': {
@@ -1643,9 +1699,11 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				/\s*tppabs="[^">]*?"/gis,
 				'',
 			);
+
 			break;
 		}
 	}
+
 	return html;
 }
 
