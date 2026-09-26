@@ -1445,7 +1445,8 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			);
 			break;
 		}
-		case 'chipfun': {
+		case 'chipfun':
+		case 'chipspiele': {
 			// Remove base directory definition
 			html = html.replace(/^<base href=".*?">\n/, '');
 			break;
