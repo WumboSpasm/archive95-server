@@ -213,13 +213,18 @@
 	},
 	"News": {
 		"CNN": {
-			"source": "netcontrol96",
+			"source": "cdweb",
 			"url": "http://www.cnn.com/",
 			"offset": null
 		},
-		"The New York Times": {
-			"source": "netcontrol96",
-			"url": "http://www.nytimes.com/",
+		"MSNBC": {
+			"source": "cdweb",
+			"url": "http://www.msnbc.com/news/default.asp",
+			"offset": null
+		},
+		"ABC News": {
+			"source": "cdweb",
+			"url": "http://www.abcnews.com/",
 			"offset": null
 		},
 		"NPR": {
@@ -230,6 +235,11 @@
 		"The Telegraph": {
 			"source": "riscdisc",
 			"url": "http://www.telegraph.co.uk/home.html",
+			"offset": null
+		},
+		"CNET": {
+			"source": "cdweb",
+			"url": "http://www.news.com/",
 			"offset": null
 		},
 		"ESPN": {
