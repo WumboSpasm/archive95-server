@@ -145,7 +145,8 @@ async function serverHandler(request, info) {
 	if (config.doHoneypot && /\d/.test(flagIds)) {
 		if (!honeypot[ipAddress]) {
 			honeypot[ipAddress] = true;
-			try { Deno.writeTextFile(args['honeypot'], ipAddress + '\n', { append: true }); } catch {}
+			if (config.honeypotFile)
+				try { Deno.writeTextFile(config.honeypotFile, ipAddress + '\n', { append: true }); } catch {}
 		}
 		if (config.doHoneypotBlock)
 			throw new BlockedError();
