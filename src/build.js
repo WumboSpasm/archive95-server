@@ -1238,6 +1238,10 @@ function resolveUrl(rawUrl, archive) {
 			[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
 	}
 
+	// If the resolved URL is the same as the base URL but with an anchor, then return just the anchor
+	if (anchor != '' && resolvedSource == archive.source && resolvedUrl == (archive.url ?? archive.path))
+		return anchor;
+
 	// If the unresolved URL has an added trailing slash in its parsed form, remove it
 	if (unresolvedUrl.endsWith('/') && !rawUrl.endsWith('/'))
 		unresolvedUrl = unresolvedUrl.slice(0, -1);
