@@ -164,8 +164,8 @@ async function serverHandler(request, info) {
 			const fileType = archiveInfo.types[Math.min(archivePathInfo.typeIndex, archiveInfo.types.length - 1)];
 			if (fileType == 'text/html' && (!modernMode || /[ndijk]/.test(flagIds))) {
 				const injectLists = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
-				const injectFramesetEntry = injectLists.frames.find(injectFrameEntry => injectFrameEntry.type == 'frameset');
-				const doNavbar = !/[nijk]/.test(flagIds) && (injectFramesetEntry === undefined || flagIds.includes('f'));
+				const injectFramesetEntries = injectLists.frames.filter(injectFrameEntry => injectFrameEntry.type == 'frameset');
+				const doNavbar = !/[nijk]/.test(flagIds) && (injectFramesetEntries.length == 0 || flagIds.includes('f'));
 				const slices = [];
 
 				// Build metadata slices
@@ -203,14 +203,17 @@ async function serverHandler(request, info) {
 				// Build frame slices
 				if (injectLists.frames.length > 0) {
 					// If the 'f' flag is supplied, build a slice to remove <frameset> element and its contents
-					if (injectFramesetEntry !== undefined && flagIds.includes('f'))
-						slices.push({
-							start: injectFramesetEntry.start,
-							end: injectFramesetEntry.end,
-							value: '',
-						});
+					if (injectFramesetEntries.length > 0 && flagIds.includes('f')) {
+						for (const injectFramesetEntry of injectFramesetEntries)
+							slices.push({
+								start: injectFramesetEntry.start,
+								end: injectFramesetEntry.end,
+								value: '',
+							});
+					}
+
 					// If <frameset> element doesn't exist or the 'f' flag is supplied, remove <noframes> tags to reveal their contents
-					if (injectFramesetEntry === undefined || flagIds.includes('f')) {
+					if (injectFramesetEntries.length == 0 || flagIds.includes('f')) {
 						for (const injectNoframesEntry of injectLists.frames.filter(injectFrameEntry => injectFrameEntry.type == 'noframes'))
 							slices.push({
 								start: injectNoframesEntry.start,

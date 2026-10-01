@@ -725,24 +725,58 @@ function buildHtmlInjectLists(html, archive) {
 	const bodyMatch = newHtmlNoComments.match(bodyExp);
 	injectLists.navbar.index = bodyMatch !== null ? bodyMatch[0].length : 0;
 
-	// Try to find start and end indexes of frameset, so it can be removed if needed
-	const framesetExp = /<frameset.*?>.*?<\/frameset> *\n?/is;
-	const framesetMatch = newHtmlNoComments.match(framesetExp);
-	if (framesetMatch !== null)
-		injectLists.frames.push({
-			start: framesetMatch.index,
-			end: framesetMatch.index + framesetMatch[0].length,
-			type: 'frameset',
-		});
+	// Try to find start and end indexes of frameset and noframes elements, so each can be removed if needed
+	const framesetMatches = [...newHtmlNoComments.matchAll(/(<frameset.*?>)(.*)(<\/frameset>)/gis)];
+	const noframesMatches = [...newHtmlNoComments.matchAll(/(<no *frames?>)(.*?)(<\/no *frames?>|$)/gis)];
 
-	// Try to find start and end indexes of noframes opening/closing tags, so they can be removed to display their inner contents if needed
-	const noframesExp = /<\/?no ?frames?> *\n?/gi;
-	for (let noframesMatch; (noframesMatch = noframesExp.exec(newHtmlNoComments)) !== null;)
+	// Populate the frame injection list with frameset indexes while making sure they don't overlap with noframes elements
+	for (const framesetMatch of framesetMatches) {
+		const framesetEndIndex = framesetMatch.index + framesetMatch[0].length;
+		const noframesMatch = noframesMatches.find(noframesMatch => noframesMatch.index > framesetMatch.index && noframesMatch.index < framesetEndIndex);
+		if (noframesMatch !== undefined) {
+			injectLists.frames.push({
+				start: framesetMatch.index,
+				end: noframesMatch.index,
+				type: 'frameset',
+			});
+
+			const noframesEndIndex = noframesMatch.index + noframesMatch[0].length;
+			if (noframesEndIndex < framesetEndIndex)
+				injectLists.frames.push({
+					start: noframesEndIndex,
+					end: framesetEndIndex,
+					type: 'frameset',
+				});
+			else
+				injectLists.frames.push({
+					start: framesetEndIndex - framesetMatch[3].length,
+					end: framesetEndIndex,
+					type: 'frameset',
+				});
+		}
+		else
+			injectLists.frames.push({
+				start: framesetMatch.index,
+				end: framesetEndIndex,
+				type: 'frameset',
+			});
+	}
+
+	// Populate the frame injection list with noframes indexes
+	for (const noframesMatch of noframesMatches) {
 		injectLists.frames.push({
 			start: noframesMatch.index,
-			end: noframesMatch.index + noframesMatch[0].length,
+			end: noframesMatch.index + noframesMatch[1].length,
 			type: 'noframes',
 		});
+
+		if (noframesMatch[3] != '')
+			injectLists.frames.push({
+				start: noframesMatch.index + noframesMatch[0].length - noframesMatch[3].length,
+				end: noframesMatch.index + noframesMatch[0].length,
+				type: 'noframes',
+			});
+	}
 
 	// Try to find start and end indexes of target attributes, so they can be replaced if needed
 	const targetExp = /(target\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
