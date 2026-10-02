@@ -2406,4 +2406,4 @@ function blankHtml(html, excludeScripts = false) {
 }
 
 // Remove any quotes or whitespace surrounding a string
-function trimQuotes(str) { return str.trim().replace(/^(["'])?(.*?)\1?$/s, '$2').replace(/[\r\n]+/g, '').trim(); }
+function trimQuotes(str) { return str.trim().replace(/^(["'])?(.*?)\1?$/s, '$2').trim(); }
