@@ -694,13 +694,13 @@ function buildHtmlInjectLists(html, archive) {
 	}
 
 	let offset = 0;
-	const newHtml = html.replace(linkExp, (match, tagStart, rawUrl, quoteChar, index) => {
+	const newHtml = html.replace(linkExp, (match, attrStart, rawUrl, quoteChar, index) => {
 		// Don't process the match if its index is found inside the exclusion list
 		if (excludeIndexes.includes(index))
 			return match;
 
 		const url = trimQuotes(rawUrl);
-		const rawUrlIndex = index - offset + tagStart.length;
+		const rawUrlIndex = index - offset + attrStart.length;
 
 		// If the URL contains JavaScript code, populate the injection lists accordingly
 		const isJavaScript = /^javascript:/i.test(url);
@@ -723,7 +723,7 @@ function buildHtmlInjectLists(html, archive) {
 		// Add an entry to the link injection list and update the offset based on the length of the replacement string
 		const [newStr, isAnchor] = buildInjectLinkEntry(
 			rawUrl, baseUrl, rawUrlIndex + 1, false, forceAssetIndexes.includes(index), false,
-			injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"',
+			injectLists.links, inlinksDirs, archive, attrStart, quoteChar || '"',
 		);
 		offset += match.length - newStr.length;
 
@@ -898,19 +898,19 @@ function buildScriptInjectLists(script, baseUrl, contentIndex, startIndex, endIn
 }
 
 // Add a URL within an HTML file to the link injection list
-function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, doOrigin, linkInjectList, inlinksDirs, archive, tagStart = '', quoteChar = '') {
+function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, doOrigin, linkInjectList, inlinksDirs, archive, attrStart = '', quoteChar = '') {
 	// Trim quotes from URL string and extract any excess data
 	let url = trimQuotes(rawUrl);
 	let urlPrefix = '';
-	if (/^http-equiv/i.test(tagStart))
+	if (/^http-equiv/i.test(attrStart))
 		urlPrefix = url.match(/^\d*[;,]? *(?:URL=)?/i)[0];
-	else if (/^rectangle/i.test(tagStart))
+	else if (/^rectangle/i.test(attrStart))
 		urlPrefix = url.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
 	url = url.substring(urlPrefix.length);
 
 	// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
 	if (url == '/deadend')
-		return [tagStart + quoteChar + urlPrefix + url + quoteChar, false];
+		return [attrStart + quoteChar + urlPrefix + url + quoteChar, false];
 
 	// If a base URL is specified, change the destination of relative URLs accordingly
 	if (baseUrl !== null) {
@@ -930,21 +930,21 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 		source: null,
 		url: url,
 		offset: null,
-		isAsset: forceAsset || !/^href/i.test(tagStart),
-		isRefresh: /^http-equiv/i.test(tagStart),
+		isAsset: forceAsset || !/^href/i.test(attrStart),
+		isRefresh: /^http-equiv/i.test(attrStart),
 		doOrigin: doOrigin,
 	};
 
 	// Attempt to resolve the URL string to an entry in the archive, and return immediately if it is an anchor
 	const resolveUrlOutput = resolveUrl(url, archive);
 	if (!Array.isArray(resolveUrlOutput))
-		return [tagStart + quoteChar + (preserveUrl ? rawUrl : resolveUrlOutput) + quoteChar, true];
+		return [attrStart + quoteChar + (preserveUrl ? rawUrl : resolveUrlOutput) + quoteChar, true];
 
 	const [resolvedUrl, unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
 
 	// Unresolved relative links are assumed to be invalid if the source's URL mode is 2
 	if (isInvalid)
-		return [tagStart + quoteChar + urlPrefix + '/deadend' + quoteChar, false];
+		return [attrStart + quoteChar + urlPrefix + '/deadend' + quoteChar, false];
 
 	// Update link info and push to injection list
 	injectLinkEntry.source = resolvedSource;
@@ -965,7 +965,7 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 	}
 
 	// Build replacement string that cuts out the URL to be re-inserted by the server
-	return [tagStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar, false];
+	return [attrStart + quoteChar + (preserveUrl ? rawUrl : urlPrefix) + quoteChar, false];
 }
 
 // Identify URLs in JavaScript code and add entries to the link injection list
@@ -1551,13 +1551,13 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				// Remove added empty comments
 				.replaceAll('<!-- -->', '')
 				// Remove broken containing directories from links
-				.replace(linkExp, (_, tagStart, url) => {
+				.replace(linkExp, (_, attrStart, url) => {
 					url = trimQuotes(url);
 					const dirMatch = url.match(/\/[a-z]+:/i);
 					if (dirMatch !== null)
 						url = url.substring(dirMatch.index + 1);
 
-					return tagStart + '"' + url.replace(/~.+?\/~/, '~') + '"';
+					return attrStart + '"' + url.replace(/~.+?\/~/, '~') + '"';
 				});
 
 			break;
@@ -1747,10 +1747,10 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 
 			// Fix images on pages with base URL
 			if (baseExp.test(html))
-				html = html.replace(linkExp, (_, tagStart, url) => {
-					if (/^(?:src|background)/i.test(tagStart))
+				html = html.replace(linkExp, (_, attrStart, url) => {
+					if (/^(?:src|background)/i.test(attrStart))
 						url = `"${trimQuotes(url.substring(url.lastIndexOf('/') + 1))}"`;
-					return tagStart + url;
+					return attrStart + url;
 				});
 
 			break;
@@ -1769,16 +1769,16 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			html = html.replace(
 				// Move URLs back to their original attributes where applicable
 				/([a-z]+\s*=\s*)(["'])((?:(?!\2|>).)+)\2\s*(tppabs="([^">]*?)")(?:\s*\4)?/gis,
-				(_, tagStart, quoteChar, path, __, url) => {
+				(_, attrStart, quoteChar, path, __, url) => {
 					path = trimQuotes(path);
 					if (url == 'error')
 						url = '/deadend';
 					let urlPrefix = '';
-					if (/^content/i.test(tagStart))
+					if (/^content/i.test(attrStart))
 						urlPrefix = path.match(/^\d*[;,]? *(?:URL=)?/i)[0];
-					else if (/^rectangle/i.test(tagStart))
+					else if (/^rectangle/i.test(attrStart))
 						urlPrefix = path.match(/^ *(?:\(\d+, *\d+\) *)*/)[0];
-					return tagStart + quoteChar + urlPrefix + url + quoteChar;
+					return attrStart + quoteChar + urlPrefix + url + quoteChar;
 				}
 			).replace(
 				// Remove any remaining ttpabs attributes
