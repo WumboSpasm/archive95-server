@@ -489,13 +489,25 @@ async function buildArchive(archive, targetDir) {
 		archive.size = new TextEncoder().encode(html).byteLength;
 	}
 	else if (archive.types[0] == 'text/javascript') {
-		// Build injection list for JavaScript files
+		// Build injection list and inlinks for JavaScript files
 		const script = decoder.decode(file);
 		const injectLists = { code: [], links: [] };
 		const inlinksDirs = [];
 		buildScriptInjectLists(script, null, 0, null, null, null, injectLists, inlinksDirs, archive);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, script);
+		archive.files.push('inject.json');
+		if (config.buildFeatures.includes('inlinks'))
+			buildInlinks(archive, inlinksDirs);
+	}
+	else if (archive.types[0] == 'text/css') {
+		// Build injection list and inlinks for CSS files
+		const style = decoder.decode(file);
+		const injectLists = { links: [] };
+		const inlinksDirs = [];
+		buildInjectLinkEntriesFromStyle(style, 0, injectLists.links, inlinksDirs, archive);
+		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
+		Deno.writeTextFileSync(targetPath, style);
 		archive.files.push('inject.json');
 		if (config.buildFeatures.includes('inlinks'))
 			buildInlinks(archive, inlinksDirs);
@@ -671,6 +683,16 @@ function buildHtmlInjectLists(html, archive) {
 			excludeIndexes.push(eventMatch.index + eventMatch[1].length + 1 + linkMatch.index);
 	}
 
+	// Identify indexes of external stylesheet definitions so they can be treated as assets despite using the href attribute
+	const forceAssetIndexes = [];
+	const resourceExp = /(<link\s+[^>]*)href\s*=\s*(?:(["'])(?:(?!\2|>).)+\2|[^>\s]+)([^>]*>)/gis;
+	for (let resourceMatch; (resourceMatch = resourceExp.exec(html)) !== null;) {
+		const [tagStart, tagEnd] = [resourceMatch[1], resourceMatch[3]];
+		const styleRelExp = /rel\s*=\s*['"]?\s*stylesheet/is;
+		if (styleRelExp.test(tagStart) || styleRelExp.test(tagEnd))
+			forceAssetIndexes.push(resourceMatch.index + tagStart.length);
+	}
+
 	let offset = 0;
 	const newHtml = html.replace(linkExp, (match, tagStart, rawUrl, quoteChar, index) => {
 		// Don't process the match if its index is found inside the exclusion list
@@ -699,7 +721,10 @@ function buildHtmlInjectLists(html, archive) {
 		}
 
 		// Add an entry to the link injection list and update the offset based on the length of the replacement string
-		const [newStr, isAnchor] = buildInjectLinkEntry(rawUrl, baseUrl, rawUrlIndex + 1, false, false, injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"');
+		const [newStr, isAnchor] = buildInjectLinkEntry(
+			rawUrl, baseUrl, rawUrlIndex + 1, false, forceAssetIndexes.includes(index), false,
+			injectLists.links, inlinksDirs, archive, tagStart, quoteChar || '"',
+		);
 		offset += match.length - newStr.length;
 
 		// If the URL was resolved to an anchor, do the same thing as above but with the updated offset
@@ -807,6 +832,20 @@ function buildHtmlInjectLists(html, archive) {
 		buildScriptInjectLists(eventMatch[3], baseUrl, contentIndex, contentIndex, endIndex, 'jsattr', injectLists, inlinksDirs, archive);
 	}
 
+	// Populate injection lists based on contents of style elements
+	const styleElemExp = /(<style(?: [^>]+)?>)(.*?)<\/style>/gis;
+	for (let styleElemMatch; (styleElemMatch = styleElemExp.exec(newHtml)) !== null;) {
+		const [_, styleElemOpen, styleElemBody] = styleElemMatch;
+		buildInjectLinkEntriesFromStyle(styleElemBody, styleElemMatch.index + styleElemOpen.length, injectLists.links, inlinksDirs, archive);
+	}
+
+	// Populate injection lists based on contents of style attributes
+	const styleAttrExp = /(style\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
+	for (let styleAttrMatch; (styleAttrMatch = styleAttrExp.exec(newHtml)) !== null;) {
+		const [_, styleAttrStart, styleAttrValue] = styleAttrMatch;
+		buildInjectLinkEntriesFromStyle(styleAttrValue, styleAttrMatch.index + styleAttrStart.length, injectLists.links, inlinksDirs, archive);
+	}
+
 	return [newHtml, injectLists, inlinksDirs];
 }
 
@@ -859,7 +898,7 @@ function buildScriptInjectLists(script, baseUrl, contentIndex, startIndex, endIn
 }
 
 // Add a URL within an HTML file to the link injection list
-function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, doOrigin, linkInjectList, inlinksDirs, archive, tagStart = '', quoteChar = '') {
+function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, doOrigin, linkInjectList, inlinksDirs, archive, tagStart = '', quoteChar = '') {
 	// Trim quotes from URL string and extract any excess data
 	let url = trimQuotes(rawUrl);
 	let urlPrefix = '';
@@ -891,7 +930,7 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, doOrigin, lin
 		source: null,
 		url: url,
 		offset: null,
-		isHref: /^href/i.test(tagStart),
+		isAsset: forceAsset || !/^href/i.test(tagStart),
 		isRefresh: /^http-equiv/i.test(tagStart),
 		doOrigin: doOrigin,
 	};
@@ -935,12 +974,21 @@ function buildInjectLinkEntriesFromScript(script, baseUrl, index, linkInjectList
 		.concat([...script.matchAll(/(?<=['"][^'"]*=\s*)()((?:\/|[a-z]+:)[^\s'"<>]+)[^'"]*['"]/gis)])
 		.toSorted((a, b) => a.index - b.index);
 	for (const linkMatch of linkMatches) {
-		const quoteChar = linkMatch[1];
-		const url = linkMatch[2];
-		buildInjectLinkEntry(url, baseUrl, index + linkMatch.index + quoteChar.length, true, !url.startsWith('/'), linkInjectList, inlinksDirs, archive);
+		const [_, quoteChar, url] = linkMatch;
+		buildInjectLinkEntry(url, baseUrl, index + linkMatch.index + quoteChar.length, true, false, !url.startsWith('/'), linkInjectList, inlinksDirs, archive);
 	}
 
 	return linkMatches.length > 0;
+}
+
+// Identify URLs in CSS code and add entries to the link injection list
+function buildInjectLinkEntriesFromStyle(style, index, linkInjectList, inlinksDirs, archive) {
+	const linkMatches = [...style.matchAll(/(url\s*\(\s*)((["'])(?:(?!\3).)+\3|[^)]+)/gis)];
+	for (const linkMatch of linkMatches) {
+		const [_, funcStart, rawUrl] = linkMatch;
+		const url = trimQuotes(rawUrl);
+		buildInjectLinkEntry(url, null, index + linkMatch.index + funcStart.length + rawUrl.indexOf(url), true, false, false, linkInjectList, inlinksDirs, archive);
+	}
 }
 
 // Add the archive as an inlink at the supplied locations

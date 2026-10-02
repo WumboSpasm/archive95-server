@@ -246,6 +246,18 @@ async function serverHandler(request, info) {
 				headers.set('Content-Type', fileType + (!ancientMode ? ';charset=UTF-8' : ''));
 				return new Response(script, { headers: headers });
 			}
+			else if (fileType == 'text/css' && /[ndijk]/.test(flagIds)) {
+				let style = Deno.readTextFileSync(archivePathInfo.filePath);
+
+				// Load injection list and build link slices
+				const injectLists = JSON.parse(Deno.readTextFileSync(archivePathInfo.injectPath));
+				const linkSlices = getLinkSlices(injectLists.links, archiveInfo, flagIds, requestUrl.origin);
+
+				// Build CSS with replaced slices and serve it
+				style = utils.replaceSlices(style, linkSlices);
+				headers.set('Content-Type', fileType + (!ancientMode ? ';charset=UTF-8' : ''));
+				return new Response(style, { headers: headers });
+			}
 			else if (!/[nijk]/.test(flagIds)) {
 				// Embed files using the most appropriate template if the navbar is enabled
 				// For iframes with anchors, we take encoded hash characters and carefully convert them into proper anchors
@@ -1090,7 +1102,7 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 		let injectFlagIds = defaultFlagIds;
 		if (flagIds.includes('i') && injectLinkEntry.isRefresh)
 			injectFlagIds = iframeFlagIds;
-		else if (!injectLinkEntry.isRefresh && !injectLinkEntry.isHref)
+		else if (!injectLinkEntry.isRefresh && injectLinkEntry.isAsset)
 			injectFlagIds = noNavbarFlagIds;
 
 		// For iframes, if the link exists in the archive and includes an anchor, encode the hash character so the anchor can be seen by the server
@@ -1109,7 +1121,7 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 			// If the link is accompanied by a source, point it within the archive
 			sliceValue = `/${buildRoute('view', injectLinkEntry.source, injectLinkEntry.offset, injectFlagIds)}/${injectUrl}`;
 		else if (/^https?:/i.test(injectUrl)) {
-			if (!injectLinkEntry.isHref || flagIds.includes('w'))
+			if (injectLinkEntry.isAsset || flagIds.includes('w'))
 				// Do the same as above if the 'w' flag is supplied or if the link itself specifies it
 				// It's fine if the link goes nowhere - it's better than potentially loading off-site resources
 				sliceValue = `/${buildRoute('view', archiveInfo.source, null, injectFlagIds)}/${injectUrl}`;
