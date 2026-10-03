@@ -948,7 +948,7 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 
 	// Update link info and push to injection list
 	injectLinkEntry.source = resolvedSource;
-	injectLinkEntry.url = (preserveUrl ? unresolvedUrl : resolvedUrl).replaceAll('#', '%23') + anchor;
+	injectLinkEntry.url = (preserveUrl && /^(?:https?|ftp):/i.test(unresolvedUrl) && URL.canParse(unresolvedUrl) ? unresolvedUrl : resolvedUrl).replaceAll('#', '%23') + anchor;
 	injectLinkEntry.offset = resolvedOffset;
 	linkInjectList.push(injectLinkEntry);
 
