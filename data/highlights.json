@@ -99,9 +99,9 @@
 			"url": "http://www.altavista.digital.com:80/",
 			"offset": null
 		},
-		"Archie": {
-			"source": "wwwdir",
-			"url": "http://hoohoo.ncsa.uiuc.edu/archie.html",
+		"Magellan": {
+			"source": "liveobjects",
+			"url": "http://www.mckinley.com/index_bd.html",
 			"offset": null
 		},
 		"Galaxy": {
