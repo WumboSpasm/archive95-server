@@ -1150,40 +1150,37 @@ function getLinkSlices(linkInjectList, archiveInfo, flagIds, origin) {
 // Create a list of replaceable slices from a code injection list
 function getCodeSlices(codeInjectList, flagIds) {
 	const slices = [];
-	const [sFlag, iFlag, jFlag] = [flagIds.includes('s'), flagIds.includes('i'), flagIds.includes('j')];
+	const [iFlag, jFlag, sFlag, cFlag] = [flagIds.includes('i'), flagIds.includes('j'), flagIds.includes('s'), flagIds.includes('c')];
 	for (const injectCodeEntry of codeInjectList) {
 		let value;
-		if (iFlag && injectCodeEntry.type == 'forceself')
+		if (injectCodeEntry.type == 'forceself' && iFlag)
 			// Inject a target attribute into link elements to force them to only update the iframe's window context
 			value = ' target="_self"';
-		else if (sFlag) {
-			if (injectCodeEntry.type == 'jselem')
-				// Blank script tags and their contents
-				value = '';
-			else if (injectCodeEntry.type == 'jsattr')
-				// Make JavaScript links and event attributes do nothing
-				value = 'void(0)';
-		}
-		else if (iFlag || jFlag) {
-			if (injectCodeEntry.type == 'selfref' && !jFlag)
-				// Prevent self-targeted links from updating the iframe's window context and creating two navigation bars
-				value = '_top';
-			else if (injectCodeEntry.type == 'jstopdef')
-				// Define a JavaScript variable pointing to the iframe's window context
-				value = 'window.ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent; ';
-			else if (injectCodeEntry.type == 'jstopref' || injectCodeEntry.type == 'jsparentref' && !jFlag)
-				// Replace JavaScript references to the top window context with the variable pointing to the iframe's window context
-				value = 'ARCHIVE95_TOP';
-		}
+		else if (injectCodeEntry.type == 'selfref' && iFlag && !jFlag)
+			// Prevent self-targeted links from updating the iframe's window context and creating two navigation bars
+			value = '_top';
+		else if (injectCodeEntry.type == 'jstopdef' && (iFlag || jFlag))
+			// Define a JavaScript variable pointing to the iframe's window context
+			value = 'window.ARCHIVE95_TOP = self; while (ARCHIVE95_TOP.parent != top) ARCHIVE95_TOP = ARCHIVE95_TOP.parent; ';
+		else if (injectCodeEntry.type == 'jstopref' && (iFlag || jFlag) || injectCodeEntry.type == 'jsparentref' && iFlag && !jFlag)
+			// Replace JavaScript references to the top window context with the variable pointing to the iframe's window context
+			value = 'ARCHIVE95_TOP';
+		else if (injectCodeEntry.type == 'jselem' && sFlag)
+			// Blank script tags and their contents
+			value = '';
+		else if (injectCodeEntry.type == 'jsattr' && sFlag)
+			// Make JavaScript links and event attributes do nothing
+			value = 'void(0)';
+		else if (injectCodeEntry.type == 'css' && cFlag)
+			// Blank CSS content
+			value = '';
 
-		if (value === undefined)
-			continue;
-
-		slices.push({
-			start: injectCodeEntry.start,
-			end: injectCodeEntry.end,
-			value: value,
-		});
+		if (value !== undefined)
+			slices.push({
+				start: injectCodeEntry.start,
+				end: injectCodeEntry.end,
+				value: value,
+			});
 	}
 
 	return slices;

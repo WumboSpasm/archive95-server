@@ -677,7 +677,7 @@ function buildHtmlInjectLists(html, archive) {
 
 	// Identify indexes of links found inside plaintext segments and JavaScript code so they can be ignored later
 	const excludeIndexes = [...blankHtml(html, true).matchAll(linkExp)].map(linkMatch => linkMatch.index);
-	const eventExp = /(\son[a-z]+\s*=\s*)(["'])((?:(?!\2).)*?)\2/gis;
+	const eventExp = /(\s+on[a-z]+\s*=\s*)(["'])((?:(?!\2).)*?)\2/gis;
 	for (let eventMatch; (eventMatch = eventExp.exec(html)) !== null;) {
 		for (let linkMatch; (linkMatch = linkExp.exec(eventMatch[3])) !== null;)
 			excludeIndexes.push(eventMatch.index + eventMatch[1].length + 1 + linkMatch.index);
@@ -686,9 +686,9 @@ function buildHtmlInjectLists(html, archive) {
 	// Identify indexes of external stylesheet definitions so they can be treated as assets despite using the href attribute
 	const forceAssetIndexes = [];
 	const resourceExp = /(<link\s+[^>]*)href\s*=\s*(?:(["'])(?:(?!\2|>).)+\2|[^>\s]+)([^>]*>)/gis;
+	const styleRelExp = /rel\s*=\s*['"]?\s*stylesheet/is;
 	for (let resourceMatch; (resourceMatch = resourceExp.exec(html)) !== null;) {
 		const [tagStart, tagEnd] = [resourceMatch[1], resourceMatch[3]];
-		const styleRelExp = /rel\s*=\s*['"]?\s*stylesheet/is;
 		if (styleRelExp.test(tagStart) || styleRelExp.test(tagEnd))
 			forceAssetIndexes.push(resourceMatch.index + tagStart.length);
 	}
@@ -832,18 +832,39 @@ function buildHtmlInjectLists(html, archive) {
 		buildScriptInjectLists(eventMatch[3], baseUrl, contentIndex, contentIndex, endIndex, 'jsattr', injectLists, inlinksDirs, archive);
 	}
 
+	// Populate the code injection list with indexes of external stylesheet definitions
+	for (let resourceMatch; (resourceMatch = resourceExp.exec(newHtml)) !== null;) {
+		const [tagStart, tagEnd] = [resourceMatch[1], resourceMatch[3]];
+		if (styleRelExp.test(tagStart) || styleRelExp.test(tagEnd))
+			injectLists.code.push({
+				start: resourceMatch.index,
+				end: resourceMatch.index + resourceMatch[0].length,
+				type: 'css',
+			});
+	}
+
 	// Populate injection lists based on contents of style elements
 	const styleElemExp = /(<style(?: [^>]+)?>)(.*?)<\/style>/gis;
 	for (let styleElemMatch; (styleElemMatch = styleElemExp.exec(newHtml)) !== null;) {
 		const [_, styleElemOpen, styleElemBody] = styleElemMatch;
 		buildInjectLinkEntriesFromStyle(styleElemBody, styleElemMatch.index + styleElemOpen.length, injectLists.links, inlinksDirs, archive);
+		injectLists.code.push({
+			start: styleElemMatch.index,
+			end: styleElemMatch.index + styleElemMatch[0].length,
+			type: 'css',
+		});
 	}
 
 	// Populate injection lists based on contents of style attributes
-	const styleAttrExp = /(style\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
+	const styleAttrExp = /(\s*style\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
 	for (let styleAttrMatch; (styleAttrMatch = styleAttrExp.exec(newHtml)) !== null;) {
 		const [_, styleAttrStart, styleAttrValue] = styleAttrMatch;
 		buildInjectLinkEntriesFromStyle(styleAttrValue, styleAttrMatch.index + styleAttrStart.length, injectLists.links, inlinksDirs, archive);
+		injectLists.code.push({
+			start: styleAttrMatch.index,
+			end: styleAttrMatch.index + styleAttrMatch[0].length,
+			type: 'css',
+		});
 	}
 
 	return [newHtml, injectLists, inlinksDirs];

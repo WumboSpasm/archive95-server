@@ -56,6 +56,13 @@
 		"modern": false
 	},
 	{
+		"id": "c",
+		"description": "Render page content without CSS",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
 		"id": "w",
 		"description": "Point unarchived URLs to Wayback Machine",
 		"invert": true,
