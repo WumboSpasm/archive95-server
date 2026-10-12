@@ -1615,6 +1615,23 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 
 			break;
 		}
+		case 'pcmedia26':
+		case 'pcmedia27':
+		case 'pcmedia31': {
+			html = html
+				// Remove added empty comments
+				.replaceAll('<!-- -->', '')
+				// Remove blink elements around opening link tags
+				.replace(/<BLINK>(<[Aa] [^>]+>)<\/BLINK>/g, '$1')
+				// Replace remnants of disabled links with dead-end link
+				.replace(/(<[a-z]+\s+(?:[^>]+\s)?)(h)(\s|>)/gi, (_, before, h, after) => before + (h == 'h' ? 'href' : 'HREF') + '="/deadend"' + after)
+				// Replace image placeholders with dead-end link
+				.replace(/MEDIA\/NOTFOUND\.GIF(?: icon\.gif)?/g, '/deadend')
+				// Fix broken PICS labels
+				.replace(/<META http-equiv="PICS-Label" content='[^>\n]+/, match => match + (match.endsWith(' r (n 0 ') ? 's 0 v 0 l 0)' : '') + ")'>");
+
+			break;
+		}
 		case 'netcontrol96':
 		case 'netcontrol98': {
 			// Remove injected script that exists on exactly one page
