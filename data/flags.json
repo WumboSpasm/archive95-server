@@ -78,8 +78,15 @@
 	},
 	{
 		"id": "r",
-		"description": "Exclude error pages from navigation bar",
-		"invert": true,
+		"description": "Display error pages in navigation bar",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "b",
+		"description": "Display broken pages in navigation bar",
+		"invert": false,
 		"hidden": false,
 		"modern": false
 	},

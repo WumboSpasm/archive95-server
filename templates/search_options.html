@@ -1,13 +1,18 @@
 <br>
-<b>Search in:</b>
-<input type="checkbox" id="inTitle" name="in" value="title"{INTITLE}> <label for="inTitle">Title</label>
-<input type="checkbox" id="inContent" name="in" value="content"{INCONTENT}> <label for="inContent">Content</label>
-<input type="checkbox" id="inUrl" name="in" value="url"{INURL}> <label for="inUrl">URL</label>
+<b>Search fields:</b>
+<input type="checkbox" id="fieldTitle" name="field" value="title"{FIELDTITLE}> <label for="fieldTitle">Title</label>
+<input type="checkbox" id="fieldContent" name="field" value="content"{FIELDCONTENT}> <label for="fieldContent">Content</label>
+<input type="checkbox" id="fieldUrl" name="field" value="url"{FIELDURL}> <label for="fieldUrl">URL</label>
 <br>
 <b>Search formats:</b>
-<input type="radio" id="formatsAll" name="formats" value="all"{FORMATSALL}> <label for="formatsAll">All formats</label>
-<input type="radio" id="formatsText" name="formats" value="text"{FORMATSTEXT}> <label for="formatsText">Text only</label>
-<input type="radio" id="formatsMedia" name="formats" value="media"{FORMATSMEDIA}> <label for="formatsMedia">Media only</label>
+<input type="checkbox" id="formatHtml" name="format" value="html"{FORMATHTML}> <label for="formatHtml">HTML</label>
+<input type="checkbox" id="formatPlaintext" name="format" value="plaintext"{FORMATPLAINTEXT}> <label for="formatPlaintext">Plaintext</label>
+<input type="checkbox" id="formatBinary" name="format" value="binary"{FORMATBINARY}> <label for="formatBinary">Binary</label>
+<br>
+<b>Search includes:</b>
+<input type="checkbox" id="includeOrphans" name="include" value="orphans"{INCLUDEORPHANS}> <label for="includeOrphans">Orphans</label>
+<input type="checkbox" id="includeErrors" name="include" value="errors"{INCLUDEERRORS}> <label for="includeErrors">Error pages</label>
+<input type="checkbox" id="includeBroken" name="include" value="broken"{INCLUDEBROKEN}> <label for="includeBroken">Broken pages</label>
 <br>
 <b>Search source:</b>
 <select name="source">

@@ -91,8 +91,10 @@ A template configuration file containing the default values of each option can b
 - `d` - Render navigation bar inline
 - `f` - Render page content without frames
 - `s` - Render page content without JavaScript
+- `c` - Render page content without CSS
 - `w` - Don't point unarchived URLs to Wayback Machine
 - `r` - Display error pages in navigation bar
+- `b` - Display broken pages in navigation bar
 - `m` - Random button includes non-HTML files
 - `o` - Random button excludes orphans
 

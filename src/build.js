@@ -85,9 +85,9 @@ let database, insertStatement;
 		database = new Database(pathUtils.join(tempBuildPath, 'archive95.sqlite'), { create: true });
 		database.exec('PRAGMA journal_mode = WAL');
 		database.exec('PRAGMA shrink_memory');
-		database.exec('CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url UNINDEXED, decodedUrl, title, content, type UNINDEXED, orphan UNINDEXED, offset UNINDEXED)');
-		database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 0, 1, 1000, 1000, 0, 0, 0)')");
-		insertStatement = database.prepare('INSERT INTO search (source, url, decodedUrl, title, content, type, orphan, offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+		database.exec(`CREATE VIRTUAL TABLE search USING FTS5 (source UNINDEXED, url UNINDEXED, offset UNINDEXED, decodedUrl, title, content, format UNINDEXED, orphan UNINDEXED, error UNINDEXED, broken UNINDEXED)`);
+		database.exec("INSERT INTO search (search, rank) VALUES ('rank', 'bm25(0, 0, 0, 1, 1000, 1000, 0, 0, 0, 0)')");
+		insertStatement = database.prepare('INSERT INTO search (source, url, offset, decodedUrl, title, content, format, orphan, error, broken) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 	}
 
 	// Gather the total amount of build steps
@@ -118,6 +118,7 @@ let database, insertStatement;
 					files: [],
 					warn: urlEntry.warn,
 					error: urlEntry.error,
+					broken: urlEntry.broken,
 					offset: urlEntry.offset,
 				});
 		}
@@ -177,6 +178,7 @@ let database, insertStatement;
 				files: [],
 				warn: false,
 				error: orphanEntry.error,
+				broken: orphanEntry.broken,
 				offset: null,
 			};
 
@@ -356,6 +358,7 @@ function buildIndexes() {
 				date: date,
 				warn: entry.warn,
 				error: entry.error,
+				broken: entry.broken,
 				skip: entry.skip,
 				offset: null,
 			};
@@ -379,10 +382,12 @@ function buildIndexes() {
 	for (const normalizedUrl in urlIndex) {
 		const urlEntries = urlIndex[normalizedUrl];
 
-		// Sort entries by error status, then date, then URL
+		// Sort entries by error status, then broken status, then date, then URL
 		urlEntries.sort((a, b) => {
 			if (a.source == b.source && a.error != b.error)
 				return a.error - b.error;
+			else if (a.source == b.source && a.broken != b.broken)
+				return a.broken - b.broken;
 			else if (a.date != b.date)
 				return utils.dateStringToNum(a.date) - utils.dateStringToNum(b.date);
 			else
@@ -590,7 +595,7 @@ async function buildArchive(archive, targetDir) {
 
 		// If the file is text-based in its most fixed/converted form, build its content text
 		const lastType = archive.types[archive.types.length - 1];
-		if (utils.isTextType(lastType))
+		if (utils.isTextType(lastType, true, false))
 			search = buildSearch(decoder.decode(file), lastType);
 	}
 
@@ -600,24 +605,24 @@ async function buildArchive(archive, targetDir) {
 		archive.files.push('search.json');
 	}
 
-	if (!archive.error) {
-		// Build directory browser indexes
-		if (config.buildFeatures.includes('browse'))
-			buildBrowse(archive);
+	// Build directory browser indexes
+	if (!archive.error && !archive.broken && config.buildFeatures.includes('browse'))
+		buildBrowse(archive);
 
-		// Add archive to database
-		if (config.buildFeatures.includes('database'))
-			insertStatement.run(
-				archive.source,
-				archive.url ?? archive.path,
-				utils.safeDecode(archive.url ?? archive.path),
-				search?.title || null,
-				search?.content || null,
-				archive.types[0],
-				archive.url === null,
-				archive.offset,
-			);
-	}
+	// Add archive to database
+	if (config.buildFeatures.includes('database'))
+		insertStatement.run(
+			archive.source,
+			archive.url ?? archive.path,
+			archive.offset,
+			utils.safeDecode(archive.url ?? archive.path),
+			search?.title || null,
+			search?.content || null,
+			archive.types[0] == 'text/html' ? 'html' : (utils.isTextType(archive.types[archive.types.length - 1], true, false) ? 'plaintext' : 'binary'),
+			archive.url === null,
+			archive.error,
+			archive.broken,
+		);
 
 	// If the archive is an orphan, set its path as the URL
 	if (archive.url === null)
@@ -1361,7 +1366,7 @@ function nearestArchiveInfo(archive, compareEntries, normalizedPath = null) {
 		// If a match is found but is invalid, take note of its URL and carry on
 		const exactMatch = compareEntries.find(compareEntry => archive.source == compareEntry.source && normalizedPath == utils.normalizePath(compareEntry.path));
 		if (exactMatch !== undefined) {
-			if (!exactMatch.error && !exactMatch.skip)
+			if (!exactMatch.error && !exactMatch.broken && !exactMatch.skip)
 				return [exactMatch.source, exactMatch.url, exactMatch.offset];
 			else
 				backupUrl = exactMatch.url;
@@ -1374,13 +1379,13 @@ function nearestArchiveInfo(archive, compareEntries, normalizedPath = null) {
 	if (compareEntriesNoSkip.length == 1)
 		return [compareEntriesNoSkip[0].source, compareEntriesNoSkip[0].url, compareEntriesNoSkip[0].offset];
 
-	// Same as above, but filtered further to not include error pages
-	const compareEntriesNoError = compareEntriesNoSkip.filter(compareEntry => !compareEntry.error);
-	if (compareEntriesNoError.length == 1)
-		return [compareEntriesNoError[0].source, compareEntriesNoError[0].url, compareEntriesNoSkip[0].offset];
+	// Same as above, but filtered further to not include error/broken pages
+	const compareEntriesNoIssues = compareEntriesNoSkip.filter(compareEntry => !compareEntry.error && !compareEntry.broken);
+	if (compareEntriesNoIssues.length == 1)
+		return [compareEntriesNoIssues[0].source, compareEntriesNoIssues[0].url, compareEntriesNoSkip[0].offset];
 
-	// Now create a "definitive" filtered archive set that doesn't include error pages unless there are only error pages
-	const compareEntriesPure = compareEntriesNoError.length == 0 ? compareEntriesNoSkip : compareEntriesNoError;
+	// Now create a "definitive" filtered archive set that doesn't include error/broken pages unless those are the only pages that exist
+	const compareEntriesPure = compareEntriesNoIssues.length == 0 ? compareEntriesNoSkip : compareEntriesNoIssues;
 
 	// Loop through each archive and find the one whose date is the closest to the supplied archive
 	let lowestTimeDistIndex = -1;

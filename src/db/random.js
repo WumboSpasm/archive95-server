@@ -18,20 +18,20 @@ Comlink.expose({
 
 		const arrId = (sourceId || '') + '_' + (!doHtmlOnly ? 'm' : '') + (doUrlsOnly ? 'o' : '');
 		if (cache[arrId] === undefined || cache[arrId].length == 0) {
-			const whereConditions = [];
+			const whereConditions = ['error = 0'];
 			const whereParameters = [];
 			if (doHtmlOnly)
-				whereConditions.push("type = 'text/html'");
+				whereConditions.push("format = 'html'");
 			if (doUrlsOnly)
 				whereConditions.push('orphan = 0');
 			if (sourceId !== undefined) {
-				whereConditions.push(`source = ?`);
+				whereConditions.push('source = ?');
 				whereParameters.push(sourceId);
 			}
 
 			const randomEntries = database.prepare(`
-				SELECT source, offset, url FROM search
-				${whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : ''}
+				SELECT source, url, offset FROM search
+				WHERE ${whereConditions.join(' AND ')}
 				ORDER BY random() LIMIT ?
 			`).all(...whereParameters, cacheSize);
 

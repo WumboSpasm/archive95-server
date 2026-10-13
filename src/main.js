@@ -794,12 +794,15 @@ Deno.addSignalListener('SIGTERM', serverShutdown);
 async function performSearch(params) {
 	// Build search filters
 	const searchFilters = {
-		inTitle: !params.has('in') || params.has('in', 'title'),
-		inContent: !params.has('in') || params.has('in', 'content'),
-		inUrl: !params.has('in') || params.has('in', 'url'),
-		formatsAll: !params.has('formats') || params.get('formats') == 'all',
-		formatsText: params.get('formats') == 'text',
-		formatsMedia: params.get('formats') == 'media',
+		fieldTitle: !params.has('field') || params.has('field', 'title'),
+		fieldContent: !params.has('field') || params.has('field', 'content'),
+		fieldUrl: !params.has('field') || params.has('field', 'url'),
+		formatHtml: !params.has('format') || params.has('format', 'html'),
+		formatPlaintext: !params.has('format') || params.has('format', 'plaintext'),
+		formatBinary: !params.has('format') || params.has('format', 'binary'),
+		includeOrphans: params.has('include', 'orphans'),
+		includeErrors: params.has('include', 'errors'),
+		includeBroken: params.has('include', 'broken'),
 		source: sources[params.get('source')] !== undefined ? params.get('source') : null,
 	};
 
@@ -810,45 +813,53 @@ async function performSearch(params) {
 	// Parse the requested page and clamp it
 	const page = Math.min(config.maxPage, Math.max(1, parseInt(params.get('page'), 10) || 1));
 
-	// "Search in" filter
-	const inConditions = [];
-	if (searchFilters.inTitle && searchFilters.inContent && searchFilters.inUrl)
-		inConditions.push('search MATCH ?1');
+	// "Search fields" filter
+	const fieldConditions = [];
+	if (searchFilters.fieldTitle && searchFilters.fieldContent && searchFilters.fieldUrl)
+		fieldConditions.push('search MATCH ?1');
 	else {
-		if (searchFilters.inTitle)
-			inConditions.push('title MATCH ?1');
-		if (searchFilters.inContent)
-			inConditions.push('content MATCH ?1');
-		if (searchFilters.inUrl)
-			inConditions.push('decodedUrl MATCH ?1');
+		if (searchFilters.fieldTitle)
+			fieldConditions.push('title MATCH ?1');
+		if (searchFilters.fieldContent)
+			fieldConditions.push('content MATCH ?1');
+		if (searchFilters.fieldUrl)
+			fieldConditions.push('decodedUrl MATCH ?1');
 	}
+	let whereString = `(${fieldConditions.join(' OR ')})`;
 
 	// "Search formats" filter
-	let formatCondition;
-	if (searchFilters.formatsText)
-		formatCondition = "type LIKE 'text/%'";
-	else if (searchFilters.formatsMedia)
-		formatCondition = "type NOT LIKE 'text/%'";
+	const formatConditions = [];
+	if (!searchFilters.formatHtml || !searchFilters.formatPlaintext || !searchFilters.formatBinary) {
+		if (searchFilters.formatHtml)
+			formatConditions.push("format = 'html'");
+		if (searchFilters.formatPlaintext)
+			formatConditions.push("format = 'plaintext'");
+		if (searchFilters.formatBinary)
+			formatConditions.push("format = 'binary'");
+
+		whereString += ` AND (${formatConditions.join(' OR ')})`;
+	}
+
+	// "Search includes" filter
+	const includeConditions = [];
+	if (!searchFilters.includeOrphans)
+		includeConditions.push('orphan = 0');
+	if (!searchFilters.includeErrors)
+		includeConditions.push('error = 0');
+	if (!searchFilters.includeBroken)
+		includeConditions.push('broken = 0');
+	if (includeConditions.length > 0)
+		whereString += ` AND ${includeConditions.join(' AND ')}`;
 
 	// "Search source" filter
-	let sourceCondition;
 	if (searchFilters.source !== null)
-		sourceCondition = `source = '${searchFilters.source}'`;
-
-	// Build WHERE conditional based on supplied filters
-	let whereString = inConditions.join(' OR ');
-	if (formatCondition !== undefined || sourceCondition !== undefined)
-		whereString = '(' + whereString + ')';
-	if (formatCondition !== undefined)
-		whereString += ' AND ' + formatCondition;
-	if (sourceCondition !== undefined)
-		whereString += ' AND ' + sourceCondition;
+		whereString += ` AND source = '${searchFilters.source}'`;
 
 	// Check if the search query matches any URLs when normalized, and add them to the top of the search results
 	const query = params.get('query').replaceAll('#', '%23');
 	const searchResults = [];
 	let searchOffset = 0;
-	if (searchFilters.inUrl && !/[ "]/.test(query)) {
+	if (searchFilters.fieldUrl && !/[ "]/.test(query)) {
 		const [archiveInfoSet, archiveDirs, _, isOrphan] = getArchiveInfo(query, searchFilters.source || undefined);
 		if (archiveInfoSet !== undefined) {
 			for (let i = 0; i < archiveInfoSet.length; i++) {
@@ -856,11 +867,14 @@ async function performSearch(params) {
 				const archiveDir = archiveDirs[i];
 
 				// Apply search filters
-				const archiveIsText = utils.isTextType(archiveInfo.types[0], true, false);
-				if (archiveInfo.error
-				|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source)
-				|| (archiveIsText && searchFilters.formatsMedia)
-				|| (!archiveIsText && searchFilters.formatsText))
+				const archiveFormat = archiveInfo.types[0] == 'text/html' ? 'html' : (utils.isTextType(archiveInfo.types[archiveInfo.types.length - 1], true, false) ? 'plaintext' : 'binary');
+				if ((!searchFilters.formatHtml && archiveFormat == 'html')
+				|| (!searchFilters.formatPlaintext && archiveFormat == 'plaintext')
+				|| (!searchFilters.formatBinary && archiveFormat == 'binary')
+				|| (!searchFilters.includeOrphans && isOrphan)
+				|| (!searchFilters.includeErrors && archiveInfo.error)
+				|| (!searchFilters.includeBroken && archiveInfo.broken)
+				|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source))
 					continue;
 
 				// Update offset but only add to result array if we're on the first page
@@ -872,9 +886,8 @@ async function performSearch(params) {
 				const searchResult = {
 					source: archiveInfo.source,
 					url: archiveInfo.url,
-					decodedUrl: utils.safeDecode(archiveInfo.url),
-					orphan: isOrphan ? 1 : 0,
 					offset: archiveInfo.offset,
+					orphan: isOrphan ? 1 : 0,
 					displayUrl: '<b>' + archiveInfo.url + '</b>',
 					title: null,
 					content: null,
@@ -929,10 +942,10 @@ async function performSearch(params) {
 			const limit = config.resultsPerPage + 1 - (page == 1 ? searchOffset : 0);
 			const offset = (page - 1) * config.resultsPerPage - (page > 1 ? searchOffset : 0);
 			searchResults.push(...await searchDatabase.query(`
-				SELECT source, url, orphan, offset,
-					highlight(search, 2, '<b>', '</b>') displayUrl,
-					highlight(search, 3, '<b>', '</b>') title,
-					snippet(search, 4, '<b>', '</b>', '...', 24) content
+				SELECT source, url, offset, orphan,
+					highlight(search, 3, '<b>', '</b>') displayUrl,
+					highlight(search, 4, '<b>', '</b>') title,
+					snippet(search, 5, '<b>', '</b>', '...', 24) content
 				FROM search WHERE ${whereString}
 				ORDER BY rank LIMIT ?2 OFFSET ?3
 			`, parsedQuery, limit, offset));
@@ -971,8 +984,8 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 						if (offset === undefined || offset == archiveInfoSet[i].offset)
 							break;
 					}
-					// Otherwise, if the archive isn't an error page, use it but keep searching for an exact URL match
-					if (!archiveInfoSet[i].error)
+					// Otherwise, if the archive isn't an error/broken page, use it but keep searching for an exact URL match
+					if (!archiveInfoSet[i].error && !archiveInfoSet[i].broken)
 						archiveInfoIndex = i;
 				}
 			}
@@ -1207,12 +1220,15 @@ async function buildSearch(params, modernMode) {
 	// Build search options
 	if (features.includes('database'))
 		searchDefs['OPTIONS'] = buildHtml(templates[modernMode ? 'modern' : 'compat'].search.options, {
-			'INTITLE': searchFilters.inTitle ? ' checked' : '',
-			'INCONTENT': searchFilters.inContent ? ' checked' : '',
-			'INURL': searchFilters.inUrl ? ' checked' : '',
-			'FORMATSALL': searchFilters.formatsAll ? ' checked' : '',
-			'FORMATSTEXT': searchFilters.formatsText ? ' checked' : '',
-			'FORMATSMEDIA': searchFilters.formatsMedia ? ' checked' : '',
+			'FIELDTITLE': searchFilters.fieldTitle ? ' checked' : '',
+			'FIELDCONTENT': searchFilters.fieldContent ? ' checked' : '',
+			'FIELDURL': searchFilters.fieldUrl ? ' checked' : '',
+			'FORMATHTML': searchFilters.formatHtml ? ' checked' : '',
+			'FORMATPLAINTEXT': searchFilters.formatPlaintext ? ' checked' : '',
+			'FORMATBINARY': searchFilters.formatBinary ? ' checked' : '',
+			'INCLUDEORPHANS': searchFilters.includeOrphans ? ' checked' : '',
+			'INCLUDEERRORS': searchFilters.includeErrors ? ' checked' : '',
+			'INCLUDEBROKEN': searchFilters.includeBroken ? ' checked' : '',
 			'SOURCES': Object.keys(sources).map(sourceId => `<option value="${sourceId}"${sourceId == searchFilters.source ? ' selected' : ''}>${sourceId}</option>`).join('\n'),
 		});
 
@@ -1314,6 +1330,8 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 		messages.push('(possibly inaccurate URL)');
 	if (archiveInfo.error)
 		messages.push('(error page)');
+	if (archiveInfo.broken)
+		messages.push('(broken page)');
 	if (archiveInfo.types[0] != 'text/html')
 		messages.push('(embed)');
 
@@ -1340,7 +1358,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const archiveButtons = [];
 		for (let i = 0; i < archiveInfoSet.length; i++) {
-			if (i != archiveInfoIndex && archiveInfoSet[i].error && !flagIds.includes('r'))
+			if (i != archiveInfoIndex && (archiveInfoSet[i].error && !flagIds.includes('r') || archiveInfoSet[i].broken && !flagIds.includes('b')))
 				continue;
 
 			archiveButtons.push(buildHtml(templates.modern.navbar.archive, {
@@ -1393,7 +1411,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 
 		const archiveButtons = [];
 		for (let i = 0; i < archiveInfoSet.length; i++) {
-			if (i != archiveInfoIndex && archiveInfoSet[i].error && !flagIds.includes('r'))
+			if (i != archiveInfoIndex && (archiveInfoSet[i].error && !flagIds.includes('r') || archiveInfoSet[i].broken && !flagIds.includes('b')))
 				continue;
 
 			let archiveButton = `<a href="/${buildRoute('view', archiveInfoSet[i].source, archiveInfoSet[i].offset, flagIds)}/${archiveInfoSet[i].url}">${archiveInfoSet[i].source}</a>`;
