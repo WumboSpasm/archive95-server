@@ -28,6 +28,8 @@ export function normalizeUrl(url, doLowerCase = true) {
 	let normalizedUrl = safeDecode(url.replace(/#.*$/, ''));
 
 	normalizedUrl = normalizedUrl
+		// Change direction of backslashes
+		.replaceAll('\\', '/')
 		// Remove protocol
 		.replace(/^(?:https?|ftp):\/*/i, '')
 		// Remove www subdomain
@@ -62,6 +64,8 @@ export function normalizePath(path, doLowerCase = true) {
 	let [normalizedPath, anchor] = splitAnchor(path).map(value => safeDecode(value));
 
 	normalizedPath = normalizedPath
+		// Change direction of backslashes
+		.replaceAll('\\', '/')
 		// Collapse sequences of slashes
 		.replace(/\/{2,}/g, '/')
 		// Remove trailing slash
@@ -83,7 +87,7 @@ export function splitUrl(url, orphanSource = null) {
 		: normalizeUrl(url, false);
 
 	// The name is on purpose, FYI
-	const splittedUrl = normalizedUrl.split(/(?<!\?.*)\//i);
+	const splittedUrl = normalizedUrl.split(/(?<!\?.*)[/\\]/i);
 	splittedUrl[0] = splittedUrl[0].toLowerCase();
 	return splittedUrl;
 }
