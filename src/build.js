@@ -1286,16 +1286,11 @@ function resolveUrl(rawUrl, archive) {
 	let resolvedSource = null;
 	let resolvedUrl = null;
 	let resolvedOffset = null;
-	let unresolvedUrl = rawUrl;
+	let unresolvedUrl = !isAbsolute ? (URL.parse(rawUrl, 'http://archive95-path/' + archive.path)?.pathname.substring(1) ?? rawUrl) : rawUrl;
 	let isOrphan = false;
 	let forceMissing = false;
 	// Relative links under sources with non-zero URL modes are assumed to have been modified to point within the source's filesystem
 	if (source.urlMode > 0 && !isAbsolute) {
-		// Extract full path from the link
-		const parsedPath = URL.parse(rawUrl, 'http://archive95-path/' + archive.path);
-		if (parsedPath !== null)
-			unresolvedUrl = parsedPath.pathname.substring(1);
-
 		// Normalize the full path and try to retrieve its entry in the path index
 		const pathEntries = pathIndex[archive.source];
 		let normalizedPath = utils.normalizePath(unresolvedUrl + anchor);
