@@ -33,7 +33,7 @@ export function normalizeUrl(url, doLowerCase = true) {
 		// Remove protocol
 		.replace(/^(?:https?|ftp):\/*/i, '')
 		// Remove www subdomain
-		.replace(/^\.*www\d{0,2}\.([^/]+\.)/i, '$1')
+		.replace(/^\.*www(?:-?\d{1,2})?\.([^/]+\.)/i, '$1')
 		// Remove port number if it is 80
 		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
 		// Collapse sequences of dots in origin
