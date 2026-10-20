@@ -1653,16 +1653,16 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 
 			break;
 		}
-		case 'netcontrol96':
-		case 'netcontrol98': {
+		case 'netcontrol':
+		case 'inetcontrol': {
 			// Remove injected script that exists on exactly one page
-			if (sourceId == 'netcontrol96' && path == 'archive-b/ba1/index.shtml')
+			if (sourceId == 'netcontrol' && path == 'archive-b/ba1/index.shtml')
 				html = html
 					.replace(/\n?<script [^>]*src="\/archived.js".*?>/, '')
 					.replace(/ onLoad="shownew\('\/'\)"/, '');
 			// Fix incorrect file paths on some pages
-			if (sourceId == 'netcontrol98')
-				html = html.replace(/nomorehere\/404\/sorry\/\/[^"]+\//g, '');
+			if (sourceId == 'inetcontrol')
+				html = html.replace(/nomorehere\/404\/sorry\/[^"]+\//g, '');
 
 			// Reverse encryption of email strings
 			const decodeEmail = encodedEmail => {
@@ -1671,8 +1671,12 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			};
 
 			html = html.replace(
-				// Remove injected CloudFlare scripts
+				// Remove injected CloudFlare scripts (variation 1)
 				/<script [^>]*src="[^"]+\/cloudflare-static\/[^"]+"[^>]*><\/script>/g,
+				'',
+			).replace(
+				// Remove injected CloudFlare scripts (variation 2)
+				/<script [^>]*data-cf-beacon='[^']+'[^>]*><\/script>/g,
 				'',
 			).replace(
 				// Remove indicators of modified script elements
@@ -1688,19 +1692,12 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				'',
 			).replace(
 				// Restore encrypted plaintext emails
-				/<(?:span|template) class="__cf_email__" data-cfemail="([0-9a-f]+)">\[email&#160;protected\]<\/(?:span|template)>/g,
+				/<(?:span|template|a href="\/cdn-cgi\/l\/email-protection") class="__cf_email__" data-cfemail="([0-9a-f]+)">\[email&#160;protected\]<\/(?:span|template|a)>/g,
 				(_, encodedEmail) => decodeEmail(encodedEmail),
 			).replace(
-				// Restore encrypted mailto links (variation 1)
+				// Restore encrypted mailto links
 				/"\/cdn-cgi\/l\/email-protection#([0-9a-f]+)"/g,
 				(_, encodedEmail) => 'mailto:' + decodeEmail(encodedEmail),
-			).replace(
-				// Restore encrypted mailto links (variation 2)
-				/<a href="\/cdn-cgi\/l\/email-protection" class="__cf_email__" data-cfemail="([0-9a-f]+)">\[email&#160;protected\]<\/a>/g,
-				(_, encodedEmail) => {
-					const decodedEmail = decodeEmail(encodedEmail);
-					return `<a href="mailto:${decodedEmail}">${decodedEmail}</a>`;
-				},
 			).replace(
 				// Remove injected ads
 				/<script[^>]+> <!--var dd=document;.*?--><\/script>/gs,
@@ -1731,15 +1728,19 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				(_, headOpen, headBody, headClose) => headOpen + headBody.replace(/^ +/gm, '') + headClose,
 			).replace(
 				// Remove header message
-				/(?:<body[^>]+>)?<p align="center">Archived Pages from 20th Century!!<center>\n?<br>(?:<!--#include virtual="[^"]+" -->)?\n?<BR>/gs,
+				/(?:<body[^>]+>)?<p align="center">Archived Pages from 20th Century!!<center>\n?<br>(?:<!--#include virtual="[^"]+" -->|File not found\.)?\n?<BR>/gs,
 				'',
+			).replace(
+				// Remove extra space in body tags
+				/<body ( [^>]+)?>/g,
+				'<body$1>',
 			).replace(
 				// Remove footer HTML (variation 1)
 				/\n?<center><br><br><p align="center"><!-- Netcontrol footer \/\/-->/g,
 				'',
 			).replace(
 				// Remove footer HTML (variation 2)
-				/<br><center><br>(?:<!--#include virtual=".*?" -->)?<BR><img src="[^"]+\/okto-banner.gif" border=0><\/a>/g,
+				/<br><center><br>(?:<!--#include virtual=".*?" -->|File not found\.)?\n?<BR><img src="[^"]+\/okto-banner.gif" border=0><\/a>/g,
 				'',
 			).replace(
 				// Fix broken select elements

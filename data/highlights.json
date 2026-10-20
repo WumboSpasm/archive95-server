@@ -36,7 +36,7 @@
 			"offset": null
 		},
 		"AMD": {
-			"source": "netcontrol96",
+			"source": "netcontrol",
 			"url": "http://www.amd.com/",
 			"offset": null
 		},
@@ -297,7 +297,7 @@
 			"offset": null
 		},
 		"GameSpot": {
-			"source": "netcontrol96",
+			"source": "netcontrol",
 			"url": "http://www.gamespot.com/",
 			"offset": null
 		},
