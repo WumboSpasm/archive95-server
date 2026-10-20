@@ -610,7 +610,7 @@ async function serverHandler(request, info) {
 				throw new NotFoundError(modernMode);
 
 			// Query for a random archive
-			const archiveInfo = await randomDatabase.query(!flagIds.includes('m'), flagIds.includes('o'), sourceId);
+			const archiveInfo = await randomDatabase.query(!flagIds.includes('m'), !flagIds.includes('o'), sourceId);
 			if (archiveInfo === null)
 				throw new NotFoundError(modernMode);
 

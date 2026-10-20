@@ -14,6 +14,62 @@
 		"modern": false
 	},
 	{
+		"id": "w",
+		"description": "Point unarchived URLs to Wayback Machine",
+		"invert": true,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "f",
+		"description": "Render page content without frames",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "s",
+		"description": "Render page content without JavaScript",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "c",
+		"description": "Render page content without CSS",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "r",
+		"description": "Display error pages in navigation bar",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "b",
+		"description": "Display broken pages in navigation bar",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "m",
+		"description": "Random button includes non-HTML files",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
+		"id": "o",
+		"description": "Random button includes orphan files",
+		"invert": false,
+		"hidden": false,
+		"modern": false
+	},
+	{
 		"id": "d",
 		"description": "Render navigation bar inline",
 		"invert": false,
@@ -42,66 +98,10 @@
 		"modern": false
 	},
 	{
-		"id": "f",
-		"description": "Render page content without frames",
-		"invert": false,
-		"hidden": false,
-		"modern": false
-	},
-	{
-		"id": "s",
-		"description": "Render page content without JavaScript",
-		"invert": false,
-		"hidden": false,
-		"modern": false
-	},
-	{
-		"id": "c",
-		"description": "Render page content without CSS",
-		"invert": false,
-		"hidden": false,
-		"modern": false
-	},
-	{
-		"id": "w",
-		"description": "Point unarchived URLs to Wayback Machine",
-		"invert": true,
-		"hidden": false,
-		"modern": false
-	},
-	{
 		"id": "e",
 		"description": "Point all URLs to live internet",
 		"invert": false,
 		"hidden": true,
-		"modern": false
-	},
-	{
-		"id": "r",
-		"description": "Display error pages in navigation bar",
-		"invert": false,
-		"hidden": false,
-		"modern": false
-	},
-	{
-		"id": "b",
-		"description": "Display broken pages in navigation bar",
-		"invert": false,
-		"hidden": false,
-		"modern": false
-	},
-	{
-		"id": "m",
-		"description": "Random button includes non-HTML files",
-		"invert": false,
-		"hidden": false,
-		"modern": false
-	},
-	{
-		"id": "o",
-		"description": "Random button includes orphan files",
-		"invert": true,
-		"hidden": false,
 		"modern": false
 	}
 ]
