@@ -1662,7 +1662,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					.replace(/ onLoad="shownew\('\/'\)"/, '');
 			// Fix incorrect file paths on some pages
 			if (sourceId == 'inetcontrol')
-				html = html.replace(/nomorehere\/404\/sorry\/[^"]+\//g, '');
+				html = html.replace(/(?:nomorehere\/404\/sorry|file:\/\/)\/[^"]+\//g, '');
 
 			// Reverse encryption of email strings
 			const decodeEmail = encodedEmail => {
@@ -1697,7 +1697,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 			).replace(
 				// Restore encrypted mailto links
 				/"\/cdn-cgi\/l\/email-protection#([0-9a-f]+)"/g,
-				(_, encodedEmail) => 'mailto:' + decodeEmail(encodedEmail),
+				(_, encodedEmail) => `"mailto:${decodeEmail(encodedEmail)}"`,
 			).replace(
 				// Remove injected ads
 				/<script[^>]+> <!--var dd=document;.*?--><\/script>/gs,
@@ -1707,16 +1707,20 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				/<!-- (?:GOCLICK\.COM |END OF )POP-UNDER CODE(?: V1)? -->/g,
 				'',
 			).replace(
+				// Remove script at beginning of some files
+				/<script src="\/__utm.js"><\/script>/g,
+				'',
+			).replace(
 				// Remove header comment
 				/^<!-- Netcontrol preface \/\/-->/gm,
 				'',
 			).replace(
 				// Revert altered title tags
-				/<title>NetControl.net Archive of :: ?(.*?)<\/(title)>/gis,
+				/<title>NetControl.net Archive of ::(.*?)<\/(title)>/gis,
 				'<$2>$1</$2>',
 			).replace(
 				// Remove title tags that were replaced with file paths
-				/<title>\\Stuff\\.*?<\/title>\n?/gi,
+				/(?:\n *)?<title>\\Stuff\\.*?<\/title>/gi,
 				'',
 			).replace(
 				// Remove metadata tag
@@ -1736,7 +1740,7 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 				'<body$1>',
 			).replace(
 				// Remove footer HTML (variation 1)
-				/\n?<center><br><br><p align="center"><!-- Netcontrol footer \/\/-->/g,
+				/<center><br><br><p align="center"><!-- Netcontrol footer \/\/-->/g,
 				'',
 			).replace(
 				// Remove footer HTML (variation 2)
@@ -1782,6 +1786,33 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 						? selectOpen + utils.replaceSlices(selectBody, slices) + selectClose
 						: match;
 				},
+			).replace(
+				// Remove tags surrounding comments
+				/((?:<[a-z]+>)+)(<!\s*-(?:(?!-\s*>).)*?-\s*>)((?:<\/[a-z]+>)+)/gis,
+				(_, startTags, comment, endTags) => {
+					const splitStartTags = startTags.split(/(?<=>)(?=<)/).toReversed();
+					const splitEndTags = endTags.split(/(?<=>)(?=<)/);
+					const tagCount = Math.min(splitStartTags.length, splitEndTags.length);
+					for (let i = 0; i < tagCount; i++) {
+						const startTagName = splitStartTags[i].match(/<([a-z]+)>/i)[1];
+						const endTagName = splitEndTags[i].match(/<\/([a-z]+)>/i)[1];
+						if (startTagName == endTagName) {
+							if (/^(?:style|script)$/i.test(startTagName))
+								break;
+
+							splitStartTags.splice(i, 1);
+							splitEndTags.splice(i, 1);
+							if (splitStartTags.length == 0 || splitEndTags.length == 0)
+								break;
+							else
+								i--;
+						}
+						else
+							break;
+					}
+
+					return splitStartTags.toReversed().join('') + comment + splitEndTags.join('');
+				},
 			);
 
 			// Fix images on pages with base URL
@@ -1791,6 +1822,9 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 						url = `"${trimQuotes(url.substring(url.lastIndexOf('/') + 1))}"`;
 					return attrStart + url;
 				});
+
+			// Replace HTTPS links with HTTP
+			html = html.replaceAll('https://', 'http://');
 
 			break;
 		}
