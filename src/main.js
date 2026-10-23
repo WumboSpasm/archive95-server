@@ -800,9 +800,9 @@ async function performSearch(params) {
 		formatHtml: !params.has('format') || params.has('format', 'html'),
 		formatPlaintext: !params.has('format') || params.has('format', 'plaintext'),
 		formatBinary: !params.has('format') || params.has('format', 'binary'),
-		includeOrphans: params.has('include', 'orphans'),
-		includeErrors: params.has('include', 'errors'),
+		includeOrphans: params.size == 0 || params.has('include', 'orphans'),
 		includeBroken: params.has('include', 'broken'),
+		includeErrors: params.has('include', 'errors'),
 		source: sources[params.get('source')] !== undefined ? params.get('source') : null,
 	};
 
@@ -844,10 +844,10 @@ async function performSearch(params) {
 	const includeConditions = [];
 	if (!searchFilters.includeOrphans)
 		includeConditions.push('orphan = 0');
-	if (!searchFilters.includeErrors)
-		includeConditions.push('error = 0');
 	if (!searchFilters.includeBroken)
 		includeConditions.push('broken = 0');
+	if (!searchFilters.includeErrors)
+		includeConditions.push('error = 0');
 	if (includeConditions.length > 0)
 		whereString += ` AND ${includeConditions.join(' AND ')}`;
 
@@ -872,8 +872,8 @@ async function performSearch(params) {
 				|| (!searchFilters.formatPlaintext && archiveFormat == 'plaintext')
 				|| (!searchFilters.formatBinary && archiveFormat == 'binary')
 				|| (!searchFilters.includeOrphans && isOrphan)
-				|| (!searchFilters.includeErrors && archiveInfo.error)
 				|| (!searchFilters.includeBroken && archiveInfo.broken)
+				|| (!searchFilters.includeErrors && archiveInfo.error)
 				|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source))
 					continue;
 
@@ -1213,13 +1213,13 @@ async function buildSearch(params, modernMode) {
 		'QUERY': '',
 		'TOTAL': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
 		'FOCUS': '',
-		'OPTIONS': '',
+		'OPTIONS': { value: '', indent: modernMode ? 'all' : 'first' },
 		'HEADER': 'Welcome to Archive95',
 	};
 
 	// Build search options
 	if (features.includes('database'))
-		searchDefs['OPTIONS'] = buildHtml(templates[modernMode ? 'modern' : 'compat'].search.options, {
+		searchDefs['OPTIONS'].value = buildHtml(templates[modernMode ? 'modern' : 'compat'].search.options, {
 			'FIELDTITLE': searchFilters.fieldTitle ? ' checked' : '',
 			'FIELDCONTENT': searchFilters.fieldContent ? ' checked' : '',
 			'FIELDURL': searchFilters.fieldUrl ? ' checked' : '',
@@ -1227,9 +1227,9 @@ async function buildSearch(params, modernMode) {
 			'FORMATPLAINTEXT': searchFilters.formatPlaintext ? ' checked' : '',
 			'FORMATBINARY': searchFilters.formatBinary ? ' checked' : '',
 			'INCLUDEORPHANS': searchFilters.includeOrphans ? ' checked' : '',
-			'INCLUDEERRORS': searchFilters.includeErrors ? ' checked' : '',
 			'INCLUDEBROKEN': searchFilters.includeBroken ? ' checked' : '',
-			'SOURCES': Object.keys(sources).map(sourceId => `<option value="${sourceId}"${sourceId == searchFilters.source ? ' selected' : ''}>${sourceId}</option>`).join('\n'),
+			'INCLUDEERRORS': searchFilters.includeErrors ? ' checked' : '',
+			'SOURCES': Object.keys(sources).map(sourceId => `<option value="${sourceId}"${sourceId == searchFilters.source ? ' selected' : ''}>${sourceId}</option>`).join(modernMode ? '\n' : ''),
 		});
 
 	// Render the homepage if no search query was supplied
@@ -1699,7 +1699,7 @@ function buildHomeContent() {
 		const entries = highlights[category];
 		for (const name in entries) {
 			const entry = entries[name];
-			categoryHtmlArr.push(`<a href="/${buildRoute('view', entry.source, entry.offset, null)}/${entry.url}">${name}</a>`);
+			categoryHtmlArr.push(`${entry.break ? '<br>' : ''}<a href="/${buildRoute('view', entry.source, entry.offset, null)}/${entry.url}">${name}</a>`);
 		}
 
 		highlightsHtmlArr.push(`<dd>${categoryHtmlArr.join(' - ')}</dd>`);
