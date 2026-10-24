@@ -318,7 +318,7 @@ async function serverHandler(request, info) {
 
 				// We don't need to do any fancy injection here
 				const html = buildHtml(templates[modernMode ? 'modern' : 'compat'].embed.main, {
-					'TITLE': sanitizeInject(title),
+					'TITLE': sanitizeInject(title, false),
 					'METADATA': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
 					'TYPE': fileType,
 					'EMBED': { value: embed, indent: indent },
@@ -1092,7 +1092,7 @@ function getInlinksInfo(url, sourceId = undefined) {
 		}
 	}
 
-	displayUrl = sanitizeInject(displayUrl, true);
+	displayUrl = sanitizeInject(displayUrl);
 	return [inlinksInfo, displayUrl];
 }
 
@@ -1243,7 +1243,7 @@ async function buildSearch(params, modernMode) {
 			searchDefs['CONTENT'] = homeContentCompat;
 	}
 	else {
-		const sanitizedQuery = sanitizeInject(params.get('query'), true);
+		const sanitizedQuery = sanitizeInject(params.get('query'));
 
 		const resultSegments = [];
 		if (searchResults.length > 0) {
@@ -1614,7 +1614,7 @@ function cleanFlags(flagIds) {
 }
 
 // Escape characters that have the potential to enable XSS injections
-function sanitizeInject(str, amp = false) {
+function sanitizeInject(str, sanitizeAmp = true) {
 	const charMap = {
 		'<': '&lt;',
 		'>': '&gt;',
@@ -1623,7 +1623,7 @@ function sanitizeInject(str, amp = false) {
 		'\r': ' ',
 		'\n': ' ',
 	};
-	if (amp)
+	if (sanitizeAmp)
 		charMap['&'] = '&amp;';
 
 	return str.replace(new RegExp(`[${Object.keys(charMap).join('')}]`, 'g'), m => charMap[m]);
@@ -1769,7 +1769,7 @@ function buildSourcesContent() {
 			'AUTHOR': source.author,
 			'ARCHIVEDATE': stats[sourceId].from != stats[sourceId].to ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
 			'PUBLISHDATE': source.publishDate,
-			'LINKS': source.links.map(link => buildHtml(templates.compat.sources.link, { 'LINK': link })).join('\n'),
+			'LINKS': source.links.map(link => buildHtml(templates.compat.sources.link, { 'LINK': link, 'URL': sanitizeInject(utils.safeDecode(link)) })).join('\n'),
 			'DESCRIPTION': source.description,
 			'INTEGRITY': integrity,
 			'REMEDIATIONS': remediations,
@@ -1869,7 +1869,7 @@ class UnarchivedError extends ArchiveError {
 		super(
 			404,
 			'Unarchived URL',
-			`The URL <b>${sanitizeInject(utils.safeDecode(url), true)}</b> does not exist in the archive.`,
+			`The URL <b>${sanitizeInject(utils.safeDecode(url))}</b> does not exist in the archive.`,
 			modernMode,
 			options,
 		);
