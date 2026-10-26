@@ -18,7 +18,7 @@ Archive95 is an independent web archive focused on material that predates or has
 2. Download the latest revision of the dataset from [here](https://archive.org/details/archive95-dataset) and extract into the `data` folder
 3. Install package dependencies with `deno install`
 4. Build the filesystem and search database with `deno task build`
-   - Note that this will take a ***very*** long time by default; [see below](#feature-options) for information on features that can be turned off to speed up the build process
+   - Note that this will take a ***very*** long time by default; see [Feature Options](#feature-options) for information on features that can be turned off to speed up the build process
 5. Run the server with `deno task start`
 
 ## Command-Line Flags
@@ -46,9 +46,9 @@ A template configuration file containing the default values of each option can b
 - `honeypotFile` - The file path to which IP addresses caught in the honeypot should be saved
 - `logToConsole` - Controls if log entries should appear in the console
 - `logBlockedRequests` - Controls if blocked requests should be logged
-- `buildFeatures` - An array of strings denoting which features should be made available via the build process; [see below](#feature-options) for a full list of features
+- `buildFeatures` - An array of strings denoting which features should be made available via the build process; see [Feature Options](#feature-options) for a full list of features
 - `doModernMode` - Controls if modern browsers should be served an enhanced HTML5 frontend
-- `doHoneypot` - Controls if the options page should contain hidden honeypot links which will permanently log IP addresses to a `honeypot.txt` file
+- `doHoneypot` - Controls if the options page should contain hidden honeypot links which will permanently log IP addresses to the file path specified by `honeypotFile`
 - `doHoneypotBlock` - Controls if requests from IP addresses caught in the honeypot should be blocked
 - `shutdownTimeout` - The amount of milliseconds to wait before forcefully shutting down the server
 - `randomCacheSize` - The amount of random pages to store in memory before querying the search database again
@@ -65,11 +65,11 @@ A template configuration file containing the default values of each option can b
 - `presentation` - Enables the creation of fixed/converted versions of files, to be served when the presentation improvements flag is active
    - Turning this off will prevent most audio/video files from being playable in modern browsers, and will remove the presentation improvements flag in compatibility mode
 - `browse` - Enables the directory browser
-   - Turning this off will moderately decrease the total amount of build files
+   - Turning this off will cause a moderate decrease in the total amount of build files
 - `inlinks` - Enables the inlinks page
-   - Turning this off will significantly decrease the total amount of build files
+   - Turning this off will cause a significant decrease in the total amount of build files
 - `symlinks` - Enables the creation of symlinks to the input paths of unchanged archive files
-   - Turning this on will significantly decrease the total build size, but will create a post-build dependency on the input directory
+   - Turning this on will cause a significant decrease in the total build size, but will create a post-build dependency on the input directory
 
 ## Endpoints
 - `view` - View archived file
@@ -88,15 +88,15 @@ A template configuration file containing the default values of each option can b
 ## Flags
 - `n` - Hide navigation bar
 - `p` - Disable presentation improvements
-- `d` - Render navigation bar inline
+- `w` - Don't point unarchived URLs to Wayback Machine
 - `f` - Render page content without frames
 - `s` - Render page content without JavaScript
 - `c` - Render page content without CSS
-- `w` - Don't point unarchived URLs to Wayback Machine
 - `r` - Display error pages in navigation bar
 - `b` - Display broken pages in navigation bar
 - `m` - Random button includes non-HTML files
-- `o` - Random button excludes orphans
+- `o` - Random button includes orphan files
+- `d` - Render navigation bar inline
 
 ### Technical Flags
 - `i` - Render iframe-ready page content
