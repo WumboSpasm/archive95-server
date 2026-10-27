@@ -57,7 +57,7 @@
 	},
 	{
 		"id": "m",
-		"description": "Random button includes non-HTML files",
+		"description": "Random button includes non-text files",
 		"invert": false,
 		"hidden": false,
 		"modern": false

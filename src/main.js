@@ -797,12 +797,12 @@ async function performSearch(params) {
 		fieldTitle: !params.has('field') || params.has('field', 'title'),
 		fieldContent: !params.has('field') || params.has('field', 'content'),
 		fieldUrl: !params.has('field') || params.has('field', 'url'),
-		formatHtml: !params.has('format') || params.has('format', 'html'),
-		formatPlaintext: !params.has('format') || params.has('format', 'plaintext'),
-		formatBinary: !params.has('format') || params.has('format', 'binary'),
+		formatText: !params.has('format') || params.has('format', 'text'),
+		formatMedia: !params.has('format') || params.has('format', 'media'),
+		formatOther: !params.has('format') || params.has('format', 'other'),
 		includeOrphans: params.size == 0 || params.has('include', 'orphans'),
-		includeBroken: params.has('include', 'broken'),
 		includeErrors: params.has('include', 'errors'),
+		includeBroken: params.has('include', 'broken'),
 		source: sources[params.get('source')] !== undefined ? params.get('source') : null,
 	};
 
@@ -829,13 +829,13 @@ async function performSearch(params) {
 
 	// "Search formats" filter
 	const formatConditions = [];
-	if (!searchFilters.formatHtml || !searchFilters.formatPlaintext || !searchFilters.formatBinary) {
-		if (searchFilters.formatHtml)
-			formatConditions.push("format = 'html'");
-		if (searchFilters.formatPlaintext)
-			formatConditions.push("format = 'plaintext'");
-		if (searchFilters.formatBinary)
-			formatConditions.push("format = 'binary'");
+	if (!searchFilters.formatText || !searchFilters.formatMedia || !searchFilters.formatOther) {
+		if (searchFilters.formatText)
+			formatConditions.push("format = 'text'");
+		if (searchFilters.formatMedia)
+			formatConditions.push("format = 'media'");
+		if (searchFilters.formatOther)
+			formatConditions.push("format = 'other'");
 
 		whereString += ` AND (${formatConditions.join(' OR ')})`;
 	}
@@ -844,10 +844,10 @@ async function performSearch(params) {
 	const includeConditions = [];
 	if (!searchFilters.includeOrphans)
 		includeConditions.push('orphan = 0');
-	if (!searchFilters.includeBroken)
-		includeConditions.push('broken = 0');
 	if (!searchFilters.includeErrors)
 		includeConditions.push('error = 0');
+	if (!searchFilters.includeBroken)
+		includeConditions.push('broken = 0');
 	if (includeConditions.length > 0)
 		whereString += ` AND ${includeConditions.join(' AND ')}`;
 
@@ -868,12 +868,12 @@ async function performSearch(params) {
 
 				// Apply search filters
 				const archiveFormat = utils.getTypeFormat(archiveInfo.types[archiveInfo.types.length - 1]);
-				if ((!searchFilters.formatHtml && archiveFormat == 'html')
-				|| (!searchFilters.formatPlaintext && archiveFormat == 'plaintext')
-				|| (!searchFilters.formatBinary && archiveFormat == 'binary')
+				if ((!searchFilters.formatText && archiveFormat == 'text')
+				|| (!searchFilters.formatMedia && archiveFormat == 'media')
+				|| (!searchFilters.formatOther && archiveFormat == 'other')
 				|| (!searchFilters.includeOrphans && isOrphan)
-				|| (!searchFilters.includeBroken && archiveInfo.broken)
 				|| (!searchFilters.includeErrors && archiveInfo.error)
+				|| (!searchFilters.includeBroken && archiveInfo.broken)
 				|| (searchFilters.source !== null && archiveInfo.source != searchFilters.source))
 					continue;
 
@@ -1223,12 +1223,12 @@ async function buildSearch(params, modernMode) {
 			'FIELDTITLE': searchFilters.fieldTitle ? ' checked' : '',
 			'FIELDCONTENT': searchFilters.fieldContent ? ' checked' : '',
 			'FIELDURL': searchFilters.fieldUrl ? ' checked' : '',
-			'FORMATHTML': searchFilters.formatHtml ? ' checked' : '',
-			'FORMATPLAINTEXT': searchFilters.formatPlaintext ? ' checked' : '',
-			'FORMATBINARY': searchFilters.formatBinary ? ' checked' : '',
+			'FORMATTEXT': searchFilters.formatText ? ' checked' : '',
+			'FORMATMEDIA': searchFilters.formatMedia ? ' checked' : '',
+			'FORMATOTHER': searchFilters.formatOther ? ' checked' : '',
 			'INCLUDEORPHANS': searchFilters.includeOrphans ? ' checked' : '',
-			'INCLUDEBROKEN': searchFilters.includeBroken ? ' checked' : '',
 			'INCLUDEERRORS': searchFilters.includeErrors ? ' checked' : '',
+			'INCLUDEBROKEN': searchFilters.includeBroken ? ' checked' : '',
 			'SOURCES': Object.keys(sources).map(sourceId => `<option value="${sourceId}"${sourceId == searchFilters.source ? ' selected' : ''}>${sourceId}</option>`).join(modernMode ? '\n' : ''),
 		});
 
@@ -1751,9 +1751,9 @@ function buildSourcesContent() {
 		let sourceStats = buildHtml(templates.compat.sources.stats, {
 			'URLTOTAL': stats[sourceId].urls.toLocaleString('en-US') + getPercentString(stats[sourceId].urls, stats.total.urls),
 			'ORPHANTOTAL': stats[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats[sourceId].orphans, stats.total.orphans),
-			'HTMLTOTAL': stats[sourceId].html.toLocaleString('en-US') + getPercentString(stats[sourceId].html, stats.total.html),
-			'PLAINTEXTTOTAL': stats[sourceId].plaintext.toLocaleString('en-US') + getPercentString(stats[sourceId].plaintext, stats.total.plaintext),
-			'BINARYTOTAL': stats[sourceId].binary.toLocaleString('en-US') + getPercentString(stats[sourceId].binary, stats.total.binary),
+			'TEXTTOTAL': stats[sourceId].text.toLocaleString('en-US') + getPercentString(stats[sourceId].text, stats.total.text),
+			'MEDIATOTAL': stats[sourceId].media.toLocaleString('en-US') + getPercentString(stats[sourceId].media, stats.total.media),
+			'OTHERTOTAL': stats[sourceId].other.toLocaleString('en-US') + getPercentString(stats[sourceId].other, stats.total.other),
 			'ERRORTOTAL': stats[sourceId].errors.toLocaleString('en-US') + getPercentString(stats[sourceId].errors, stats.total.errors),
 			'BROKENTOTAL': stats[sourceId].broken.toLocaleString('en-US') + getPercentString(stats[sourceId].broken, stats.total.broken),
 			'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal),
@@ -1761,7 +1761,7 @@ function buildSourcesContent() {
 			'GRANDTOTALNOBROKEN': sourceGrandTotalNoBroken.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoBroken, grandTotalNoBroken),
 		});
 		if (features.includes('screenshots'))
-			sourceStats += `\n\n     <b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots)}`;
+			sourceStats += `\n\n <b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots)}`;
 
 		let integrity = '<dd>N/A</dd>';
 		if (source.integrity.length > 0)
@@ -1788,9 +1788,9 @@ function buildSourcesContent() {
 	let overallStats = buildHtml(templates.compat.sources.stats, {
 		'URLTOTAL': stats.total.urls.toLocaleString('en-US'),
 		'ORPHANTOTAL': stats.total.orphans.toLocaleString('en-US'),
-		'HTMLTOTAL': stats.total.html.toLocaleString('en-US'),
-		'PLAINTEXTTOTAL': stats.total.plaintext.toLocaleString('en-US'),
-		'BINARYTOTAL': stats.total.binary.toLocaleString('en-US'),
+		'TEXTTOTAL': stats.total.text.toLocaleString('en-US'),
+		'MEDIATOTAL': stats.total.media.toLocaleString('en-US'),
+		'OTHERTOTAL': stats.total.other.toLocaleString('en-US'),
 		'ERRORTOTAL': stats.total.errors.toLocaleString('en-US'),
 		'BROKENTOTAL': stats.total.broken.toLocaleString('en-US'),
 		'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
@@ -1798,7 +1798,7 @@ function buildSourcesContent() {
 		'GRANDTOTALNOBROKEN': grandTotalNoBroken.toLocaleString('en-US'),
 	});
 	if (features.includes('screenshots'))
-		overallStats += `\n\n     <b>Screenshots:</b> ${stats.total.screenshots.toLocaleString('en-US')}`;
+		overallStats += `\n\n <b>Screenshots:</b> ${stats.total.screenshots.toLocaleString('en-US')}`;
 
 	return buildHtml(templates.compat.sources.main, {
 		'OVERALLSTATS': { value: '<pre>' + overallStats + '</pre>', indent: 'first' },

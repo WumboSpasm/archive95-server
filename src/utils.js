@@ -161,12 +161,12 @@ export function isTextType(type, includeHtml = true, includeImages = true) {
 
 // Determine the high-level format of a MIME type
 export function getTypeFormat(type) {
-	if (type == 'text/html')
-		return 'html';
-	if (isTextType(type, true, false))
-		return 'plaintext';
-
-	return 'binary';
+	if (getTextType(type, true, false))
+		return 'text';
+	else if (/^(?:image|audio|video|model)\//.test(type))
+		return 'media';
+	else
+		return 'other';
 }
 
 // Log to the appropriate places based on the configuration

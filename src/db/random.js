@@ -12,16 +12,16 @@ Comlink.expose({
 		database.exec('PRAGMA synchronous = off');
 		cacheSize = randomCacheSize;
 	},
-	query: (doHtmlOnly, doUrlsOnly, sourceId) => {
+	query: (doTextOnly, doUrlsOnly, sourceId) => {
 		if (!database)
 			return null;
 
-		const arrId = (sourceId || '') + '_' + (!doHtmlOnly ? 'm' : '') + (doUrlsOnly ? 'o' : '');
+		const arrId = (sourceId || '') + '_' + (!doTextOnly ? 'm' : '') + (doUrlsOnly ? 'o' : '');
 		if (cache[arrId] === undefined || cache[arrId].length == 0) {
 			const whereConditions = ['error = 0'];
 			const whereParameters = [];
-			if (doHtmlOnly)
-				whereConditions.push("format = 'html'");
+			if (doTextOnly)
+				whereConditions.push("format = 'text'");
 			if (doUrlsOnly)
 				whereConditions.push('orphan = 0');
 			if (sourceId !== undefined) {

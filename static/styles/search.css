@@ -19,14 +19,15 @@
 	gap: 12px;
 }
 .archive95-search-lower fieldset {
+	width: 100%;
 	margin-bottom: 4px;
-	padding: 4px 10px 8px;
+	box-sizing: border-box;
 
 	border: 2px solid lightgray;
 }
 
 .archive95-search-options {
-	width: 144px;
+	max-width: 136px;
 
 	flex-shrink: 0;
 }
@@ -39,7 +40,7 @@
 }
 
 .archive95-search-content {
-	max-width: 480px;
+	max-width: 464px;
 
 	flex-grow: 1;
 }

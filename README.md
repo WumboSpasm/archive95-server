@@ -94,7 +94,7 @@ A template configuration file containing the default values of each option can b
 - `c` - Render page content without CSS
 - `r` - Display error pages in navigation bar
 - `b` - Display broken pages in navigation bar
-- `m` - Random button includes non-HTML files
+- `m` - Random button includes non-text files
 - `o` - Random button includes orphan files
 - `d` - Render navigation bar inline
 

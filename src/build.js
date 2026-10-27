@@ -53,9 +53,9 @@ const browseIndex = [];
 const statFields = {
 	urls: 0,
 	orphans: 0,
-	html: 0,
-	plaintext: 0,
-	binary: 0,
+	text: 0,
+	media: 0,
+	other: 0,
 	errors: 0,
 	broken: 0,
 	screenshots: 0,
