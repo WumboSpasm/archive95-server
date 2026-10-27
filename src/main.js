@@ -867,7 +867,7 @@ async function performSearch(params) {
 				const archiveDir = archiveDirs[i];
 
 				// Apply search filters
-				const archiveFormat = archiveInfo.types[0] == 'text/html' ? 'html' : (utils.isTextType(archiveInfo.types[archiveInfo.types.length - 1], true, false) ? 'plaintext' : 'binary');
+				const archiveFormat = utils.getTypeFormat(archiveInfo.types[archiveInfo.types.length - 1]);
 				if ((!searchFilters.formatHtml && archiveFormat == 'html')
 				|| (!searchFilters.formatPlaintext && archiveFormat == 'plaintext')
 				|| (!searchFilters.formatBinary && archiveFormat == 'binary')
@@ -1736,25 +1736,32 @@ function buildSourcesContent() {
 		return percentString;
 	};
 
-	const grandTotalNoErrors = stats.total.urls + stats.total.orphans;
-	const grandTotal = grandTotalNoErrors + stats.total.errors;
+	const grandTotal = stats.total.urls + stats.total.orphans + stats.total.errors + stats.total.broken;
+	const grandTotalNoErrors = stats.total.urls + stats.total.orphans + stats.total.broken;
+	const grandTotalNoBroken = stats.total.urls + stats.total.orphans;
 
 	// Build information for each source
 	const sourceRows = [];
 	for (const sourceId in sources) {
 		const source = sources[sourceId];
 
-		const sourceGrandTotalNoErrors = stats[sourceId].urls + stats[sourceId].orphans;
-		const sourceGrandTotal = sourceGrandTotalNoErrors + stats[sourceId].errors;
+		const sourceGrandTotal = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].errors + stats[sourceId].broken;
+		const sourceGrandTotalNoErrors = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].broken;
+		const sourceGrandTotalNoBroken = stats[sourceId].urls + stats[sourceId].orphans;
 		let sourceStats = buildHtml(templates.compat.sources.stats, {
 			'URLTOTAL': stats[sourceId].urls.toLocaleString('en-US') + getPercentString(stats[sourceId].urls, stats.total.urls),
 			'ORPHANTOTAL': stats[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats[sourceId].orphans, stats.total.orphans),
+			'HTMLTOTAL': stats[sourceId].html.toLocaleString('en-US') + getPercentString(stats[sourceId].html, stats.total.html),
+			'PLAINTEXTTOTAL': stats[sourceId].plaintext.toLocaleString('en-US') + getPercentString(stats[sourceId].plaintext, stats.total.plaintext),
+			'BINARYTOTAL': stats[sourceId].binary.toLocaleString('en-US') + getPercentString(stats[sourceId].binary, stats.total.binary),
 			'ERRORTOTAL': stats[sourceId].errors.toLocaleString('en-US') + getPercentString(stats[sourceId].errors, stats.total.errors),
+			'BROKENTOTAL': stats[sourceId].broken.toLocaleString('en-US') + getPercentString(stats[sourceId].broken, stats.total.broken),
 			'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal),
 			'GRANDTOTALNOERRORS': sourceGrandTotalNoErrors.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoErrors, grandTotalNoErrors),
+			'GRANDTOTALNOBROKEN': sourceGrandTotalNoBroken.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoBroken, grandTotalNoBroken),
 		});
 		if (features.includes('screenshots'))
-			sourceStats += `\n\n<b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots)}`;
+			sourceStats += `\n\n     <b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots)}`;
 
 		let integrity = '<dd>N/A</dd>';
 		if (source.integrity.length > 0)
@@ -1781,12 +1788,17 @@ function buildSourcesContent() {
 	let overallStats = buildHtml(templates.compat.sources.stats, {
 		'URLTOTAL': stats.total.urls.toLocaleString('en-US'),
 		'ORPHANTOTAL': stats.total.orphans.toLocaleString('en-US'),
+		'HTMLTOTAL': stats.total.html.toLocaleString('en-US'),
+		'PLAINTEXTTOTAL': stats.total.plaintext.toLocaleString('en-US'),
+		'BINARYTOTAL': stats.total.binary.toLocaleString('en-US'),
 		'ERRORTOTAL': stats.total.errors.toLocaleString('en-US'),
+		'BROKENTOTAL': stats.total.broken.toLocaleString('en-US'),
 		'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
 		'GRANDTOTALNOERRORS': grandTotalNoErrors.toLocaleString('en-US'),
+		'GRANDTOTALNOBROKEN': grandTotalNoBroken.toLocaleString('en-US'),
 	});
 	if (features.includes('screenshots'))
-		overallStats += `\n\n<b>Screenshots:</b> ${stats.total.screenshots.toLocaleString('en-US')}`;
+		overallStats += `\n\n     <b>Screenshots:</b> ${stats.total.screenshots.toLocaleString('en-US')}`;
 
 	return buildHtml(templates.compat.sources.main, {
 		'OVERALLSTATS': { value: '<pre>' + overallStats + '</pre>', indent: 'first' },

@@ -159,6 +159,16 @@ export function isTextType(type, includeHtml = true, includeImages = true) {
 	return matchesPlaintext || includeImages && matchesImage;
 }
 
+// Determine the high-level format of a MIME type
+export function getTypeFormat(type) {
+	if (type == 'text/html')
+		return 'html';
+	if (isTextType(type, true, false))
+		return 'plaintext';
+
+	return 'binary';
+}
+
 // Log to the appropriate places based on the configuration
 export function logMessage(message) {
 	message = `[${new Date().toLocaleString()}] ${message}`;

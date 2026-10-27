@@ -49,10 +49,20 @@ const screenshotIndex = {};
 const inlinksIndex = [];
 const browseIndex = [];
 
-// Initialize total entry statistics
-const stats = { total: { urls: 0, orphans: 0, screenshots: 0, errors: 0 } };
+// Initialize statistics
+const statFields = {
+	urls: 0,
+	orphans: 0,
+	html: 0,
+	plaintext: 0,
+	binary: 0,
+	errors: 0,
+	broken: 0,
+	screenshots: 0,
+};
+const stats = { total: structuredClone(statFields) };
 for (const sourceId in sources)
-	stats[sourceId] = { from: null, to: null, urls: 0, orphans: 0, screenshots: 0, errors: 0 };
+	stats[sourceId] = Object.assign({ from: null, to: null }, statFields);
 
 // Instantiate database and insert statement
 let database, insertStatement;
@@ -142,15 +152,24 @@ let database, insertStatement;
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedUrl}...`);
 			await buildArchive(archive, targetDir);
+			if (archive.files.length == 0)
+				continue;
 
 			// Increment URL totals
-			if (!archive.error) {
+			if (!archive.error && !archive.broken) {
+				const archiveFormat = utils.getTypeFormat(archive.types[archive.types.length - 1]);
 				stats[archive.source].urls++;
+				stats[archive.source][archiveFormat]++;
 				stats.total.urls++;
+				stats.total[archiveFormat]++;
 			}
-			else {
+			else if (archive.error) {
 				stats[archive.source].errors++;
 				stats.total.errors++;
+			}
+			else if (archive.broken) {
+				stats[archive.source].broken++;
+				stats.total.broken++;
 			}
 		}
 
@@ -189,15 +208,24 @@ let database, insertStatement;
 			// Create the files
 			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedPath}...`);
 			await buildArchive(archive, targetDir);
+			if (archive.files.length == 0)
+				continue;
 
 			// Increment orphan totals
-			if (!archive.error) {
+			if (!archive.error && !archive.broken) {
+				const archiveFormat = utils.getTypeFormat(archive.types[archive.types.length - 1]);
 				stats[archive.source].orphans++;
+				stats[archive.source][archiveFormat]++;
 				stats.total.orphans++;
+				stats.total[archiveFormat]++;
 			}
-			else {
+			else if (archive.error) {
 				stats[archive.source].errors++;
 				stats.total.errors++;
+			}
+			else if (archive.broken) {
+				stats[archive.source].broken++;
+				stats.total.broken++;
 			}
 
 			// Save archive info to a file
@@ -618,7 +646,7 @@ async function buildArchive(archive, targetDir) {
 			utils.safeDecode(archive.url ?? archive.path),
 			search?.title || null,
 			search?.content || null,
-			archive.types[0] == 'text/html' ? 'html' : (utils.isTextType(archive.types[archive.types.length - 1], true, false) ? 'plaintext' : 'binary'),
+			utils.getTypeFormat(archive.types[archive.types.length - 1]),
 			archive.url === null,
 			archive.error,
 			archive.broken,
