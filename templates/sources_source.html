@@ -1,24 +1,30 @@
-<h2 id="{ID}">{TITLE}<img src="/images/sources/{ID}.gif" align="right"></h2>
+<h1 id="{ID}">{TITLE}<img src="/images/sources/{ID}.gif" align="right"></h1>
 <dl>
 	<dt><b>Author:</b> {AUTHOR}</dt>
 	<dt><b>Archive Date:</b> {ARCHIVEDATE}</dt>
 	<dt><b>Publish Date:</b> {PUBLISHDATE}</dt>
-	<dt><b>Link(s):</b></dt>
+	<dt><b>Type:</b> {TYPE}</dt>
+	<dt><b>Generators:</b> {GENERATORS}</dt>
+	<dt><b>Languages:</b> {LANGUAGES}</dt>
+	<dt><b>Links:</b></dt>
 	{LINKS}
 </dl>
 <dl>
 	<dt><b>Description:</b></dt>
 	<dd>{DESCRIPTION}</dd>
 	<dt><b>Data Integrity:</b></dt>
-	{INTEGRITY}
+	<ul>
+		{INTEGRITY}
+	</ul>
 	<dt><b>Remediations:</b></dt>
-	{REMEDIATIONS}
+	<ul>
+		{REMEDIATIONS}
+	</ul>
 </dl>
 <dl>
-	<dt><b>Statistics:</b></dt>
+	<dt><b>ID:</b> <code>{ID}</code></dt>
 </dl>
-{STATS}
-<dl>
-	<dt><b>ID:</b> <a href="#{ID}">{ID}</a></dt>
-</dl>
+<h2>Statistics</h2>
+<pre>{STATS}</pre>
 <hr>
+<a href="/sources">Return to sources</a>

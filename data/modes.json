@@ -74,7 +74,7 @@
 		"hasSource": false,
 		"hasOffset": false,
 		"hasFlags": false,
-		"hasUrl": false
+		"hasUrl": null
 	},
 	{
 		"id": "deadend",
