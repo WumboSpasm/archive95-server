@@ -53,14 +53,20 @@ const browseIndex = [];
 const statFields = {
 	urls: 0,
 	orphans: 0,
-	text: 0,
-	media: 0,
-	other: 0,
-	errors: 0,
-	broken: 0,
+	textFiles: 0,
+	mediaFiles: 0,
+	otherFiles: 0,
+	errorPages: 0,
+	brokenPages: 0,
+	archivedLinks: 0,
+	archivedEmbeds: 0,
+	unarchivedLinks: 0,
+	unarchivedEmbeds: 0,
+	deadendLinks: 0,
+	deadendEmbeds: 0,
 	screenshots: 0,
 };
-const stats = { total: structuredClone(statFields) };
+const stats = { totals: structuredClone(statFields) };
 for (const sourceId in sources)
 	stats[sourceId] = Object.assign({ from: null, to: null }, statFields);
 
@@ -157,19 +163,19 @@ let database, insertStatement;
 
 			// Increment URL totals
 			if (!archive.error && !archive.broken) {
-				const archiveFormat = utils.getTypeFormat(archive.types[archive.types.length - 1]);
+				const formatStatField = utils.getTypeFormat(archive.types[archive.types.length - 1]) + 'Files';
 				stats[archive.source].urls++;
-				stats[archive.source][archiveFormat]++;
-				stats.total.urls++;
-				stats.total[archiveFormat]++;
+				stats[archive.source][formatStatField]++;
+				stats.totals.urls++;
+				stats.totals[formatStatField]++;
 			}
 			else if (archive.error) {
-				stats[archive.source].errors++;
-				stats.total.errors++;
+				stats[archive.source].errorPages++;
+				stats.totals.errorPages++;
 			}
 			else if (archive.broken) {
-				stats[archive.source].broken++;
-				stats.total.broken++;
+				stats[archive.source].brokenPages++;
+				stats.totals.brokenPages++;
 			}
 		}
 
@@ -213,19 +219,19 @@ let database, insertStatement;
 
 			// Increment orphan totals
 			if (!archive.error && !archive.broken) {
-				const archiveFormat = utils.getTypeFormat(archive.types[archive.types.length - 1]);
+				const formatStatField = utils.getTypeFormat(archive.types[archive.types.length - 1]) + 'Files';
 				stats[archive.source].orphans++;
-				stats[archive.source][archiveFormat]++;
-				stats.total.orphans++;
-				stats.total[archiveFormat]++;
+				stats[archive.source][formatStatField]++;
+				stats.totals.orphans++;
+				stats.totals[formatStatField]++;
 			}
 			else if (archive.error) {
-				stats[archive.source].errors++;
-				stats.total.errors++;
+				stats[archive.source].errorPages++;
+				stats.totals.errorPages++;
 			}
 			else if (archive.broken) {
-				stats[archive.source].broken++;
-				stats.total.broken++;
+				stats[archive.source].brokenPages++;
+				stats.totals.brokenPages++;
 			}
 
 			// Save archive info to a file
@@ -269,7 +275,7 @@ let database, insertStatement;
 
 				// Increment screenshot totals
 				stats[screenshot.source].screenshots++;
-				stats.total.screenshots++;
+				stats.totals.screenshots++;
 			}
 
 			// Save screenshot info to file
@@ -963,8 +969,11 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 	url = url.substring(urlPrefix.length);
 
 	// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
-	if (url == '/deadend')
+	if (url == '/deadend') {
+		stats.totals.deadendLinks++;
+		stats[archive.source].deadendLinks++;
 		return [attrStart + quoteChar + urlPrefix + url + quoteChar, false];
+	}
 
 	// If a base URL is specified, change the destination of relative URLs accordingly
 	if (baseUrl !== null) {
@@ -995,6 +1004,11 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 		return [attrStart + quoteChar + (preserveUrl ? rawUrl : resolveUrlOutput) + quoteChar, true];
 
 	const [resolvedUrl, unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
+
+	// Increment the appropriate totals
+	const refStatField = (isInvalid ? 'deadend' : (resolvedSource !== null ? 'archived' : 'unarchived')) + (injectLinkEntry.isAsset ? 'Embeds' : 'Links');
+	stats.totals[refStatField]++;
+	stats[archive.source][refStatField]++;
 
 	// Unresolved relative links are assumed to be invalid if the source's URL mode is 2
 	if (isInvalid)

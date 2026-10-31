@@ -715,7 +715,7 @@ async function serverHandler(request, info) {
 			return new Response(aboutPage, { headers: headers });
 		}
 		case 'sources': {
-			const getPercentString = (part, whole) => {
+			const getPercentString = (part, whole, wholeName) => {
 				if (part == 0)
 					return '';
 
@@ -725,14 +725,14 @@ async function serverHandler(request, info) {
 					percent = 0.1;
 					percentString += '&lt;';
 				}
-				percentString += percent + '%)';
+				percentString += percent + '% of ' + wholeName + ')';
 
 				return percentString;
 			};
 
-			const grandTotal = stats.total.urls + stats.total.orphans + stats.total.errors + stats.total.broken;
-			const grandTotalNoErrors = stats.total.urls + stats.total.orphans + stats.total.broken;
-			const grandTotalNoBroken = stats.total.urls + stats.total.orphans;
+			const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
+			const grandTotalNoErrors = stats.totals.urls + stats.totals.orphans + stats.totals.brokenPages;
+			const grandTotalNoBroken = stats.totals.urls + stats.totals.orphans;
 
 			const splitSourceRoute = urlStr.replace(/\/*(?:\?.*)?$/, '').split(/(?<=^[^/]+)\/+/);
 			const sourceId = splitSourceRoute[0] || null;
@@ -742,23 +742,31 @@ async function serverHandler(request, info) {
 				if (source === undefined || sourceRoute !== null)
 					throw new NotFoundError(modernMode);
 
-				const sourceGrandTotal = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].errors + stats[sourceId].broken;
-				const sourceGrandTotalNoErrors = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].broken;
+				const sourceGrandTotal = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].errorPages + stats[sourceId].brokenPages;
+				const sourceGrandTotalNoErrors = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].brokenPages;
 				const sourceGrandTotalNoBroken = stats[sourceId].urls + stats[sourceId].orphans;
+				const sourceTotalLinks = stats[sourceId].archivedLinks + stats[sourceId].unarchivedLinks + stats[sourceId].deadendLinks;
+				const sourceTotalEmbeds = stats[sourceId].archivedEmbeds + stats[sourceId].unarchivedEmbeds + stats[sourceId].deadendEmbeds;
 				let sourceStats = buildHtml(templates.compat.sources.stats, {
-					'URLTOTAL': stats[sourceId].urls.toLocaleString('en-US') + getPercentString(stats[sourceId].urls, stats.total.urls),
-					'ORPHANTOTAL': stats[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats[sourceId].orphans, stats.total.orphans),
-					'TEXTTOTAL': stats[sourceId].text.toLocaleString('en-US') + getPercentString(stats[sourceId].text, stats.total.text),
-					'MEDIATOTAL': stats[sourceId].media.toLocaleString('en-US') + getPercentString(stats[sourceId].media, stats.total.media),
-					'OTHERTOTAL': stats[sourceId].other.toLocaleString('en-US') + getPercentString(stats[sourceId].other, stats.total.other),
-					'ERRORTOTAL': stats[sourceId].errors.toLocaleString('en-US') + getPercentString(stats[sourceId].errors, stats.total.errors),
-					'BROKENTOTAL': stats[sourceId].broken.toLocaleString('en-US') + getPercentString(stats[sourceId].broken, stats.total.broken),
-					'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal),
-					'GRANDTOTALNOERRORS': sourceGrandTotalNoErrors.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoErrors, grandTotalNoErrors),
-					'GRANDTOTALNOBROKEN': sourceGrandTotalNoBroken.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoBroken, grandTotalNoBroken),
+					'URLTOTAL': stats[sourceId].urls.toLocaleString('en-US') + getPercentString(stats[sourceId].urls, stats.totals.urls, 'all URLs'),
+					'ORPHANTOTAL': stats[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats[sourceId].orphans, stats.totals.orphans, 'all orphans'),
+					'TEXTTOTAL': stats[sourceId].textFiles.toLocaleString('en-US') + getPercentString(stats[sourceId].textFiles, stats.totals.textFiles, 'all text files'),
+					'MEDIATOTAL': stats[sourceId].mediaFiles.toLocaleString('en-US') + getPercentString(stats[sourceId].mediaFiles, stats.totals.mediaFiles, 'all media files'),
+					'OTHERTOTAL': stats[sourceId].otherFiles.toLocaleString('en-US') + getPercentString(stats[sourceId].otherFiles, stats.totals.otherFiles, 'all other files'),
+					'ERRORTOTAL': stats[sourceId].errorPages.toLocaleString('en-US') + getPercentString(stats[sourceId].errorPages, stats.totals.errorPages, 'all error pages'),
+					'BROKENTOTAL': stats[sourceId].brokenPages.toLocaleString('en-US') + getPercentString(stats[sourceId].brokenPages, stats.totals.brokenPages, 'all broken pages'),
+					'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal, 'all files'),
+					'GRANDTOTALNOERRORS': sourceGrandTotalNoErrors.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoErrors, grandTotalNoErrors, 'all files'),
+					'GRANDTOTALNOBROKEN': sourceGrandTotalNoBroken.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoBroken, grandTotalNoBroken, 'all files'),
+					'ARCHIVEDLINKTOTAL': stats[sourceId].archivedLinks.toLocaleString('en-US') + getPercentString(stats[sourceId].archivedLinks, sourceTotalLinks, 'source links'),
+					'ARCHIVEDEMBEDTOTAL': stats[sourceId].archivedEmbeds.toLocaleString('en-US') + getPercentString(stats[sourceId].archivedEmbeds, sourceTotalEmbeds, 'source embeds'),
+					'UNARCHIVEDLINKTOTAL': stats[sourceId].unarchivedLinks.toLocaleString('en-US') + getPercentString(stats[sourceId].unarchivedLinks, sourceTotalLinks, 'source links'),
+					'UNARCHIVEDEMBEDTOTAL': stats[sourceId].unarchivedEmbeds.toLocaleString('en-US') + getPercentString(stats[sourceId].unarchivedEmbeds, sourceTotalEmbeds, 'source embeds'),
+					'DEADENDLINKTOTAL': stats[sourceId].deadendLinks.toLocaleString('en-US') + getPercentString(stats[sourceId].deadendLinks, sourceTotalLinks, 'source links'),
+					'DEADENDEMBEDTOTAL': stats[sourceId].deadendEmbeds.toLocaleString('en-US') + getPercentString(stats[sourceId].deadendEmbeds, sourceTotalEmbeds, 'source embeds'),
 				});
 				if (features.includes('screenshots'))
-					sourceStats += `\n\n <b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.total.screenshots)}`;
+					sourceStats += `\n\n      <b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.totals.screenshots)}`;
 
 				const sourcesContent = buildHtml(templates.compat.sources.source, {
 					'ID': sourceId,
@@ -815,19 +823,25 @@ async function serverHandler(request, info) {
 			}
 
 			let overallStats = buildHtml(templates.compat.sources.stats, {
-				'URLTOTAL': stats.total.urls.toLocaleString('en-US'),
-				'ORPHANTOTAL': stats.total.orphans.toLocaleString('en-US'),
-				'TEXTTOTAL': stats.total.text.toLocaleString('en-US'),
-				'MEDIATOTAL': stats.total.media.toLocaleString('en-US'),
-				'OTHERTOTAL': stats.total.other.toLocaleString('en-US'),
-				'ERRORTOTAL': stats.total.errors.toLocaleString('en-US'),
-				'BROKENTOTAL': stats.total.broken.toLocaleString('en-US'),
+				'URLTOTAL': stats.totals.urls.toLocaleString('en-US'),
+				'ORPHANTOTAL': stats.totals.orphans.toLocaleString('en-US'),
+				'TEXTTOTAL': stats.totals.textFiles.toLocaleString('en-US'),
+				'MEDIATOTAL': stats.totals.mediaFiles.toLocaleString('en-US'),
+				'OTHERTOTAL': stats.totals.otherFiles.toLocaleString('en-US'),
+				'ERRORTOTAL': stats.totals.errorPages.toLocaleString('en-US'),
+				'BROKENTOTAL': stats.totals.brokenPages.toLocaleString('en-US'),
 				'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
 				'GRANDTOTALNOERRORS': grandTotalNoErrors.toLocaleString('en-US'),
 				'GRANDTOTALNOBROKEN': grandTotalNoBroken.toLocaleString('en-US'),
+				'ARCHIVEDLINKTOTAL': stats.totals.archivedLinks.toLocaleString('en-US'),
+				'ARCHIVEDEMBEDTOTAL': stats.totals.archivedEmbeds.toLocaleString('en-US'),
+				'UNARCHIVEDLINKTOTAL': stats.totals.unarchivedLinks.toLocaleString('en-US'),
+				'UNARCHIVEDEMBEDTOTAL': stats.totals.unarchivedEmbeds.toLocaleString('en-US'),
+				'DEADENDLINKTOTAL': stats.totals.deadendLinks.toLocaleString('en-US'),
+				'DEADENDEMBEDTOTAL': stats.totals.deadendEmbeds.toLocaleString('en-US'),
 			});
 			if (features.includes('screenshots'))
-				overallStats += `\n\n <b>Screenshots:</b> ${stats.total.screenshots.toLocaleString('en-US')}`;
+				overallStats += `\n\n      <b>Screenshots:</b> ${stats.totals.screenshots.toLocaleString('en-US')}`;
 
 			const sourcesContent = buildHtml(templates.compat.sources.main, {
 				'OVERALLSTATS': overallStats,
@@ -1329,7 +1343,7 @@ async function buildSearch(params, modernMode) {
 	};
 	const searchDefs = {
 		'QUERY': '',
-		'TOTAL': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
+		'TOTAL': (stats.totals.urls + stats.totals.orphans).toLocaleString('en-US'),
 		'FOCUS': '',
 		'OPTIONS': { value: '', indent: modernMode ? 'all' : 'first' },
 		'HEADER': 'Welcome to Archive95',
@@ -1826,7 +1840,7 @@ function buildHomeContent() {
 	const highlightsHtml = highlightsHtmlArr.join('\n');
 	return [
 		buildHtml(templates.compat.search.home, {
-			'TOTALENTRIES': (stats.total.urls + stats.total.orphans).toLocaleString('en-US'),
+			'TOTALENTRIES': (stats.totals.urls + stats.totals.orphans).toLocaleString('en-US'),
 			'TOTALSOURCES': Object.keys(sources).length.toLocaleString('en-US'),
 			'HIGHLIGHTS': highlightsHtml,
 			'RANDOM': features.includes('database') ? templates.compat.search.random : '',
