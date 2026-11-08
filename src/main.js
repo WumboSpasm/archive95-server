@@ -29,7 +29,6 @@ const stats = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 
 const features = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPath, 'features.json')));
 
 const staticFileInfo = cacheStaticFileInfo();
-const [homeContentCompat, homeHighlightsModern] = buildHomeContent();
 
 let httpServer, httpsServer;
 let searchDatabase, randomDatabase;
@@ -1523,13 +1522,35 @@ async function buildSearch(params, modernMode) {
 
 	// Render the homepage if no search query was supplied
 	if (!params.has('query')) {
+		const highlightsHtmlArr = [];
+		for (const category in highlights) {
+			highlightsHtmlArr.push(`<dt><b>${category}:</b></dt>`);
+
+			const categoryHtmlArr = [];
+			const entries = highlights[category];
+			for (const name in entries) {
+				const entry = entries[name];
+				categoryHtmlArr.push(`${entry.break ? '<br>' : ''}<a href="/${buildRoute('view', entry.source, entry.offset, null)}/${entry.url}">${name}</a>`);
+			}
+
+			highlightsHtmlArr.push(`<dd>${categoryHtmlArr.join(' - ')}</dd>`);
+		}
+
+		// For modern mode, build just the highlights because they are displayed separately from the welcome text (which is static)
+		// For compatibility mode, build the full homepage content
 		if (modernMode) {
+
 			searchDefs['FOCUS'] = ' autofocus';
 			searchDefs['CONTENT'] = templates.modern.search.home;
-			searchDefs['HIGHLIGHTS'] = homeHighlightsModern;
+			searchDefs['HIGHLIGHTS'] = buildHtml(templates.modern.search.highlights, { 'HIGHLIGHTS': highlightsHtmlArr.join('\n') });
 		}
 		else
-			searchDefs['CONTENT'] = homeContentCompat;
+			searchDefs['CONTENT'] = buildHtml(templates.compat.search.home, {
+				'TOTALENTRIES': (stats.totals.urls + stats.totals.orphans).toLocaleString('en-US'),
+				'TOTALSOURCES': Object.keys(sources).length.toLocaleString('en-US'),
+				'HIGHLIGHTS': highlightsHtmlArr.join('\n'),
+				'RANDOM': features.includes('database') ? templates.compat.search.random : '',
+			});
 	}
 	else {
 		const sanitizedQuery = sanitizeInject(params.get('query'));
@@ -1975,37 +1996,6 @@ function cacheStaticFileInfo() {
 		};
 
 	return staticFileInfo;
-}
-
-// For compatibility mode, build the full homepage content
-// For modern mode, build just the highlights because they are displayed separately from the welcome text (which is static)
-function buildHomeContent() {
-	const highlightsHtmlArr = [];
-	for (const category in highlights) {
-		highlightsHtmlArr.push(`<dt><b>${category}:</b></dt>`);
-
-		const categoryHtmlArr = [];
-		const entries = highlights[category];
-		for (const name in entries) {
-			const entry = entries[name];
-			categoryHtmlArr.push(`${entry.break ? '<br>' : ''}<a href="/${buildRoute('view', entry.source, entry.offset, null)}/${entry.url}">${name}</a>`);
-		}
-
-		highlightsHtmlArr.push(`<dd>${categoryHtmlArr.join(' - ')}</dd>`);
-	}
-
-	const highlightsHtml = highlightsHtmlArr.join('\n');
-	return [
-		buildHtml(templates.compat.search.home, {
-			'TOTALENTRIES': (stats.totals.urls + stats.totals.orphans).toLocaleString('en-US'),
-			'TOTALSOURCES': Object.keys(sources).length.toLocaleString('en-US'),
-			'HIGHLIGHTS': highlightsHtml,
-			'RANDOM': features.includes('database') ? templates.compat.search.random : '',
-		}),
-		buildHtml(templates.modern.search.highlights, {
-			'HIGHLIGHTS': highlightsHtml,
-		}),
-	];
 }
 
 // Return a string representing a percentage of a whole
