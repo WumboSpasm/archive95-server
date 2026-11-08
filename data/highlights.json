@@ -57,8 +57,8 @@
 	},
 	"Software": {
 		"Netscape": {
-			"source": "einblicke",
-			"url": "http://www.netscape.com/",
+			"source": "nsguide",
+			"url": "http://home.netscape.com/",
 			"offset": null,
 			"break": false
 		},
