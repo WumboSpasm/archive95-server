@@ -715,25 +715,6 @@ async function serverHandler(request, info) {
 			return new Response(aboutPage, { headers: headers });
 		}
 		case 'sources': {
-			const getPercentString = (part, whole, wholeName) => {
-				if (part == 0)
-					return '';
-
-				let percentString = ' (';
-				let percent = Math.round((part / whole) * 1000) / 10;
-				if (percent == 0) {
-					percent = 0.1;
-					percentString += '&lt;';
-				}
-				percentString += percent + '% of ' + wholeName + ')';
-
-				return percentString;
-			};
-
-			const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
-			const grandTotalNoErrors = stats.totals.urls + stats.totals.orphans + stats.totals.brokenPages;
-			const grandTotalNoBroken = stats.totals.urls + stats.totals.orphans;
-
 			const splitSourceRoute = urlStr.replace(/\/*(?:\?.*)?$/, '').split(/(?<=^[^/]+)\/+/);
 			const sourceId = splitSourceRoute[0] || null;
 			const sourceRoute = splitSourceRoute[1]?.replace(/\/{2,}/g, '/') || null;
@@ -742,37 +723,63 @@ async function serverHandler(request, info) {
 				if (source === undefined || sourceRoute !== null)
 					throw new NotFoundError(modernMode);
 
-				const sourceGrandTotal = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].errorPages + stats[sourceId].brokenPages;
-				const sourceGrandTotalNoErrors = stats[sourceId].urls + stats[sourceId].orphans + stats[sourceId].brokenPages;
-				const sourceGrandTotalNoBroken = stats[sourceId].urls + stats[sourceId].orphans;
-				const sourceTotalLinks = stats[sourceId].archivedLinks + stats[sourceId].unarchivedLinks + stats[sourceId].deadendLinks;
-				const sourceTotalEmbeds = stats[sourceId].archivedEmbeds + stats[sourceId].unarchivedEmbeds + stats[sourceId].deadendEmbeds;
-				let sourceStats = buildHtml(templates.compat.sources.stats, {
-					'URLTOTAL': stats[sourceId].urls.toLocaleString('en-US') + getPercentString(stats[sourceId].urls, stats.totals.urls, 'all URLs'),
-					'ORPHANTOTAL': stats[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats[sourceId].orphans, stats.totals.orphans, 'all orphans'),
-					'TEXTTOTAL': stats[sourceId].textFiles.toLocaleString('en-US') + getPercentString(stats[sourceId].textFiles, stats.totals.textFiles, 'all text files'),
-					'MEDIATOTAL': stats[sourceId].mediaFiles.toLocaleString('en-US') + getPercentString(stats[sourceId].mediaFiles, stats.totals.mediaFiles, 'all media files'),
-					'OTHERTOTAL': stats[sourceId].otherFiles.toLocaleString('en-US') + getPercentString(stats[sourceId].otherFiles, stats.totals.otherFiles, 'all other files'),
-					'ERRORTOTAL': stats[sourceId].errorPages.toLocaleString('en-US') + getPercentString(stats[sourceId].errorPages, stats.totals.errorPages, 'all error pages'),
-					'BROKENTOTAL': stats[sourceId].brokenPages.toLocaleString('en-US') + getPercentString(stats[sourceId].brokenPages, stats.totals.brokenPages, 'all broken pages'),
+				const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
+				const grandTotalNoErrors = stats.totals.urls + stats.totals.orphans + stats.totals.brokenPages;
+				const grandTotalNoBroken = stats.totals.urls + stats.totals.orphans;
+				const totalLinks = stats.totals.archivedLinks + stats.totals.unarchivedLinks + stats.totals.deadendLinks;
+				const totalLinksNoDeadends = stats.totals.archivedLinks + stats.totals.unarchivedLinks;
+				const totalEmbeds = stats.totals.archivedEmbeds + stats.totals.unarchivedEmbeds + stats.totals.deadendEmbeds;
+				const totalEmbedsNoDeadends = stats.totals.archivedEmbeds + stats.totals.unarchivedEmbeds;
+
+				const sourceGrandTotal = stats.sources[sourceId].urls + stats.sources[sourceId].orphans + stats.sources[sourceId].errorPages + stats.sources[sourceId].brokenPages;
+				const sourceGrandTotalNoErrors = stats.sources[sourceId].urls + stats.sources[sourceId].orphans + stats.sources[sourceId].brokenPages;
+				const sourceGrandTotalNoBroken = stats.sources[sourceId].urls + stats.sources[sourceId].orphans;
+				const sourceTotalLinks = stats.sources[sourceId].archivedLinks + stats.sources[sourceId].unarchivedLinks + stats.sources[sourceId].deadendLinks;
+				const sourceTotalLinksNoDeadends = stats.sources[sourceId].archivedLinks + stats.sources[sourceId].unarchivedLinks;
+				const sourceTotalEmbeds = stats.sources[sourceId].archivedEmbeds + stats.sources[sourceId].unarchivedEmbeds + stats.sources[sourceId].deadendEmbeds;
+				const sourceTotalEmbedsNoDeadends = stats.sources[sourceId].archivedEmbeds + stats.sources[sourceId].unarchivedEmbeds;
+
+				// Build HTML for source entry totals
+				let sourceEntryTotals = buildHtml(templates.compat.stats.entries, {
+					'URLTOTAL': stats.sources[sourceId].urls.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].urls, stats.totals.urls, 'all URLs'),
+					'ORPHANTOTAL': stats.sources[sourceId].orphans.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].orphans, stats.totals.orphans, 'all orphans'),
+					'TEXTTOTAL': stats.sources[sourceId].textFiles.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].textFiles, stats.totals.textFiles, 'all text files'),
+					'MEDIATOTAL': stats.sources[sourceId].mediaFiles.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].mediaFiles, stats.totals.mediaFiles, 'all media files'),
+					'OTHERTOTAL': stats.sources[sourceId].otherFiles.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].otherFiles, stats.totals.otherFiles, 'all other files'),
+					'ERRORTOTAL': stats.sources[sourceId].errorPages.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].errorPages, stats.totals.errorPages, 'all error pages'),
+					'BROKENTOTAL': stats.sources[sourceId].brokenPages.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].brokenPages, stats.totals.brokenPages, 'all broken pages'),
 					'GRANDTOTAL': sourceGrandTotal.toLocaleString('en-US') + getPercentString(sourceGrandTotal, grandTotal, 'all files'),
 					'GRANDTOTALNOERRORS': sourceGrandTotalNoErrors.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoErrors, grandTotalNoErrors, 'all files'),
 					'GRANDTOTALNOBROKEN': sourceGrandTotalNoBroken.toLocaleString('en-US') + getPercentString(sourceGrandTotalNoBroken, grandTotalNoBroken, 'all files'),
-					'ARCHIVEDLINKTOTAL': stats[sourceId].archivedLinks.toLocaleString('en-US') + getPercentString(stats[sourceId].archivedLinks, sourceTotalLinks, 'source links'),
-					'ARCHIVEDEMBEDTOTAL': stats[sourceId].archivedEmbeds.toLocaleString('en-US') + getPercentString(stats[sourceId].archivedEmbeds, sourceTotalEmbeds, 'source embeds'),
-					'UNARCHIVEDLINKTOTAL': stats[sourceId].unarchivedLinks.toLocaleString('en-US') + getPercentString(stats[sourceId].unarchivedLinks, sourceTotalLinks, 'source links'),
-					'UNARCHIVEDEMBEDTOTAL': stats[sourceId].unarchivedEmbeds.toLocaleString('en-US') + getPercentString(stats[sourceId].unarchivedEmbeds, sourceTotalEmbeds, 'source embeds'),
-					'DEADENDLINKTOTAL': stats[sourceId].deadendLinks.toLocaleString('en-US') + getPercentString(stats[sourceId].deadendLinks, sourceTotalLinks, 'source links'),
-					'DEADENDEMBEDTOTAL': stats[sourceId].deadendEmbeds.toLocaleString('en-US') + getPercentString(stats[sourceId].deadendEmbeds, sourceTotalEmbeds, 'source embeds'),
 				});
 				if (features.includes('screenshots'))
-					sourceStats += `\n\n      <b>Screenshots:</b> ${stats[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats[sourceId].screenshots, stats.totals.screenshots)}`;
+					sourceEntryTotals += `\n\n         <b>Screenshots:</b> ${stats.sources[sourceId].screenshots.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].screenshots, stats.totals.screenshots)}`;
 
+				// Build HTML for source link totals
+				const sourceLinkTotals = buildHtml(templates.compat.stats.links, {
+					'ARCHIVEDLINKTOTAL': stats.sources[sourceId].archivedLinks.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].archivedLinks, sourceTotalLinks, 'source links'),
+					'ARCHIVEDEMBEDTOTAL': stats.sources[sourceId].archivedEmbeds.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].archivedEmbeds, sourceTotalEmbeds, 'source embeds'),
+					'UNARCHIVEDLINKTOTAL': stats.sources[sourceId].unarchivedLinks.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].unarchivedLinks, sourceTotalLinks, 'source links'),
+					'UNARCHIVEDEMBEDTOTAL': stats.sources[sourceId].unarchivedEmbeds.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].unarchivedEmbeds, sourceTotalEmbeds, 'source embeds'),
+					'DEADENDLINKTOTAL': stats.sources[sourceId].deadendLinks.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].deadendLinks, sourceTotalLinks, 'source links'),
+					'DEADENDEMBEDTOTAL': stats.sources[sourceId].deadendEmbeds.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].deadendEmbeds, sourceTotalEmbeds, 'source embeds'),
+					'LINKTOTAL': sourceTotalLinks.toLocaleString('en-US') + getPercentString(sourceTotalLinks, totalLinks, 'all links'),
+					'LINKTOTALNODEADENDS': sourceTotalLinksNoDeadends.toLocaleString('en-US') + getPercentString(sourceTotalLinksNoDeadends, totalLinksNoDeadends, 'all links'),
+					'EMBEDTOTAL': sourceTotalEmbeds.toLocaleString('en-US') + getPercentString(sourceTotalEmbeds, totalEmbeds, 'all embeds'),
+					'EMBEDTOTALNODEADENDS': sourceTotalEmbedsNoDeadends.toLocaleString('en-US') + getPercentString(sourceTotalEmbedsNoDeadends, totalEmbedsNoDeadends, 'all embeds'),
+					'UNLINKEDURLTOTAL': stats.sources[sourceId].unlinkedUrls.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].unlinkedUrls, stats.sources[sourceId].urls, 'source URLs'),
+					'UNLINKEDORPHANTOTAL': stats.sources[sourceId].unlinkedOrphans.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].unlinkedOrphans, stats.sources[sourceId].orphans, 'source orphans'),
+					'UNLINKEDTEXTTOTAL': stats.sources[sourceId].unlinkedTextFiles.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].unlinkedTextFiles, stats.sources[sourceId].textFiles, 'source text files'),
+					'UNLINKEDMEDIATOTAL': stats.sources[sourceId].unlinkedMediaFiles.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].unlinkedMediaFiles, stats.sources[sourceId].mediaFiles, 'source media files'),
+					'UNLINKEDOTHERTOTAL': stats.sources[sourceId].unlinkedOtherFiles.toLocaleString('en-US') + getPercentString(stats.sources[sourceId].unlinkedOtherFiles, stats.sources[sourceId].otherFiles, 'source other files'),
+				});
+
+				// Return detailed information about a specific source
 				const sourcesContent = buildHtml(templates.compat.sources.source, {
 					'ID': sourceId,
 					'TITLE': source.title,
 					'AUTHOR': source.author,
-					'ARCHIVEDATE': stats[sourceId].from != stats[sourceId].to ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate,
+					'ARCHIVEDATE': stats.sources[sourceId].from != stats.sources[sourceId].to ? stats.sources[sourceId].from + ' to ' + stats.sources[sourceId].to : source.archiveDate,
 					'PUBLISHDATE': source.publishDate,
 					'TYPE': source.type,
 					'GENERATORS': source.generators.join(', '),
@@ -781,7 +788,8 @@ async function serverHandler(request, info) {
 					'DESCRIPTION': source.description,
 					'INTEGRITY': source.integrity.map(bullet => '<li>' + bullet + '</li>').join('\n'),
 					'REMEDIATIONS': source.remediations.map(bullet => '<li>' + bullet + '</li>').join('\n'),
-					'STATS': sourceStats,
+					'ENTRYTOTALS': sourceEntryTotals,
+					'LINKTOTALS': sourceLinkTotals,
 				});
 				const sourcesPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
 					'TITLE': source.title,
@@ -791,6 +799,7 @@ async function serverHandler(request, info) {
 				return new Response(sourcesPage, { headers: headers });
 			}
 
+			// Sort source IDs by the first letter of their titles
 			const sortedSources = {};
 			let letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 			const nonLetters = [];
@@ -805,6 +814,7 @@ async function serverHandler(request, info) {
 			}
 			letters += nonLetters.toSorted().join('');
 
+			// Build alphabetically-sorted index of data sources as well as shortcut links to each letter
 			const lettersHtmlArr = [];
 			const sourcesHtmlArr = [];
 			for (const letter of letters) {
@@ -814,7 +824,7 @@ async function serverHandler(request, info) {
 					sourcesHtmlArr.push(`<h2 id="${letter}">${letter}</h2>`);
 					for (const sourceId of sortedSources[letter]) {
 						const source = sources[sourceId];
-						const date = stats[sourceId].from != stats[sourceId].to ? stats[sourceId].from + ' to ' + stats[sourceId].to : source.archiveDate;
+						const date = stats.sources[sourceId].from != stats.sources[sourceId].to ? stats.sources[sourceId].from + ' to ' + stats.sources[sourceId].to : source.archiveDate;
 						sourcesHtmlArr.push(`<p><a href="/sources/${sourceId}">${source.title}</a> by ${source.author}, ${date}</p>`);
 					}
 				}
@@ -822,7 +832,29 @@ async function serverHandler(request, info) {
 					lettersHtmlArr.push(letter);
 			}
 
-			let overallStats = buildHtml(templates.compat.sources.stats, {
+			// Return list of data sources
+			const sourcesContent = buildHtml(templates.compat.sources.main, {
+				'LETTERS': lettersHtmlArr.join(' | '),
+				'SOURCES': sourcesHtmlArr.join('\n'),
+			});
+			const sourcesPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				'TITLE': 'Data Sources',
+				'METADATA': '',
+				'CONTENT': sourcesContent,
+			});
+			return new Response(sourcesPage, { headers: headers });
+		}
+		case 'stats': {
+			const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
+			const grandTotalNoErrors = stats.totals.urls + stats.totals.orphans + stats.totals.brokenPages;
+			const grandTotalNoBroken = stats.totals.urls + stats.totals.orphans;
+			const totalLinks = stats.totals.archivedLinks + stats.totals.unarchivedLinks + stats.totals.deadendLinks;
+			const totalLinksNoDeadends = stats.totals.archivedLinks + stats.totals.unarchivedLinks;
+			const totalEmbeds = stats.totals.archivedEmbeds + stats.totals.unarchivedEmbeds + stats.totals.deadendEmbeds;
+			const totalEmbedsNoDeadends = stats.totals.archivedEmbeds + stats.totals.unarchivedEmbeds;
+
+			// Build HTML for entry totals
+			let entryTotals = buildHtml(templates.compat.stats.entries, {
 				'URLTOTAL': stats.totals.urls.toLocaleString('en-US'),
 				'ORPHANTOTAL': stats.totals.orphans.toLocaleString('en-US'),
 				'TEXTTOTAL': stats.totals.textFiles.toLocaleString('en-US'),
@@ -833,27 +865,149 @@ async function serverHandler(request, info) {
 				'GRANDTOTAL': grandTotal.toLocaleString('en-US'),
 				'GRANDTOTALNOERRORS': grandTotalNoErrors.toLocaleString('en-US'),
 				'GRANDTOTALNOBROKEN': grandTotalNoBroken.toLocaleString('en-US'),
-				'ARCHIVEDLINKTOTAL': stats.totals.archivedLinks.toLocaleString('en-US'),
-				'ARCHIVEDEMBEDTOTAL': stats.totals.archivedEmbeds.toLocaleString('en-US'),
-				'UNARCHIVEDLINKTOTAL': stats.totals.unarchivedLinks.toLocaleString('en-US'),
-				'UNARCHIVEDEMBEDTOTAL': stats.totals.unarchivedEmbeds.toLocaleString('en-US'),
-				'DEADENDLINKTOTAL': stats.totals.deadendLinks.toLocaleString('en-US'),
-				'DEADENDEMBEDTOTAL': stats.totals.deadendEmbeds.toLocaleString('en-US'),
 			});
 			if (features.includes('screenshots'))
-				overallStats += `\n\n      <b>Screenshots:</b> ${stats.totals.screenshots.toLocaleString('en-US')}`;
+				entryTotals += `\n\n         <b>Screenshots:</b> ${stats.totals.screenshots.toLocaleString('en-US')}`;
 
-			const sourcesContent = buildHtml(templates.compat.sources.main, {
-				'OVERALLSTATS': overallStats,
-				'LETTERS': lettersHtmlArr.join(' | '),
-				'SOURCES': sourcesHtmlArr.join('\n'),
+			// Build HTML for link totals
+			const linkTotals = buildHtml(templates.compat.stats.links, {
+				'ARCHIVEDLINKTOTAL': stats.totals.archivedLinks.toLocaleString('en-US') + getPercentString(stats.totals.archivedLinks, totalLinks, 'all links'),
+				'ARCHIVEDEMBEDTOTAL': stats.totals.archivedEmbeds.toLocaleString('en-US') + getPercentString(stats.totals.archivedEmbeds, totalEmbeds, 'all embeds'),
+				'UNARCHIVEDLINKTOTAL': stats.totals.unarchivedLinks.toLocaleString('en-US') + getPercentString(stats.totals.unarchivedLinks, totalLinks, 'all links'),
+				'UNARCHIVEDEMBEDTOTAL': stats.totals.unarchivedEmbeds.toLocaleString('en-US') + getPercentString(stats.totals.unarchivedEmbeds, totalEmbeds, 'all embeds'),
+				'DEADENDLINKTOTAL': stats.totals.deadendLinks.toLocaleString('en-US') + getPercentString(stats.totals.deadendLinks, totalLinks, 'all links'),
+				'DEADENDEMBEDTOTAL': stats.totals.deadendEmbeds.toLocaleString('en-US') + getPercentString(stats.totals.deadendEmbeds, totalEmbeds, 'all embeds'),
+				'LINKTOTAL': totalLinks.toLocaleString('en-US'),
+				'LINKTOTALNODEADENDS': totalLinksNoDeadends.toLocaleString('en-US'),
+				'EMBEDTOTAL': totalEmbeds.toLocaleString('en-US'),
+				'EMBEDTOTALNODEADENDS': totalEmbedsNoDeadends.toLocaleString('en-US'),
+				'UNLINKEDURLTOTAL': stats.totals.unlinkedUrls.toLocaleString('en-US') + getPercentString(stats.totals.unlinkedUrls, stats.totals.urls, 'all URLs'),
+				'UNLINKEDORPHANTOTAL': stats.totals.unlinkedOrphans.toLocaleString('en-US') + getPercentString(stats.totals.unlinkedOrphans, stats.totals.orphans, 'all orphans'),
+				'UNLINKEDTEXTTOTAL': stats.totals.unlinkedTextFiles.toLocaleString('en-US') + getPercentString(stats.totals.unlinkedTextFiles, stats.totals.textFiles, 'all text files'),
+				'UNLINKEDMEDIATOTAL': stats.totals.unlinkedMediaFiles.toLocaleString('en-US') + getPercentString(stats.totals.unlinkedMediaFiles, stats.totals.mediaFiles, 'all media files'),
+				'UNLINKEDOTHERTOTAL': stats.totals.unlinkedOtherFiles.toLocaleString('en-US') + getPercentString(stats.totals.unlinkedOtherFiles, stats.totals.otherFiles, 'all other files'),
 			});
-			const sourcesPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
-				'TITLE': 'Data Sources',
+
+			const buildRanking = (rankingProp, header, nameTransformer = null) => {
+				const ranking = stats.rankings[rankingProp];
+
+				// Get maximum lengths of each column
+				const maxRankLength = ranking.length.toString().length + 1;
+				const maxNameLength = Math.max(...ranking.map(rankingEntry => rankingEntry.name.length), header.length);
+				const maxCountLength = Math.max(...ranking.map(rankingEntry => rankingEntry.count.toLocaleString('en-US').length));
+
+				// Build ranking rows
+				const rankRows = [
+					' ' + [' '.repeat(maxRankLength), header.padEnd(maxNameLength, ' '), '#'].join('   '),
+					'-' + ['-'.repeat(maxRankLength), '-'.repeat(maxNameLength), '-'.repeat(maxCountLength)].join('- -') + '-',
+				];
+				for (let i = 0; i < ranking.length; i++) {
+					const rankColumns = [
+						((i + 1) + '.').padStart(maxRankLength, ' '),
+						(nameTransformer !== null ? nameTransformer(ranking[i].name) : ranking[i].name) + ' '.repeat(maxNameLength - ranking[i].name.length),
+						ranking[i].count.toLocaleString('en-US'),
+					];
+					rankRows.push(' ' + rankColumns.join('   '));
+				}
+
+				return rankRows.join('\n');
+			};
+
+			const buildGraph = graphProp => {
+				const years = Object.keys(stats.graphs[graphProp]).map(year => parseInt(year, 10)).toSorted();
+				const minYear = years[0];
+				const maxYear = years[years.length - 1];
+
+				const maxMonthlyEntryCount = Math.max(...Object.values(stats.graphs[graphProp]).map(months => Math.max(...Object.values(months).map(month => month.approx + month.circa))));
+				const powersOfTen = Math.ceil(Math.log10(maxMonthlyEntryCount));
+				const powerSteps = 5;
+				const graphHeight = powersOfTen * powerSteps;
+
+				// Build graph columns
+				const monthColumns = [];
+				for (let year = minYear; year <= maxYear; year++) {
+					const yearObj = stats.graphs[graphProp][year.toString()];
+					for (let month = 1; month <= 12; month++) {
+						const monthObj = yearObj?.[month.toString().padStart(2, '0')];
+						if (monthObj !== undefined) {
+							const lesserProp = monthObj.approx < monthObj.circa ? 'approx' : 'circa';
+							const greaterProp = monthObj.approx < monthObj.circa ? 'circa' : 'approx';
+							const lesserLength = monthObj[lesserProp] > 0 ? Math.max(1, Math.round(Math.log10(monthObj[lesserProp]) * powerSteps)) : 0;
+							const greaterLength = Math.max(1, Math.round(Math.log10(monthObj[greaterProp]) * powerSteps)) - lesserLength;
+
+							const emptyStr = ' '.repeat(graphHeight - (lesserLength + greaterLength));
+							const greaterStr = (greaterProp == 'approx' ? '#' : ':').repeat(greaterLength);
+							const lesserStr = (lesserProp == 'circa' ? ':' : '#').repeat(lesserLength);
+
+							monthColumns.push(emptyStr + greaterStr + lesserStr);
+						}
+						else
+							monthColumns.push(' '.repeat(graphHeight));
+					}
+				}
+
+				// Build ASCII graph
+				let graph = '';
+				let currentPower = powersOfTen;
+				const labelLength = Math.pow(10, powersOfTen).toString().length;
+				for (let y = 0; y < graphHeight; y++) {
+					let graphRow = '';
+
+					if (y % powerSteps == 0) {
+						graphRow += Math.pow(10, currentPower).toString().padStart(labelLength, ' ');
+						currentPower--;
+					}
+					else
+						graphRow += ' '.repeat(labelLength);
+
+					graphRow += ' |';
+
+					for (let x = 0; x < monthColumns.length; x++) {
+						if (y < graphHeight - 1 || monthColumns[x][y] != ' ')
+							graphRow += monthColumns[x][y];
+						else
+							graphRow += '_';
+					}
+
+					graph += graphRow.trimEnd() + '\n';
+				}
+
+				// Add year labels to graph
+				graph += ' '.repeat(labelLength + 2);
+				for (let year = minYear; year <= maxYear; year++)
+					graph += '\\___' + year + '___/';
+
+				// Add key to graph
+				const circaKey = ': - non-approximate archival date';
+				const approxKey = '# - approximate archival date';
+				const keyOffset = ' '.repeat(Math.max(labelLength + 2, labelLength + (maxYear - minYear + 1) * 12 - circaKey.length));
+				graph += '\n\n' + keyOffset + approxKey + '\n' + keyOffset + circaKey;
+
+				return graph;
+			};
+
+			const statsContent = buildHtml(templates.compat.stats.main, {
+				'ENTRYTOTALS': entryTotals,
+				'LINKTOTALS': linkTotals,
+				'DOMAINENTRYRANKING': buildRanking('domainEntryCounts', 'Domain', domain => `<a href="/browse/${domain}">${domain}</a>`),
+				'URLARCHIVERANKING': buildRanking('urlArchiveCounts', 'URL', url => `<a href="/view/${url}">${url}</a>`),
+				'ARCHIVEDURLINLINKRANKING': buildRanking('archivedUrlInlinkCounts', 'URL',  url => `<a href="/inlinks/${url}">${url}</a>`),
+				'UNARCHIVEDURLINLINKRANKING': buildRanking('unarchivedUrlInlinkCounts', 'URL',  url => `<a href="/inlinks/${url}">${url}</a>`),
+				'MIMETYPEENTRYRANKING': buildRanking('mimeTypeEntryCounts', 'MIME Type'),
+				'TYPESOURCERANKING': buildRanking('typeSourceCounts', 'Type'),
+				'GENERATORSOURCERANKING': buildRanking('generatorSourceCounts', 'Generator'),
+				'LANGUAGESOURCERANKING': buildRanking('languageSourceCounts', 'Language'),
+				'ALLGRAPH': buildGraph('all'),
+				'TEXTGRAPH': buildGraph('text'),
+				'MEDIAGRAPH': buildGraph('media'),
+				'OTHERGRAPH': buildGraph('other'),
+			});
+			const statsPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				'TITLE': 'Statistics',
 				'METADATA': '',
-				'CONTENT': { value: sourcesContent, indent: 'none' },
+				'CONTENT': { value: statsContent, indent: 'none' },
 			});
-			return new Response(sourcesPage, { headers: headers });
+			return new Response(statsPage, { headers: headers });
 		}
 		case 'deadend': {
 			throw new DeadEndError(modernMode);
@@ -873,8 +1027,11 @@ function serverError(error) {
 	const message = error.name == 'ArchiveError' ? error.message : 'The server had trouble processing your request.';
 
 	let links = '';
-	if (error.options instanceof Array)
+	if (error.options instanceof Array) {
+		if (features.includes('database'))
+			error.options.unshift('<li><a href="/random">Go to a random page</a></li>');
 		links = buildHtml(templates.compat.error.links, { 'OPTIONS': error.options.join('\n') });
+	}
 
 	const errorContent = buildHtml(templates.compat.error.main, {
 		'STATUSTEXT': statusText,
@@ -1849,6 +2006,22 @@ function buildHomeContent() {
 			'HIGHLIGHTS': highlightsHtml,
 		}),
 	];
+}
+
+// Return a string representing a percentage of a whole
+function getPercentString(part, whole, wholeName) {
+	if (part == 0)
+		return '';
+
+	let percentString = ' / ';
+	let percent = Math.round((part / whole) * 1000) / 10;
+	if (percent == 0) {
+		percent = 0.1;
+		percentString += '&lt;';
+	}
+	percentString += percent + '% of ' + wholeName;
+
+	return percentString;
 }
 
 class ArchiveError extends Error {

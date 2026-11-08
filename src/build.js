@@ -46,29 +46,8 @@ const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 const urlIndex = {};
 const pathIndex = {};
 const screenshotIndex = {};
-const inlinksIndex = [];
+const inlinksIndex = {};
 const browseIndex = [];
-
-// Initialize statistics
-const statFields = {
-	urls: 0,
-	orphans: 0,
-	textFiles: 0,
-	mediaFiles: 0,
-	otherFiles: 0,
-	errorPages: 0,
-	brokenPages: 0,
-	archivedLinks: 0,
-	archivedEmbeds: 0,
-	unarchivedLinks: 0,
-	unarchivedEmbeds: 0,
-	deadendLinks: 0,
-	deadendEmbeds: 0,
-	screenshots: 0,
-};
-const stats = { totals: structuredClone(statFields) };
-for (const sourceId in sources)
-	stats[sourceId] = Object.assign({ from: null, to: null }, statFields);
 
 // Instantiate database and insert statement
 let database, insertStatement;
@@ -123,8 +102,8 @@ let database, insertStatement;
 		const archives = [];
 		const urlEntries = urlIndex[normalizedUrl];
 		for (const urlEntry of urlEntries) {
-			if (!urlEntry.skip)
-				archives.push({
+			if (!urlEntry.skip) {
+				const archive = {
 					source: urlEntry.source,
 					url: urlEntry.url,
 					path: urlEntry.path,
@@ -136,7 +115,11 @@ let database, insertStatement;
 					error: urlEntry.error,
 					broken: urlEntry.broken,
 					offset: urlEntry.offset,
-				});
+					indexEntry: urlEntry,
+				};
+				archives.push(archive);
+				urlEntry.archive = archive;
+			}
 		}
 
 		// Don't proceed if there are no valid archives for the current URL
@@ -150,33 +133,13 @@ let database, insertStatement;
 		// Create subdirectories for each archive of the current URL with file data and important information
 		for (let i = 0; i < archives.length; i++) {
 			const archive = archives[i];
-
-			// Create subdirectory with the naming format <index>_<source>
-			const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + archive.source);
-			Deno.mkdirSync(targetDir, { recursive: true });
+			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedUrl}...`);
 
 			// Create the files
-			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedUrl}...`);
+			const targetDir = pathUtils.join(urlDir, i.toString().padStart(2, '0') + '_' + archive.source);
 			await buildArchive(archive, targetDir);
 			if (archive.files.length == 0)
 				continue;
-
-			// Increment URL totals
-			if (!archive.error && !archive.broken) {
-				const formatStatField = utils.getTypeFormat(archive.types[archive.types.length - 1]) + 'Files';
-				stats[archive.source].urls++;
-				stats[archive.source][formatStatField]++;
-				stats.totals.urls++;
-				stats.totals[formatStatField]++;
-			}
-			else if (archive.error) {
-				stats[archive.source].errorPages++;
-				stats.totals.errorPages++;
-			}
-			else if (archive.broken) {
-				stats[archive.source].brokenPages++;
-				stats.totals.brokenPages++;
-			}
 		}
 
 		// Save archive info to a file
@@ -187,52 +150,34 @@ let database, insertStatement;
 	// Build the orphan file tree
 	for (const sourceId in pathIndex) {
 		for (const normalizedPath in pathIndex[sourceId]) {
-			const orphanEntry = pathIndex[sourceId][normalizedPath];
+			const pathEntry = pathIndex[sourceId][normalizedPath];
 			// Orphans do not have an associated URL, and we should only build archives of valid orphans
-			if (orphanEntry.normalizedUrl !== null || orphanEntry.skip)
+			if (pathEntry.normalizedUrl !== null || pathEntry.skip)
 				continue;
 
 			// Gather archive info
 			const archive = {
 				source: sourceId,
 				url: null,
-				path: orphanEntry.path,
-				date: orphanEntry.date,
+				path: pathEntry.path,
+				date: pathEntry.date,
 				size: 0,
 				types: [],
 				files: [],
 				warn: false,
-				error: orphanEntry.error,
-				broken: orphanEntry.broken,
+				error: pathEntry.error,
+				broken: pathEntry.broken,
 				offset: null,
+				indexEntry: pathEntry,
 			};
-
-			// Create a containing directory for the current orphan
-			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, normalizedPath), 'orphans', tempBuildPath);
-			Deno.mkdirSync(targetDir, { recursive: true });
+			pathEntry.archive = archive;
+			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedPath}...`);
 
 			// Create the files
-			utils.logMessage(`[${++current}/${total}] building ${archive.source} archive for ${normalizedPath}...`);
+			const targetDir = utils.getArchiveRootDir(pathUtils.join(archive.source, normalizedPath), 'orphans', tempBuildPath);
 			await buildArchive(archive, targetDir);
 			if (archive.files.length == 0)
 				continue;
-
-			// Increment orphan totals
-			if (!archive.error && !archive.broken) {
-				const formatStatField = utils.getTypeFormat(archive.types[archive.types.length - 1]) + 'Files';
-				stats[archive.source].orphans++;
-				stats[archive.source][formatStatField]++;
-				stats.totals.orphans++;
-				stats.totals[formatStatField]++;
-			}
-			else if (archive.error) {
-				stats[archive.source].errorPages++;
-				stats.totals.errorPages++;
-			}
-			else if (archive.broken) {
-				stats[archive.source].brokenPages++;
-				stats.totals.brokenPages++;
-			}
 
 			// Save archive info to a file
 			const archivePath = pathUtils.join(targetDir, 'archive.json');
@@ -272,10 +217,6 @@ let database, insertStatement;
 				else
 					Deno.copyFileSync(sourcePath, pathUtils.join(targetDir, 'screenshot'));
 				Deno.writeFileSync(pathUtils.join(targetDir, 'thumbnail'), thumbnail);
-
-				// Increment screenshot totals
-				stats[screenshot.source].screenshots++;
-				stats.totals.screenshots++;
 			}
 
 			// Save screenshot info to file
@@ -287,7 +228,8 @@ let database, insertStatement;
 	// Sort inlinks.json files
 	if (config.buildFeatures.includes('inlinks')) {
 		utils.logMessage('sorting inlinks...');
-		for (const inlinksPath of inlinksIndex) {
+		for (const inlinksDir in inlinksIndex) {
+			const inlinksPath = inlinksIndex[inlinksDir].inlinksPath;
 			const inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
 			if (inlinks.length > 1) {
 				inlinks.sort((a, b) => {
@@ -319,10 +261,13 @@ let database, insertStatement;
 		}
 	}
 
+	// Build archive statistics and save to file
+	utils.logMessage('building statistics...');
+	buildStats();
+
 	// Save build information to files
 	utils.logMessage('saving build information...');
 	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'types.json'), JSON.stringify(typeIndex, null, '\t'));
-	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'stats.json'), JSON.stringify(stats, null, '\t'));
 	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'features.json'), JSON.stringify(config.buildFeatures, null, '\t'));
 
 	// Create a directory to store old build files for deletion
@@ -395,6 +340,9 @@ function buildIndexes() {
 				broken: entry.broken,
 				skip: entry.skip,
 				offset: null,
+				stats: null,
+				inlinks: [],
+				archive: null,
 			};
 
 			// Add entry to URL index
@@ -475,14 +423,263 @@ function buildIndexes() {
 	}
 }
 
+// Create usable data for statistics/source pages
+function buildStats() {
+	const totals = {
+		urls: 0,
+		orphans: 0,
+		textFiles: 0,
+		mediaFiles: 0,
+		otherFiles: 0,
+		errorPages: 0,
+		brokenPages: 0,
+		archivedLinks: 0,
+		archivedEmbeds: 0,
+		unarchivedLinks: 0,
+		unarchivedEmbeds: 0,
+		deadendLinks: 0,
+		deadendEmbeds: 0,
+		unlinkedUrls: 0,
+		unlinkedOrphans: 0,
+		unlinkedTextFiles: 0,
+		unlinkedMediaFiles: 0,
+		unlinkedOtherFiles: 0,
+		screenshots: 0,
+	};
+
+	const stats = {
+		totals: structuredClone(totals),
+		rankings: {
+			domainEntryCounts: [],
+			urlArchiveCounts: [],
+			archivedUrlInlinkCounts: [],
+			unarchivedUrlInlinkCounts: [],
+			mimeTypeEntryCounts: [],
+			typeSourceCounts: [],
+			generatorSourceCounts: [],
+			languageSourceCounts: [],
+		},
+		graphs: {
+			all: {},
+			text: {},
+			media: {},
+			other: {},
+		},
+		sources: {},
+	};
+	for (const sourceId in sources)
+		stats.sources[sourceId] = Object.assign({ from: null, to: null }, totals);
+
+	// Update entry/link totals for both individual sources and the entire archive
+	const updateTotals = indexEntry => {
+		const format = utils.getTypeFormat(indexEntry.archive.types[indexEntry.archive.types.length - 1]);
+
+		if (!indexEntry.error && !indexEntry.broken) {
+			const archiveStatField = indexEntry.normalizedUrl !== null ? 'urls' : 'orphans';
+			const formatStatField = format + 'Files';
+			stats.sources[indexEntry.source][archiveStatField]++;
+			stats.sources[indexEntry.source][formatStatField]++;
+			stats.totals[archiveStatField]++;
+			stats.totals[formatStatField]++;
+		}
+		else if (indexEntry.error) {
+			stats.sources[indexEntry.source].errorPages++;
+			stats.totals.errorPages++;
+		}
+		else if (indexEntry.broken) {
+			stats.sources[indexEntry.source].brokenPages++;
+			stats.totals.brokenPages++;
+		}
+
+		for (const refStatField in indexEntry.stats) {
+			stats.sources[indexEntry.source][refStatField] += indexEntry.stats[refStatField];
+			stats.totals[refStatField] += indexEntry.stats[refStatField];
+		}
+		if (indexEntry.inlinks.length == 0 && !indexEntry.error && !indexEntry.broken) {
+			const archiveUnlinkedField = indexEntry.normalizedUrl !== null ? 'unlinkedUrls' : 'unlinkedOrphans';
+			const formatUnlinkedField = 'unlinked' + format[0].toUpperCase() + format.substring(1) + 'Files';
+			stats.sources[indexEntry.source][archiveUnlinkedField]++;
+			stats.sources[indexEntry.source][formatUnlinkedField]++;
+			stats.totals[archiveUnlinkedField]++;
+			stats.totals[formatUnlinkedField]++;
+		}
+	};
+
+	// Update monthly entry/format totals
+	const updateGraphs = indexEntry => {
+		const circa = indexEntry.date.startsWith('~');
+		const year = indexEntry.date.match(/^~?(\d{4})/)[1];
+		const month = indexEntry.date.match(/^~?\d{4}-(\d{2})/)?.[1] ?? '12';
+
+		const updateGraph = graphField => {
+			if (stats.graphs[graphField][year] === undefined)
+				stats.graphs[graphField][year] = {};
+			if (stats.graphs[graphField][year][month] === undefined)
+				stats.graphs[graphField][year][month] = {
+					approx: 0,
+					circa: 0,
+				};
+			stats.graphs[graphField][year][month][circa ? 'circa' : 'approx']++;
+		};
+
+		const format = utils.getTypeFormat(indexEntry.archive.types[indexEntry.archive.types.length - 1]);
+		updateGraph('all');
+		updateGraph(format);
+	};
+
+	// Attempt to add an entry to a specific ranking
+	const updateRanking = (rankingField, maxEntries, name, count) => {
+		const ranking = stats.rankings[rankingField];
+
+		let i = 0;
+		for (; i < ranking.length; i++) {
+			if (count < ranking[i].count || ranking[i].count == count && name.localeCompare(ranking[i].name, 'en', { sensitivity: 'base' }) >= 0)
+				break;
+		}
+
+		if (maxEntries > 0 && i == 0 && ranking.length == maxEntries)
+			return;
+
+		ranking.splice(i, 0, { name: name, count: count });
+		if (maxEntries > 0 && ranking.length > maxEntries)
+			ranking.shift();
+	};
+
+	// Update the date range of an entry's source based on its archival date
+	const updateRange = indexEntry => {
+		const sourceStats = stats.sources[indexEntry.source];
+		if (indexEntry.date.length == 10) {
+			const time = utils.dateStringToNum(indexEntry.date);
+			if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
+				sourceStats.from = indexEntry.date;
+			if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
+				sourceStats.to = indexEntry.date;
+		}
+	}
+
+	const domainEntryCounts = {};
+	for (const normalizedUrl in urlIndex) {
+		const validUrlEntries = urlIndex[normalizedUrl].filter(urlEntry => !urlEntry.skip);
+
+		// Update URL stats
+		for (const urlEntry of validUrlEntries) {
+			updateTotals(urlEntry);
+			updateGraphs(urlEntry);
+			updateRange(urlEntry);
+		}
+
+		// Gather data on domains and their entry counts, and update ranking of URLs by archive count
+		if (validUrlEntries.length > 0) {
+			const normalizedUrl = validUrlEntries[0].normalizedUrl;
+			const domain = normalizedUrl.match(/^[^/]+/)[0];
+			if (domainEntryCounts[domain] === undefined)
+				domainEntryCounts[domain] = 0;
+			domainEntryCounts[domain] += validUrlEntries.length;
+			updateRanking('urlArchiveCounts', 50, normalizedUrl, validUrlEntries.length);
+		}
+	}
+
+	// Update ranking of domains by entry count
+	for (const domain in domainEntryCounts)
+		updateRanking('domainEntryCounts', 50, domain, domainEntryCounts[domain]);
+
+	const mimeTypeEntryCounts = {};
+	for (const sourceId in pathIndex) {
+		for (const normalizedPath in pathIndex[sourceId]) {
+			const pathEntry = pathIndex[sourceId][normalizedPath];
+			if (pathEntry.skip)
+				continue;
+
+			// Update orphan stats
+			if (pathEntry.normalizedUrl === null) {
+				updateTotals(pathEntry);
+				updateGraphs(pathEntry);
+				updateRange(pathEntry);
+			}
+
+			// Gather data on MIME types and their entry counts
+			const mimeType = pathEntry.archive.types[0].match(/^[^;]+/)[0];
+			if (mimeTypeEntryCounts[mimeType] === undefined)
+				mimeTypeEntryCounts[mimeType] = 0;
+			mimeTypeEntryCounts[mimeType]++;
+		}
+	}
+
+	// Update ranking of MIME types by entry count
+	for (const mimeType in mimeTypeEntryCounts)
+		updateRanking('mimeTypeEntryCounts', 50, mimeType, mimeTypeEntryCounts[mimeType]);
+
+	// Update screenshot totals
+	for (const normalizedUrl in screenshotIndex) {
+		for (const screenshot of screenshotIndex[normalizedUrl]) {
+			stats.sources[screenshot.source].screenshots++;
+			stats.totals.screenshots++;
+		}
+	}
+
+	// Update rankings of archived/unarchived URLs by entry count
+	for (const inlinksDir in inlinksIndex) {
+		const inlinksEntry = inlinksIndex[inlinksDir];
+		if (!inlinksEntry.isOrphan)
+			updateRanking((inlinksEntry.indexEntries.length > 0 ? 'archived' : 'unarchived') + 'UrlInlinkCounts', 50, inlinksEntry.normalizedUrl, inlinksEntry.count);
+	}
+
+	const typeSourceCounts = {};
+	const generatorSourceCounts = {};
+	const languageSourceCounts = {};
+	for (const sourceId in sources) {
+		const source = sources[sourceId];
+
+		// Gather data on source types and their frequencies
+		if (typeSourceCounts[source.type] === undefined)
+			typeSourceCounts[source.type] = 0;
+		typeSourceCounts[source.type]++;
+
+		// Gather data on source generators and their frequencies
+		for (const generator of source.generators) {
+			if (generatorSourceCounts[generator] === undefined)
+				generatorSourceCounts[generator] = 0;
+			generatorSourceCounts[generator]++;
+		}
+
+		// Gather data on source languages and their frequencies
+		for (const language of source.languages) {
+			if (languageSourceCounts[language] === undefined)
+				languageSourceCounts[language] = 0;
+			languageSourceCounts[language]++;
+		}
+	}
+
+	// Update rankings of source types/generators/languages and their frequency
+	for (const type in typeSourceCounts)
+		updateRanking('typeSourceCounts', -1, type, typeSourceCounts[type]);
+	for (const generator in generatorSourceCounts)
+		updateRanking('generatorSourceCounts', -1, generator, generatorSourceCounts[generator]);
+	for (const language in languageSourceCounts)
+		updateRanking('languageSourceCounts', -1, language, languageSourceCounts[language]);
+
+	// Reverse ranking arrays
+	for (const rankingField in stats.rankings)
+		stats.rankings[rankingField].reverse();
+
+	// Save to file
+	Deno.writeTextFileSync(pathUtils.join(tempBuildPath, 'stats.json'), JSON.stringify(stats, null, '\t'));
+}
+
 // Parse an entry's file data, then add to database and file tree
 async function buildArchive(archive, targetDir) {
 	const [file, type, changed] = await getFile(archive);
-	if (file === null)
+	if (file === null) {
+		archive.indexEntry.skip = true;
+		delete archive.indexEntry;
 		return;
+	}
 	archive.size = file.byteLength;
 	archive.types.push(type);
 	archive.files.push('file');
+
+	// Create the containing directory
+	Deno.mkdirSync(targetDir, { recursive: true });
 
 	// If the loaded file data was changed, copy over the raw file
 	const sourcePath = pathUtils.join(Deno.cwd(), config.inputPath, 'archives', archive.source, utils.safeDecode(archive.path));
@@ -498,9 +695,19 @@ async function buildArchive(archive, targetDir) {
 	const decoder = new TextDecoder();
 	let search;
 	if (archive.types[0] == 'text/html') {
+		// Initialize entry statistics
+		archive.indexEntry.stats = {
+			archivedLinks: 0,
+			archivedEmbeds: 0,
+			unarchivedLinks: 0,
+			unarchivedEmbeds: 0,
+			deadendLinks: 0,
+			deadendEmbeds: 0,
+		};
+
 		// Decode the HTML and try to revert source-specific modifications, then extract and resolve links and save
 		const html = genericizeMarkup(decoder.decode(file), archive.source, archive.path, archive.url);
-		let [newHtml, injectLists, inlinksDirs] = buildHtmlInjectLists(html, archive);
+		let [newHtml, injectLists, outlinkList] = buildHtmlInjectLists(html, archive);
 		Deno.writeTextFileSync(targetPath, newHtml);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		archive.files.push('inject.json');
@@ -510,7 +717,7 @@ async function buildArchive(archive, targetDir) {
 			html_p = improvePresentation(html);
 			if (html != html_p) {
 				// Repeat the process above but with extra fixes for non-standard/archaic markup applied to the HTML
-				[newHtml, injectLists, inlinksDirs] = buildHtmlInjectLists(html_p, archive);
+				[newHtml, injectLists, outlinkList] = buildHtmlInjectLists(html_p, archive);
 				Deno.writeTextFileSync(targetPath + '_p', newHtml);
 				Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject_p.json'), JSON.stringify(injectLists, null, '\t'));
 				archive.files.push('file_p', 'inject_p.json');
@@ -522,7 +729,7 @@ async function buildArchive(archive, targetDir) {
 
 		// Build inlinks
 		if (config.buildFeatures.includes('inlinks'))
-			buildInlinks(archive, inlinksDirs);
+			buildInlinks(archive, outlinkList);
 
 		// Update file size
 		archive.size = new TextEncoder().encode(html).byteLength;
@@ -531,25 +738,25 @@ async function buildArchive(archive, targetDir) {
 		// Build injection list and inlinks for JavaScript files
 		const script = decoder.decode(file);
 		const injectLists = { code: [], links: [] };
-		const inlinksDirs = [];
-		buildScriptInjectLists(script, null, 0, null, null, null, injectLists, inlinksDirs, archive);
+		const outlinkList = [];
+		buildScriptInjectLists(script, null, 0, null, null, null, injectLists, outlinkList, archive);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, script);
 		archive.files.push('inject.json');
 		if (config.buildFeatures.includes('inlinks'))
-			buildInlinks(archive, inlinksDirs);
+			buildInlinks(archive, outlinkList);
 	}
 	else if (archive.types[0] == 'text/css') {
 		// Build injection list and inlinks for CSS files
 		const style = decoder.decode(file);
 		const injectLists = { links: [] };
-		const inlinksDirs = [];
-		buildInjectLinkEntriesFromStyle(style, 0, injectLists.links, inlinksDirs, archive);
+		const outlinkList = [];
+		buildInjectLinkEntriesFromStyle(style, 0, injectLists.links, outlinkList, archive);
 		Deno.writeTextFileSync(pathUtils.join(targetDir, 'inject.json'), JSON.stringify(injectLists, null, '\t'));
 		Deno.writeTextFileSync(targetPath, style);
 		archive.files.push('inject.json');
 		if (config.buildFeatures.includes('inlinks'))
-			buildInlinks(archive, inlinksDirs);
+			buildInlinks(archive, outlinkList);
 	}
 	else {
 		// Convert certain file formats to ones that are more broadly supported by browsers
@@ -665,15 +872,8 @@ async function buildArchive(archive, targetDir) {
 	// Sort the file list
 	archive.files.sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
 
-	// Update date range stats
-	const sourceStats = stats[archive.source];
-	if (archive.date.length == 10) {
-		const time = utils.dateStringToNum(archive.date);
-		if (sourceStats.from === null || time < utils.dateStringToNum(sourceStats.from))
-			sourceStats.from = archive.date;
-		if (sourceStats.to === null || time > utils.dateStringToNum(sourceStats.to))
-			sourceStats.to = archive.date;
-	}
+	// Remove reference to index entry
+	delete archive.indexEntry;
 }
 
 // Build injection list from HTML content
@@ -690,7 +890,7 @@ function buildHtmlInjectLists(html, archive) {
 		code: [],
 		links: [],
 	};
-	const inlinksDirs = [];
+	const outlinkList = [];
 	let baseUrl = null;
 
 	// Extract information from base tags and remove them
@@ -746,7 +946,7 @@ function buildHtmlInjectLists(html, archive) {
 		if (isJavaScript) {
 			const codeUrl = url.substring(11);
 			const codeUrlIndex = rawUrlIndex + rawUrl.indexOf(codeUrl);
-			buildScriptInjectLists(codeUrl, baseUrl, codeUrlIndex, codeUrlIndex, codeUrlIndex + codeUrl.length, 'jsattr', injectLists, inlinksDirs, archive);
+			buildScriptInjectLists(codeUrl, baseUrl, codeUrlIndex, codeUrlIndex, codeUrlIndex + codeUrl.length, 'jsattr', injectLists, outlinkList, archive);
 		}
 
 		// If the URL is an anchor or has JavaScript code, add a code injection list entry indicating that a target attribute should be added
@@ -762,7 +962,7 @@ function buildHtmlInjectLists(html, archive) {
 		// Add an entry to the link injection list and update the offset based on the length of the replacement string
 		const [newStr, isAnchor] = buildInjectLinkEntry(
 			rawUrl, baseUrl, rawUrlIndex + 1, false, forceAssetIndexes.includes(index), false,
-			injectLists.links, inlinksDirs, archive, attrStart, quoteChar || '"',
+			injectLists.links, outlinkList, archive, attrStart, quoteChar || '"',
 		);
 		offset += match.length - newStr.length;
 
@@ -861,14 +1061,14 @@ function buildHtmlInjectLists(html, archive) {
 	for (let scriptMatch; (scriptMatch = scriptExp.exec(newHtml)) !== null;) {
 		const [_, scriptOpen, scriptBody] = scriptMatch;
 		const [contentIndex, startIndex, endIndex] = [scriptMatch.index + scriptOpen.length, scriptMatch.index, scriptMatch.index + scriptMatch[0].length];
-		buildScriptInjectLists(scriptBody, baseUrl, contentIndex, startIndex, endIndex, 'jselem', injectLists, inlinksDirs, archive);
+		buildScriptInjectLists(scriptBody, baseUrl, contentIndex, startIndex, endIndex, 'jselem', injectLists, outlinkList, archive);
 	}
 
 	// Populate injection lists based on contents of event attributes
 	for (let eventMatch; (eventMatch = eventExp.exec(newHtml)) !== null;) {
 		const contentIndex = eventMatch.index + eventMatch[1].length + 1;
 		const endIndex = contentIndex + eventMatch[3].length;
-		buildScriptInjectLists(eventMatch[3], baseUrl, contentIndex, contentIndex, endIndex, 'jsattr', injectLists, inlinksDirs, archive);
+		buildScriptInjectLists(eventMatch[3], baseUrl, contentIndex, contentIndex, endIndex, 'jsattr', injectLists, outlinkList, archive);
 	}
 
 	// Populate the code injection list with indexes of external stylesheet definitions
@@ -886,7 +1086,7 @@ function buildHtmlInjectLists(html, archive) {
 	const styleElemExp = /(<style(?: [^>]+)?>)(.*?)<\/style>/gis;
 	for (let styleElemMatch; (styleElemMatch = styleElemExp.exec(newHtml)) !== null;) {
 		const [_, styleElemOpen, styleElemBody] = styleElemMatch;
-		buildInjectLinkEntriesFromStyle(styleElemBody, styleElemMatch.index + styleElemOpen.length, injectLists.links, inlinksDirs, archive);
+		buildInjectLinkEntriesFromStyle(styleElemBody, styleElemMatch.index + styleElemOpen.length, injectLists.links, outlinkList, archive);
 		injectLists.code.push({
 			start: styleElemMatch.index,
 			end: styleElemMatch.index + styleElemMatch[0].length,
@@ -898,7 +1098,7 @@ function buildHtmlInjectLists(html, archive) {
 	const styleAttrExp = /(\s*style\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
 	for (let styleAttrMatch; (styleAttrMatch = styleAttrExp.exec(newHtml)) !== null;) {
 		const [_, styleAttrStart, styleAttrValue] = styleAttrMatch;
-		buildInjectLinkEntriesFromStyle(styleAttrValue, styleAttrMatch.index + styleAttrStart.length, injectLists.links, inlinksDirs, archive);
+		buildInjectLinkEntriesFromStyle(styleAttrValue, styleAttrMatch.index + styleAttrStart.length, injectLists.links, outlinkList, archive);
 		injectLists.code.push({
 			start: styleAttrMatch.index,
 			end: styleAttrMatch.index + styleAttrMatch[0].length,
@@ -906,11 +1106,11 @@ function buildHtmlInjectLists(html, archive) {
 		});
 	}
 
-	return [newHtml, injectLists, inlinksDirs];
+	return [newHtml, injectLists, outlinkList];
 }
 
 // Build injection list from JavaScript code
-function buildScriptInjectLists(script, baseUrl, contentIndex, startIndex, endIndex, type, injectLists, inlinksDirs, archive) {
+function buildScriptInjectLists(script, baseUrl, contentIndex, startIndex, endIndex, type, injectLists, outlinkList, archive) {
 	// Add entry to code injection list comprising the entire JavaScript content, so it can be replaced by the server if applicable
 	if (type !== null)
 		injectLists.code.push({
@@ -954,11 +1154,11 @@ function buildScriptInjectLists(script, baseUrl, contentIndex, startIndex, endIn
 	}
 
 	// Check for any URLs in the script and add them to the link injection list, returning whether or not any were found
-	return buildInjectLinkEntriesFromScript(scriptNoComments, baseUrl, contentIndex, injectLists.links, inlinksDirs, archive);
+	return buildInjectLinkEntriesFromScript(scriptNoComments, baseUrl, contentIndex, injectLists.links, outlinkList, archive);
 }
 
 // Add a URL within an HTML file to the link injection list
-function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, doOrigin, linkInjectList, inlinksDirs, archive, attrStart = '', quoteChar = '') {
+function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, doOrigin, linkInjectList, outlinkList, archive, attrStart = '', quoteChar = '') {
 	// Trim quotes from URL string and extract any excess data
 	let url = trimQuotes(rawUrl);
 	let urlPrefix = '';
@@ -970,8 +1170,8 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 
 	// If the link has already been designated as missing during the genericization process, then it doesn't need to be added to the injection list
 	if (url == '/deadend') {
-		stats.totals.deadendLinks++;
-		stats[archive.source].deadendLinks++;
+		if (archive.indexEntry.stats !== null)
+			archive.indexEntry.stats.deadendLinks++;
 		return [attrStart + quoteChar + urlPrefix + url + quoteChar, false];
 	}
 
@@ -1005,10 +1205,11 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 
 	const [resolvedUrl, unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
 
-	// Increment the appropriate totals
-	const refStatField = (isInvalid ? 'deadend' : (resolvedSource !== null ? 'archived' : 'unarchived')) + (injectLinkEntry.isAsset ? 'Embeds' : 'Links');
-	stats.totals[refStatField]++;
-	stats[archive.source][refStatField]++;
+	// Update entry statistics accordingly
+	if (archive.indexEntry.stats !== null) {
+		const refStatField = (isInvalid ? 'deadend' : (resolvedSource !== null ? 'archived' : 'unarchived')) + (injectLinkEntry.isAsset ? 'Embeds' : 'Links');
+		archive.indexEntry.stats[refStatField]++;
+	}
 
 	// Unresolved relative links are assumed to be invalid if the source's URL mode is 2
 	if (isInvalid)
@@ -1020,15 +1221,23 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 	injectLinkEntry.offset = resolvedOffset;
 	linkInjectList.push(injectLinkEntry);
 
-	// If the link is valid, add it to the inlinks directory list
+	// If the link is valid, add it to the outlink list
 	if (config.buildFeatures.includes('inlinks')) {
-		const inlinkUrl = resolvedUrl.replace(/#.*$/, '');
-		if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(inlinkUrl) && URL.canParse(inlinkUrl))) {
-			const normalizedUrl = !isOrphan
-				? utils.normalizeUrl(inlinkUrl)
-				: pathUtils.join(injectLinkEntry.source, utils.normalizePath(inlinkUrl));
-			const inlinksDir = utils.getArchiveRootDir(normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath);
-			inlinksDirs.push(inlinksDir);
+		const outlinkUrl = resolvedUrl.replace(/#.*$/, '');
+		if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(outlinkUrl) && URL.canParse(outlinkUrl))) {
+			const normalizedUrl = isOrphan ? utils.normalizePath(outlinkUrl) : utils.normalizeUrl(outlinkUrl);
+			const indexEntries = [];
+			if (isOrphan && pathIndex[injectLinkEntry.source][normalizedUrl] !== undefined)
+				indexEntries.push(pathIndex[injectLinkEntry.source][normalizedUrl])
+			else if (!isOrphan && urlIndex[normalizedUrl] !== undefined)
+				indexEntries.push(...urlIndex[normalizedUrl]);
+
+			outlinkList.push({
+				inlinksDir: utils.getArchiveRootDir(isOrphan ? pathUtils.join(injectLinkEntry.source, normalizedUrl) : normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath),
+				normalizedUrl: (isOrphan ? injectLinkEntry.source + '/' : '') + normalizedUrl,
+				isOrphan: isOrphan,
+				indexEntries: indexEntries,
+			});
 		}
 	}
 
@@ -1037,50 +1246,58 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 }
 
 // Identify URLs in JavaScript code and add entries to the link injection list
-function buildInjectLinkEntriesFromScript(script, baseUrl, index, linkInjectList, inlinksDirs, archive) {
+function buildInjectLinkEntriesFromScript(script, baseUrl, index, linkInjectList, outlinkList, archive) {
 	const linkMatches = [...script.matchAll(/(?<!\+=?\s*)(\\?['"])(\s*(?:\/|[a-z]+:).*?)\1/gis)]
 		.concat([...script.matchAll(/(?<=['"][^'"]*=\s*)()((?:\/|[a-z]+:)[^\s'"<>]+)[^'"]*['"]/gis)])
 		.toSorted((a, b) => a.index - b.index);
 	for (const linkMatch of linkMatches) {
 		const [_, quoteChar, url] = linkMatch;
-		buildInjectLinkEntry(url, baseUrl, index + linkMatch.index + quoteChar.length, true, false, !url.startsWith('/'), linkInjectList, inlinksDirs, archive);
+		buildInjectLinkEntry(url, baseUrl, index + linkMatch.index + quoteChar.length, true, false, !url.startsWith('/'), linkInjectList, outlinkList, archive);
 	}
 
 	return linkMatches.length > 0;
 }
 
 // Identify URLs in CSS code and add entries to the link injection list
-function buildInjectLinkEntriesFromStyle(style, index, linkInjectList, inlinksDirs, archive) {
+function buildInjectLinkEntriesFromStyle(style, index, linkInjectList, outlinkList, archive) {
 	const linkMatches = [...style.matchAll(/(url\s*\(\s*)((["'])(?:(?!\3).)+\3|[^)]+)/gis)];
 	for (const linkMatch of linkMatches) {
 		const [_, funcStart, rawUrl] = linkMatch;
 		const url = trimQuotes(rawUrl);
-		buildInjectLinkEntry(url, null, index + linkMatch.index + funcStart.length + rawUrl.indexOf(url), true, false, false, linkInjectList, inlinksDirs, archive);
+		buildInjectLinkEntry(url, null, index + linkMatch.index + funcStart.length + rawUrl.indexOf(url), true, false, false, linkInjectList, outlinkList, archive);
 	}
 }
 
 // Add the archive as an inlink at the supplied locations
-function buildInlinks(archive, inlinksDirs) {
-	const inlinkEntry = {
-		source: archive.source,
-		url: archive.url ?? archive.path,
-		offset: archive.offset,
-	};
-	for (const inlinksDir of inlinksDirs) {
+function buildInlinks(archive, outlinkList) {
+	for (const outlinkInfo of outlinkList) {
 		let inlinks = [];
 
-		// Load inlinks list if it exists, otherwise prepare directory to write it into
-		const inlinksPath = pathUtils.join(inlinksDir, 'inlinks.json');
+		// Load inlinks file if it exists, otherwise prepare directory to write it into
+		const inlinksPath = pathUtils.join(outlinkInfo.inlinksDir, 'inlinks.json');
 		if (!utils.getPathInfo(inlinksPath)?.isFile) {
-			Deno.mkdirSync(inlinksDir, { recursive: true });
-			inlinksIndex.push(inlinksPath);
+			Deno.mkdirSync(outlinkInfo.inlinksDir, { recursive: true });
+			inlinksIndex[outlinkInfo.inlinksDir] = {
+				inlinksPath: inlinksPath,
+				normalizedUrl: outlinkInfo.normalizedUrl,
+				isOrphan: outlinkInfo.isOrphan,
+				indexEntries: outlinkInfo.indexEntries,
+				count: 0,
+			};
+			for (const indexEntry of outlinkInfo.indexEntries)
+				indexEntry.inlinks.push(inlinksIndex[outlinkInfo.inlinksDir]);
 		}
 		else
 			inlinks = JSON.parse(Deno.readTextFileSync(inlinksPath));
 
-		// Add to inlinks list if not a duplicate
-		if (!inlinks.some(inlinkEntry2 => inlinkEntry.source == inlinkEntry2.source && inlinkEntry.url == inlinkEntry2.url)) {
-			inlinks.push(inlinkEntry);
+		// Add to inlinks file if not a duplicate
+		if (!inlinks.some(inlink => archive.source == inlink.source && (archive.url ?? archive.path) == inlink.url)) {
+			inlinks.push({
+				source: archive.source,
+				url: archive.url ?? archive.path,
+				offset: archive.offset,
+			});
+			inlinksIndex[outlinkInfo.inlinksDir].count++;
 			Deno.writeTextFileSync(inlinksPath, JSON.stringify(inlinks, null, '\t'));
 		}
 	}

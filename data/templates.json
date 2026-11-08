@@ -9,8 +9,11 @@
 		],
 		"about": [],
 		"sources": [
-			"source",
-			"stats"
+			"source"
+		],
+		"stats": [
+			"entries",
+			"links"
 		],
 		"navbar": [
 			"screenshot",

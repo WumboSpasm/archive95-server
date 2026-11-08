@@ -77,6 +77,13 @@
 		"hasUrl": null
 	},
 	{
+		"id": "stats",
+		"hasSource": false,
+		"hasOffset": false,
+		"hasFlags": false,
+		"hasUrl": false
+	},
+	{
 		"id": "deadend",
 		"hasSource": false,
 		"hasOffset": false,

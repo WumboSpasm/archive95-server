@@ -84,6 +84,7 @@ A template configuration file containing the default values of each option can b
    - See the "API Endpoints" section for more information
 - `about` - Learn about Archive95
 - `sources` - View information about data sources
+- `stats` - View statistics about the archive
 
 ## Flags
 - `n` - Hide navigation bar
@@ -110,9 +111,9 @@ A template configuration file containing the default values of each option can b
 - `api/search` - Return search results
    - `query` (required) - A search query
    - `source` - A source ID by which to filter results
-   - `in` - A field by which to filter results; possible values are `title`, `content`, and `url`
-      - This parameter can be defined multiple times with different values
-   - `formats` - A file format group by which to filter results; possible values are `all`, `text`, and `media`
+   - `field` - A field by which to filter results; possible values are `title`, `content`, and `url`
+   - `format` - A file format group by which to filter results; possible values are `text`, `media`, and `other`
+   - `include` - An entry label by which to filter results; possible values are `orphans`, `errors`, and `broken`
 - `api/archives` - Return all archives belonging to a URL
    - `url` (required) - A URL or orphan file path
    - `source` - If `url` is an orphan file path, then this is the source ID that it belongs to
