@@ -316,7 +316,7 @@ async function serverHandler(request, info) {
 
 				// We don't need to do any fancy injection here
 				const html = buildHtml(templates[modernMode ? 'modern' : 'compat'].embed.main, {
-					'TITLE': sanitizeInject(title, false),
+					'TITLE': utils.sanitizeInject(title, false),
 					'METADATA': modernMode ? '<link rel="stylesheet" href="/styles/navbar.css">' : '',
 					'TYPE': fileType,
 					'EMBED': { value: embed, indent: indent },
@@ -365,7 +365,7 @@ async function serverHandler(request, info) {
 			const sanitizedBrowsePath = [];
 			const encodedBrowsePath = [];
 			for (let i = 0; i < browseInfo.path.length; i++) {
-				sanitizedBrowsePath.push(sanitizeInject(browseInfo.path[i]));
+				sanitizedBrowsePath.push(utils.sanitizeInject(browseInfo.path[i]));
 				encodedBrowsePath.push(encodeURI(browseInfo.path[i]));
 				if (i < browseInfo.path.length - 1)
 					browseNavigationArr.push(`<a href="/${browseRoute}/${encodedBrowsePath.slice(isOrphan ? 1 : 0).join('/')}">${encodedBrowsePath[i]}</a>`);
@@ -402,7 +402,7 @@ async function serverHandler(request, info) {
 				const browseDirName = (browseDir.name.length > 40 ? browseDir.name.substring(0, 37) + '...' : browseDir.name) + '/';
 				const browseDirCount = browseDir.count.toString();
 				addBrowseEntry([
-					[`<a href="/${browseRoute}/${encodedBrowsePath.concat(encodeURI(browseDir.name)).join('/')}">${sanitizeInject(browseDirName)}</a>`, browseDirName],
+					[`<a href="/${browseRoute}/${encodedBrowsePath.concat(encodeURI(browseDir.name)).join('/')}">${utils.sanitizeInject(browseDirName)}</a>`, browseDirName],
 					[browseDir.from, browseDir.from],
 					[browseDir.to, browseDir.to],
 					['-', '-'],
@@ -436,7 +436,7 @@ async function serverHandler(request, info) {
 				const browseFileSize = browseFile.size.toString();
 				const browseFileCount = browseFile.count.toString();
 				addBrowseEntry([
-					[(isIndex ? '<b>' : '') + `<a href="${fromLink}">${sanitizeInject(browseFileName)}</a>` + (isIndex ? '</b>' : ''), browseFileName],
+					[(isIndex ? '<b>' : '') + `<a href="${fromLink}">${utils.sanitizeInject(browseFileName)}</a>` + (isIndex ? '</b>' : ''), browseFileName],
 					[`<a href="${fromLink}">${browseFile.from.date}</a>`, browseFile.from.date],
 					[`<a href="${toLink}">${browseFile.to.date}</a>`, browseFile.to.date],
 					[browseFileType, browseFileType],
@@ -497,7 +497,7 @@ async function serverHandler(request, info) {
 				for (const inlink of inlinksInfo)
 					links.push(buildHtml(templates.compat.inlinks.link, {
 						'LINK': `/${buildRoute('view', inlink.source, inlink.offset, flagIds)}/${inlink.url}`,
-						'ORIGINAL': sanitizeInject(utils.safeDecode(inlink.url)),
+						'ORIGINAL': utils.sanitizeInject(utils.safeDecode(inlink.url)),
 						'SOURCE': inlink.source,
 					}));
 
@@ -719,8 +719,18 @@ async function serverHandler(request, info) {
 			const sourceRoute = splitSourceRoute[1]?.replace(/\/{2,}/g, '/') || null;
 			if (sourceId != null) {
 				const source = sources[sourceId];
-				if (source === undefined || sourceRoute !== null)
+				if (source === undefined)
 					throw new NotFoundError(modernMode);
+
+				if (sourceRoute == 'entries') {
+					// Return a complete entry listing for a specific source
+					const entriesPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+						'TITLE': 'Entry Listing of ' + source.title,
+						'METADATA': '',
+						'CONTENT': Deno.readTextFileSync(pathUtils.join(config.buildPath, 'lists', sourceId + '.html')),
+					});
+					return new Response(entriesPage, { headers: headers });
+				}
 
 				const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
 				const grandTotalNoErrors = stats.totals.urls + stats.totals.orphans + stats.totals.brokenPages;
@@ -774,7 +784,7 @@ async function serverHandler(request, info) {
 				});
 
 				// Return detailed information about a specific source
-				const sourcesContent = buildHtml(templates.compat.sources.source, {
+				const sourceContent = buildHtml(templates.compat.sources.source, {
 					'ID': sourceId,
 					'TITLE': source.title,
 					'AUTHOR': source.author,
@@ -783,19 +793,19 @@ async function serverHandler(request, info) {
 					'TYPE': source.type,
 					'GENERATORS': source.generators.join(', '),
 					'LANGUAGES': source.languages.join(', '),
-					'LINKS': source.links.map(link => `<dd><a href="${link}" target="_blank">${sanitizeInject(utils.safeDecode(link))}</a></dd>`).join('\n'),
+					'LINKS': source.links.map(link => `<dd><a href="${link}" target="_blank">${utils.sanitizeInject(utils.safeDecode(link))}</a></dd>`).join('\n'),
 					'DESCRIPTION': source.description,
 					'INTEGRITY': source.integrity.map(bullet => '<li>' + bullet + '</li>').join('\n'),
 					'REMEDIATIONS': source.remediations.map(bullet => '<li>' + bullet + '</li>').join('\n'),
 					'ENTRYTOTALS': sourceEntryTotals,
 					'LINKTOTALS': sourceLinkTotals,
 				});
-				const sourcesPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+				const sourcePage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
 					'TITLE': source.title,
 					'METADATA': '',
-					'CONTENT': { value: sourcesContent, indent: 'none' },
+					'CONTENT': { value: sourceContent, indent: 'none' },
 				});
-				return new Response(sourcesPage, { headers: headers });
+				return new Response(sourcePage, { headers: headers });
 			}
 
 			// Sort source IDs by the first letter of their titles
@@ -1380,7 +1390,7 @@ function getInlinksInfo(url, sourceId = undefined) {
 		}
 	}
 
-	displayUrl = sanitizeInject(displayUrl);
+	displayUrl = utils.sanitizeInject(displayUrl);
 	return [inlinksInfo, displayUrl];
 }
 
@@ -1553,7 +1563,7 @@ async function buildSearch(params, modernMode) {
 			});
 	}
 	else {
-		const sanitizedQuery = sanitizeInject(params.get('query'));
+		const sanitizedQuery = utils.sanitizeInject(params.get('query'));
 
 		const resultSegments = [];
 		if (searchResults.length > 0) {
@@ -1631,7 +1641,7 @@ async function buildSearch(params, modernMode) {
 // Build navigation bar
 function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode) {
 	const archiveInfo = archiveInfoSet[archiveInfoIndex];
-	const displayUrl = sanitizeInject(utils.safeDecode(archiveInfo.url));
+	const displayUrl = utils.sanitizeInject(utils.safeDecode(archiveInfo.url));
 
 	const messages = [];
 	if (isOrphan)
@@ -1923,22 +1933,6 @@ function cleanFlags(flagIds) {
 	return newFlagIds;
 }
 
-// Escape characters that have the potential to enable XSS injections
-function sanitizeInject(str, sanitizeAmp = true) {
-	const charMap = {
-		'<': '&lt;',
-		'>': '&gt;',
-		'"': '&quot;',
-		// Not worth rendering these
-		'\r': ' ',
-		'\n': ' ',
-	};
-	if (sanitizeAmp)
-		charMap['&'] = '&amp;';
-
-	return str.replace(new RegExp(`[${Object.keys(charMap).join('')}]`, 'g'), m => charMap[m]);
-}
-
 // Attempt to load blocklist file
 function loadBlocklist() {
 	const blocklist = JSON.parse(Deno.readTextFileSync('data/blocklist_template.json'));
@@ -2089,7 +2083,7 @@ class UnarchivedError extends ArchiveError {
 		super(
 			404,
 			'Unarchived URL',
-			`The URL <b>${sanitizeInject(utils.safeDecode(url))}</b> does not exist in the archive.`,
+			`The URL <b>${utils.sanitizeInject(utils.safeDecode(url))}</b> does not exist in the archive.`,
 			modernMode,
 			options,
 		);

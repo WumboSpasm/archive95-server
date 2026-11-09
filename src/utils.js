@@ -121,6 +121,22 @@ export function safeDecode(str) {
 	return decodedStr;
 }
 
+// Escape characters that have the potential to enable XSS injections
+export function sanitizeInject(str, sanitizeAmp = true) {
+	const charMap = {
+		'<': '&lt;',
+		'>': '&gt;',
+		'"': '&quot;',
+		// Not worth rendering these
+		'\r': ' ',
+		'\n': ' ',
+	};
+	if (sanitizeAmp)
+		charMap['&'] = '&amp;';
+
+	return str.replace(new RegExp(`[${Object.keys(charMap).join('')}]`, 'g'), m => charMap[m]);
+}
+
 // Efficiently replace slices of a string with different values
 export function replaceSlices(str, slices) {
 	let offset = 0;

@@ -90,9 +90,7 @@ let database, insertStatement;
 	// One step for each valid URL
 	total += Object.values(urlIndex).map(entries => entries.filter(entry => !entry.skip).length).reduce((sum, n) => sum + n, 0);
 	// One step for each valid orphan
-	total += Object.values(pathIndex).map(entries =>
-		Object.values(entries).filter(entry => entry.normalizedUrl === null && !entry.skip).length
-	).reduce((sum, n) => sum + n, 0);
+	total += Object.values(pathIndex).map(entries => Object.values(entries).filter(entry => entry.url === null && !entry.skip).length).reduce((sum, n) => sum + n, 0);
 	// One step for each screenshot
 	total += Object.values(screenshotIndex).map(entries => entries.length).reduce((sum, n) => sum + n, 0);
 
@@ -152,7 +150,7 @@ let database, insertStatement;
 		for (const normalizedPath in pathIndex[sourceId]) {
 			const pathEntry = pathIndex[sourceId][normalizedPath];
 			// Orphans do not have an associated URL, and we should only build archives of valid orphans
-			if (pathEntry.normalizedUrl !== null || pathEntry.skip)
+			if (pathEntry.url !== null || pathEntry.skip)
 				continue;
 
 			// Gather archive info
@@ -261,6 +259,10 @@ let database, insertStatement;
 		}
 	}
 
+	// Build file listings for each source and save to files
+	utils.logMessage('building source file lists...');
+	buildLists();
+
 	// Build archive statistics and save to file
 	utils.logMessage('building statistics...');
 	buildStats();
@@ -282,6 +284,7 @@ let database, insertStatement;
 		'sources.json',
 		'stats.json',
 		'types.json',
+		'lists',
 		'orphans',
 		'screenshots',
 		'urls',
@@ -356,7 +359,7 @@ function buildIndexes() {
 			// Add entry to path index
 			// If it needs to be skipped but doesn't have a valid URL, then it's useless to us
 			// (Unless the URL mode is 1, otherwise we need to know its path so we can mark it as invalid)
-			if (!entry.skip || normalizedUrl !== null || sources[sourceId].urlMode == 1)
+			if (!entry.skip || entry.url !== null || sources[sourceId].urlMode == 1)
 				pathIndex[sourceId][normalizedPath] = indexEntry;
 		}
 	}
@@ -423,6 +426,61 @@ function buildIndexes() {
 	}
 }
 
+// Create HTML files listing all entries under each source in the archive
+function buildLists() {
+	const sourceLists = {};
+
+	const updateSourceList = indexEntry => {
+		if (sourceLists[indexEntry.source] === undefined)
+			sourceLists[indexEntry.source] = [];
+
+		sourceLists[indexEntry.source].push(indexEntry);
+	};
+
+	// Add URLs to source lists
+	for (const normalizedUrl in urlIndex) {
+		for (const urlEntry of urlIndex[normalizedUrl]) {
+			if (!urlEntry.skip)
+				updateSourceList(urlEntry);
+		}
+	}
+
+	// Add orphans to source lists
+	for (const sourceId in pathIndex) {
+		for (const normalizedPath in pathIndex[sourceId]) {
+			const pathEntry = pathIndex[sourceId][normalizedPath];
+			if (pathEntry.url === null && !pathEntry.skip)
+				updateSourceList(pathEntry);
+		}
+	}
+
+	// Create lists directory
+	const listsDir = pathUtils.join(tempBuildPath, 'lists');
+	Deno.mkdirSync(listsDir, { recursive: true });
+
+	// Create list HTML files
+	for (const sourceId in sourceLists) {
+		let listHtml = `<h1>Entry Listing of ${sources[sourceId].title}</h1>\n`;
+		const sourceEntries = sourceLists[sourceId];
+		listHtml += sourceEntries
+			.toSorted((a, b) => {
+				if (a.url !== null && b.url !== null)
+					return a.url.localeCompare(b.url, 'en', { sensitivity: 'base' }) || a.offset - b.offset;
+				else if ((a.url !== null) != (b.url !== null))
+					return a.url !== null ? -1 : 1;
+				else
+					return a.path.localeCompare(b.path, 'en', { sensitivity: 'base' });
+			}).map(sourceEntry => {
+				const linkUrl = '/view-' + sourceId + (sourceEntry.offset > 0 ? '+' + sourceEntry.offset : '') + '/' + (sourceEntry.url ?? sourceEntry.path);
+				const displayUrl = utils.sanitizeInject(utils.safeDecode(sourceEntry.url ?? sourceEntry.path));
+				const labels = (sourceEntry.error ? ' (error page)' : '') + (sourceEntry.broken ? ' (broken page)' : '');
+				return `<a href="${linkUrl}">${displayUrl}</a>${labels}`;
+			}).join('<br>\n');
+
+		Deno.writeTextFileSync(pathUtils.join(listsDir, sourceId + '.html'), listHtml);
+	}
+}
+
 // Create usable data for statistics/source pages
 function buildStats() {
 	const totals = {
@@ -475,7 +533,7 @@ function buildStats() {
 		const format = utils.getTypeFormat(indexEntry.archive.types[indexEntry.archive.types.length - 1]);
 
 		if (!indexEntry.error && !indexEntry.broken) {
-			const archiveStatField = indexEntry.normalizedUrl !== null ? 'urls' : 'orphans';
+			const archiveStatField = indexEntry.url !== null ? 'urls' : 'orphans';
 			const formatStatField = format + 'Files';
 			stats.sources[indexEntry.source][archiveStatField]++;
 			stats.sources[indexEntry.source][formatStatField]++;
@@ -496,7 +554,7 @@ function buildStats() {
 			stats.totals[refStatField] += indexEntry.stats[refStatField];
 		}
 		if (indexEntry.inlinks.length == 0 && !indexEntry.error && !indexEntry.broken) {
-			const archiveUnlinkedField = indexEntry.normalizedUrl !== null ? 'unlinkedUrls' : 'unlinkedOrphans';
+			const archiveUnlinkedField = indexEntry.url !== null ? 'unlinkedUrls' : 'unlinkedOrphans';
 			const formatUnlinkedField = 'unlinked' + format[0].toUpperCase() + format.substring(1) + 'Files';
 			stats.sources[indexEntry.source][archiveUnlinkedField]++;
 			stats.sources[indexEntry.source][formatUnlinkedField]++;
@@ -591,7 +649,7 @@ function buildStats() {
 				continue;
 
 			// Update orphan stats
-			if (pathEntry.normalizedUrl === null) {
+			if (pathEntry.url === null) {
 				updateTotals(pathEntry);
 				updateGraphs(pathEntry);
 				updateRange(pathEntry);
