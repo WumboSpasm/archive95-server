@@ -998,10 +998,12 @@ async function serverHandler(request, info) {
 			const statsContent = buildHtml(templates.compat.stats.main, {
 				'ENTRYTOTALS': entryTotals,
 				'LINKTOTALS': linkTotals,
-				'DOMAINENTRYRANKING': buildRanking('domainEntryCounts', 'Domain', domain => `<a href="/browse/${domain}">${domain}</a>`),
+				'DOMAINENTRYRANKING': buildRanking('domainEntryCounts', 'Domain', features.includes('browse') ? domain => `<a href="/browse/${domain}">${domain}</a>` : null),
 				'URLARCHIVERANKING': buildRanking('urlArchiveCounts', 'URL', url => `<a href="/view/${url}">${url}</a>`),
-				'ARCHIVEDURLINLINKRANKING': buildRanking('archivedUrlInlinkCounts', 'URL',  url => `<a href="/inlinks/${url}">${url}</a>`),
-				'UNARCHIVEDURLINLINKRANKING': buildRanking('unarchivedUrlInlinkCounts', 'URL',  url => `<a href="/inlinks/${url}">${url}</a>`),
+				'INLINKRANKINGS': features.includes('inlinks') ? buildHtml(templates.compat.stats.inlinks, {
+					'ARCHIVEDURLINLINKRANKING': buildRanking('archivedUrlInlinkCounts', 'URL',  url => `<a href="/inlinks/${url}">${url}</a>`),
+					'UNARCHIVEDURLINLINKRANKING': buildRanking('unarchivedUrlInlinkCounts', 'URL',  url => `<a href="/inlinks/${url}">${url}</a>`),
+				}) : '',
 				'MIMETYPEENTRYRANKING': buildRanking('mimeTypeEntryCounts', 'MIME Type'),
 				'TYPESOURCERANKING': buildRanking('typeSourceCounts', 'Type'),
 				'GENERATORSOURCERANKING': buildRanking('generatorSourceCounts', 'Generator'),

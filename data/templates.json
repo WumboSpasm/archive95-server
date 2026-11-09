@@ -13,7 +13,8 @@
 		],
 		"stats": [
 			"entries",
-			"links"
+			"links",
+			"inlinks"
 		],
 		"navbar": [
 			"screenshot",
