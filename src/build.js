@@ -1833,6 +1833,35 @@ function genericizeMarkup(html, sourceId, path, url = undefined) {
 					'$1',
 				);
 
+			// Fix broken URLs
+			const absDir = url.replace(/[^/]+\/*$/, '');
+			const relDir = new URL(url).pathname.substring(1).replace(/[^/]+\/*$/, '');
+			const slices = [];
+			for (let linkMatch; (linkMatch = linkExp.exec(html)) !== null;) {
+				const [_, attrStart, rawUrl] = linkMatch;
+				const trimmedUrl = trimQuotes(rawUrl);
+				const trimmedUrl2 = trimmedUrl.replace(/^(http:\/\/[^/]+):80/i, '$1');
+
+				let fixedUrl;
+				if (relDir.length > 0 && trimmedUrl.startsWith(relDir))
+					fixedUrl = '/' + trimmedUrl;
+				else if (relDir.length > 0 && trimmedUrl.startsWith(absDir + relDir))
+					fixedUrl = '/' + trimmedUrl.substring(absDir.length);
+				else if (relDir.length > 0 && trimmedUrl2.startsWith(absDir + relDir))
+					fixedUrl = '/' + trimmedUrl2.substring(absDir.length);
+				else if (new RegExp(`^${RegExp.escape(absDir)}\\s+`).test(trimmedUrl))
+					fixedUrl = trimmedUrl.substring(absDir.length).trimStart();
+
+				if (fixedUrl !== undefined)
+					slices.push({
+						start: linkMatch.index + attrStart.length + rawUrl.indexOf(trimmedUrl),
+						end: linkMatch.index + attrStart.length + rawUrl.indexOf(trimmedUrl) + trimmedUrl.length,
+						value: fixedUrl,
+					});
+			}
+			if (slices.length > 0)
+				html = utils.replaceSlices(html, slices);
+
 			// Remove stray comment closing sequences
 			const closeMatch = html.match(/>\.?(\s*(?:-->)+)/);
 			if (closeMatch !== null) {
