@@ -903,7 +903,7 @@ async function serverHandler(request, info) {
 				// Get maximum lengths of each column
 				const maxRankLength = ranking.length.toString().length + 1;
 				const maxNameLength = Math.max(...ranking.map(rankingEntry => rankingEntry.name.length), header.length);
-				const maxCountLength = Math.max(...ranking.map(rankingEntry => rankingEntry.count.toLocaleString('en-US').length));
+				const maxCountLength = Math.max(...ranking.map(rankingEntry => rankingEntry.count.toLocaleString('en-US').length), 1);
 
 				// Build ranking rows
 				const rankRows = [
