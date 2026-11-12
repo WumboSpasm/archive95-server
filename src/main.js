@@ -722,15 +722,17 @@ async function serverHandler(request, info) {
 				if (source === undefined)
 					throw new NotFoundError(modernMode);
 
-				if (sourceRoute == 'entries') {
+				if (sourceRoute == 'list') {
 					// Return a complete entry listing for a specific source
-					const entriesPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
+					const listPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
 						'TITLE': 'Entry Listing of ' + source.title,
 						'METADATA': '',
 						'CONTENT': Deno.readTextFileSync(pathUtils.join(config.buildPath, 'lists', sourceId + '.html')),
 					});
-					return new Response(entriesPage, { headers: headers });
+					return new Response(listPage, { headers: headers });
 				}
+				else if (sourceRoute !== null)
+					throw new NotFoundError(modernMode);
 
 				const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
 				const grandTotalNoErrors = stats.totals.urls + stats.totals.orphans + stats.totals.brokenPages;
