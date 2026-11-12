@@ -23,43 +23,68 @@ export function getArchiveRootDir(normalizedUrl, namespace, buildPath = config.b
 }
 
 // Strip a URL down to its bare components, for comparison purposes
-export function normalizeUrl(url, doLowerCase = true) {
+export function normalizeUrl(url, ignoreOpNames = [], detailed = false) {
 	// Decode the URL and remove anchor if it exists
-	let normalizedUrl = safeDecode(url.replace(/#.*$/, ''));
-
-	normalizedUrl = normalizedUrl
+	const partialNormalizedUrl = safeDecode(url.replace(/#.*$/, ''))
 		// Change direction of backslashes
 		.replaceAll('\\', '/')
 		// Remove protocol
 		.replace(/^(?:https?|ftp):\/*/i, '')
-		// Remove www subdomain
-		.replace(/^\.*www(?:-?\d{1,2})?\.([^/]+\.)/i, '$1')
-		// Remove port number if it is 80
-		.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2')
 		// Collapse sequences of dots in origin
 		.replace(/(?<=^[^/:]*)\.{2,}/g, '.')
 		// Remove trailing dot from origin
 		.replace(/(?<=^[^/:]*)\.(?=[/:])/g, '')
 		// Remove leading dot from origin
 		.replace(/^\./, '')
-		// Remove imagemap coordinates
-		.replace(/\?\d+,\d+$/, '')
-		// Remove index file
-		.replace(/(?<!\?.*)\/(?:index\.[a-z]?html?|default\.(?:htm|asp))$/i, '')
 		// Collapse sequences of slashes
 		.replace(/(?<!\?.*)\/{2,}/g, '/')
 		// Remove trailing slash
 		.replace(/(?<!\?.*)\/$/, '');
 
-	// Convert to lowercase if specified
-	if (doLowerCase)
-		normalizedUrl = normalizedUrl.toLowerCase();
+	// Operations that have the potential to change the URL's destination are kept separate
+	const operations = {
+		convertLowerCase: url => url.toLowerCase(),
+		removeWwwSubdomain: url => url.replace(/^\.*www(?:-?\d{1,2})?\.([^/]+\.)/i, '$1'),
+		removeHttpPort: url => url.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2'),
+		removeImagemapCoords: url => url.replace(/\?\d+,\d+$/, ''),
+		removeIndexFile: url => url.replace(/(?<!\?.*)\/+(?:index\.[a-z]?html?|default\.(?:htm|asp))$/i, ''),
+	};
 
-	return normalizedUrl;
+	// Apply each operation
+	let normalizedUrl = partialNormalizedUrl;
+	for (const opName in operations) {
+		if (!ignoreOpNames.includes(opName))
+			normalizedUrl = operations[opName](normalizedUrl);
+	}
+
+	// Just return the normalized URL by default
+	if (!detailed)
+		return normalizedUrl;
+
+	// Track which operations modify the result of the final normalized URL
+	const opNames = Object.keys(operations);
+	const successfulOpNames = {};
+	for (let i = 0; i < opNames.length; i++) {
+		const excludeOpName = opNames[i];
+		if (ignoreOpNames.includes(excludeOpName))
+			continue;
+
+		let normalizedUrl2 = partialNormalizedUrl;
+		for (const opName in operations) {
+			if (!ignoreOpNames.includes(opName) && opName != excludeOpName)
+				normalizedUrl2 = operations[opName](normalizedUrl2);
+		}
+
+		if (normalizedUrl != normalizedUrl2)
+			successfulOpNames[excludeOpName] = Math.pow(2, i);
+	}
+
+	// Return the normalized URL as well as the names of successful operations
+	return [normalizedUrl, successfulOpNames];
 }
 
 // Strip a path down to its bare components, for comparison purposes
-export function normalizePath(path, doLowerCase = true) {
+export function normalizePath(path, convertLowerCase = true) {
 	// Decode the path and extract anchor if it exists
 	let [normalizedPath, anchor] = splitAnchor(path).map(value => safeDecode(value));
 
@@ -74,7 +99,7 @@ export function normalizePath(path, doLowerCase = true) {
 		+ anchor;
 
 	// Convert to lowercase if specified
-	if (doLowerCase)
+	if (convertLowerCase)
 		normalizedPath = normalizedPath.toLowerCase();
 
 	return normalizedPath;
@@ -84,7 +109,7 @@ export function normalizePath(path, doLowerCase = true) {
 export function splitUrl(url, orphanSource = null) {
 	const normalizedUrl = orphanSource !== null
 		? pathUtils.join(orphanSource, normalizePath(url, false))
-		: normalizeUrl(url, false);
+		: normalizeUrl(url, ['convertLowerCase']);
 
 	// The name is on purpose, FYI
 	const splittedUrl = normalizedUrl.split(/(?<!\?.*)[/\\]/i);

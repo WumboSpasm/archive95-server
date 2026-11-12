@@ -1613,7 +1613,7 @@ function resolveUrl(rawUrl, archive) {
 		let normalizedPath = utils.normalizePath(unresolvedUrl + anchor);
 		let pathEntry = pathEntries[normalizedPath];
 		if (pathEntry === undefined && anchor != '') {
-			// If the entry could not be retrieved, but an anchor exists, append the anchor to the path and try again
+			// If the entry could not be retrieved, but an anchor exists, try again without the anchor in the path
 			normalizedPath = utils.normalizePath(unresolvedUrl);
 			pathEntry = pathEntries[normalizedPath];
 		}
@@ -1629,7 +1629,7 @@ function resolveUrl(rawUrl, archive) {
 
 				// Otherwise, resolve the URL to the nearest valid archive and fetch relevant info
 				const urlEntries = urlIndex[pathEntry.normalizedUrl];
-				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, normalizedPath);
+				[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, null, normalizedPath);
 				if (anchor == '' && pathEntry.url.includes('#'))
 					anchor = utils.splitAnchor(pathEntry.url)[1];
 			}
@@ -1655,7 +1655,7 @@ function resolveUrl(rawUrl, archive) {
 		const urlEntries = urlIndex[normalizedUrl];
 		if (urlEntries !== undefined)
 			// If the entry was found, resolve it to the nearest valid archive and fetch relevant info
-			[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries);
+			[resolvedSource, resolvedUrl, resolvedOffset] = nearestArchiveInfo(archive, urlEntries, unresolvedUrl);
 	}
 
 	// If the resolved URL is the same as the base URL but with an anchor, then return just the anchor
@@ -1671,7 +1671,7 @@ function resolveUrl(rawUrl, archive) {
 }
 
 // Determine which entry in a set of archives for a specific URL is closest date-wise to a supplied archive
-function nearestArchiveInfo(archive, compareEntries, normalizedPath = null) {
+function nearestArchiveInfo(archive, compareEntries, unresolvedUrl = null, normalizedPath = null) {
 	let backupUrl = null;
 	if (normalizedPath !== null) {
 		// If a normalized path is defined, try using it to fast-track identification of nearest archive
@@ -1714,15 +1714,38 @@ function nearestArchiveInfo(archive, compareEntries, normalizedPath = null) {
 		}
 	}
 
-	if (lowestTimeDistIndex > -1) {
-		// An archive was found, so return its source and URL
-		const nearestMatch = compareEntriesPure[lowestTimeDistIndex];
-		return [nearestMatch.source, nearestMatch.url, nearestMatch.offset];
-	}
-	else
-		// An archive was not found, so return null values
-		// Or if an invalid archive match was found, return its URL so we at least have something to point to the Wayback Machine
+	// If an archive was not found, return null values
+	// Or if an invalid archive match was found, return its URL so we at least have something to display
+	if (lowestTimeDistIndex == -1)
 		return [null, backupUrl, null];
+
+	// An archive was found, but first check if its source has any other archives which share the same (normalized) URL
+	// If so, perform additional tests to see which archive's URL is most similar to the original URL, and return that archive
+	const nearestMatch = compareEntriesPure[lowestTimeDistIndex];
+	if (unresolvedUrl !== null) {
+		const compareEntriesSource = compareEntriesPure.filter(compareEntry => nearestMatch.source == compareEntry.source);
+		if (compareEntriesSource.length > 1) {
+			const [_, successfulOpNames] = utils.normalizeUrl(unresolvedUrl, [], true);
+			if (Object.keys(successfulOpNames).length > 0) {
+				const compareEntryScores = new Array(compareEntriesSource.length).fill(0);
+				for (const opName in successfulOpNames) {
+					const normalizedUrl = utils.normalizeUrl(unresolvedUrl, [opName]);
+					for (let i = 0; i < compareEntriesSource.length; i++) {
+						const compareEntry = compareEntriesSource[i];
+						const normalizedUrl2 = utils.normalizeUrl(compareEntry.url, [opName]);
+						if (normalizedUrl == normalizedUrl2)
+							compareEntryScores[i] += successfulOpNames[opName];
+					}
+				}
+
+				const mostSimilarMatch = compareEntriesSource[compareEntryScores.indexOf(Math.max(...compareEntryScores))];
+				return [mostSimilarMatch.source, mostSimilarMatch.url, mostSimilarMatch.offset];
+			}
+		}
+	}
+
+	// Return the closest dated archive
+	return [nearestMatch.source, nearestMatch.url, nearestMatch.offset];
 }
 
 // Attempt to revert source-specific markup alterations
