@@ -1040,7 +1040,7 @@ function serverError(error) {
 	let links = '';
 	if (error.options instanceof Array) {
 		if (features.includes('database'))
-			error.options.unshift('<li><a href="/random">Go to a random page</a></li>');
+			error.options.push('<li><a href="/random">Go to a random page</a></li>');
 		links = buildHtml(templates.compat.error.links, { 'OPTIONS': error.options.join('\n') });
 	}
 
