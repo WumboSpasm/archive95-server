@@ -62,7 +62,6 @@ function startServer() {
 	// ...over HTTP
 	httpServer = Deno.serve({
 		port: config.httpPort,
-		hostname: config.hostName,
 		onListen: serverListen,
 		onError: serverError,
 	}, serverHandler);
@@ -73,7 +72,6 @@ function startServer() {
 			port: config.httpsPort,
 			cert: Deno.readTextFileSync(config.httpsCert),
 			key: Deno.readTextFileSync(config.httpsKey),
-			hostName: config.hostName,
 			onListen: serverListen,
 			onError: serverError,
 		}, serverHandler);
