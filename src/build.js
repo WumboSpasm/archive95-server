@@ -1233,39 +1233,33 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 		return [attrStart + quoteChar + urlPrefix + url + quoteChar, false];
 	}
 
-	// If a base URL is specified, change the destination of relative URLs accordingly
+	// Try to resolve the URL to an entry in the archive
+	// If base URL exists, also try with the re-targeted URL and use that unless only the original URL resolves to an archive
+	let resolveUrlOutput = resolveUrl(url, archive);
 	if (baseUrl !== null) {
-		const newUrl = URL.parse(url, baseUrl);
-		if (newUrl !== null) {
-			if (newUrl.origin == 'http://archive95-path')
-				url = newUrl.pathname;
+		let url2 = URL.parse(url, baseUrl);
+		if (url2 !== null) {
+			if (url2.origin == 'http://archive95-path')
+				url2 = url2.pathname;
 			else
-				url = newUrl.href;
+				url2 = url2.href;
+
+			const resolveUrlOutput2 = resolveUrl(url2, archive);
+			if (Array.isArray(resolveUrlOutput) && resolveUrlOutput[2] === null || Array.isArray(resolveUrlOutput2) && resolveUrlOutput2[2] !== null)
+				resolveUrlOutput = resolveUrlOutput2;
 		}
 	}
 
-	// Initialize the injection list entry
-	const injectLinkEntry = {
-		start: index + (preserveUrl ? rawUrl.indexOf(urlPrefix) : 0) + urlPrefix.length,
-		end: preserveUrl ? index + rawUrl.length : null,
-		source: null,
-		url: url,
-		offset: null,
-		isAsset: forceAsset || !/^href/i.test(attrStart),
-		isRefresh: /^http-equiv/i.test(attrStart),
-		doOrigin: doOrigin,
-	};
-
-	// Attempt to resolve the URL string to an entry in the archive, and return immediately if it is an anchor
-	const resolveUrlOutput = resolveUrl(url, archive);
+	// Return immediately if the URL is resolved to an anchor
 	if (!Array.isArray(resolveUrlOutput))
 		return [attrStart + quoteChar + (preserveUrl ? rawUrl : resolveUrlOutput) + quoteChar, true];
 
 	const [resolvedUrl, unresolvedUrl, resolvedSource, resolvedOffset, anchor, isOrphan, isInvalid] = resolveUrlOutput;
 
 	// Update entry statistics accordingly
+	const isAsset = forceAsset || !/^href/i.test(attrStart);
 	if (archive.indexEntry.stats !== null) {
-		const refStatField = (isInvalid ? 'deadend' : (resolvedSource !== null ? 'archived' : 'unarchived')) + (injectLinkEntry.isAsset ? 'Embeds' : 'Links');
+		const refStatField = (isInvalid ? 'deadend' : (resolvedSource !== null ? 'archived' : 'unarchived')) + (isAsset ? 'Embeds' : 'Links');
 		archive.indexEntry.stats[refStatField]++;
 	}
 
@@ -1273,11 +1267,17 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 	if (isInvalid)
 		return [attrStart + quoteChar + urlPrefix + '/deadend' + quoteChar, false];
 
-	// Update link info and push to injection list
-	injectLinkEntry.source = resolvedSource;
-	injectLinkEntry.url = (preserveUrl && /^(?:https?|ftp):/i.test(unresolvedUrl) && URL.canParse(unresolvedUrl) ? unresolvedUrl : resolvedUrl).replaceAll('#', '%23') + anchor;
-	injectLinkEntry.offset = resolvedOffset;
-	linkInjectList.push(injectLinkEntry);
+	// Create injection list entry
+	linkInjectList.push({
+		start: index + (preserveUrl ? rawUrl.indexOf(urlPrefix) : 0) + urlPrefix.length,
+		end: preserveUrl ? index + rawUrl.length : null,
+		source: resolvedSource,
+		url: (preserveUrl && /^(?:https?|ftp):/i.test(unresolvedUrl) && URL.canParse(unresolvedUrl) ? unresolvedUrl : resolvedUrl).replaceAll('#', '%23') + anchor,
+		offset: resolvedOffset,
+		isAsset: isAsset,
+		isRefresh: /^http-equiv/i.test(attrStart),
+		doOrigin: doOrigin,
+	});
 
 	// If the link is valid, add it to the outlink list
 	if (config.buildFeatures.includes('inlinks')) {
@@ -1285,14 +1285,14 @@ function buildInjectLinkEntry(rawUrl, baseUrl, index, preserveUrl, forceAsset, d
 		if (resolvedSource !== null || (/^(?:https?|ftp):/i.test(outlinkUrl) && URL.canParse(outlinkUrl))) {
 			const normalizedUrl = isOrphan ? utils.normalizePath(outlinkUrl) : utils.normalizeUrl(outlinkUrl);
 			const indexEntries = [];
-			if (isOrphan && pathIndex[injectLinkEntry.source][normalizedUrl] !== undefined)
-				indexEntries.push(pathIndex[injectLinkEntry.source][normalizedUrl])
+			if (isOrphan && pathIndex[resolvedSource][normalizedUrl] !== undefined)
+				indexEntries.push(pathIndex[resolvedSource][normalizedUrl])
 			else if (!isOrphan && urlIndex[normalizedUrl] !== undefined)
 				indexEntries.push(...urlIndex[normalizedUrl]);
 
 			outlinkList.push({
-				inlinksDir: utils.getArchiveRootDir(isOrphan ? pathUtils.join(injectLinkEntry.source, normalizedUrl) : normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath),
-				normalizedUrl: (isOrphan ? injectLinkEntry.source + '/' : '') + normalizedUrl,
+				inlinksDir: utils.getArchiveRootDir(isOrphan ? pathUtils.join(resolvedSource, normalizedUrl) : normalizedUrl, isOrphan ? 'orphans' : 'urls', tempBuildPath),
+				normalizedUrl: (isOrphan ? resolvedSource + '/' : '') + normalizedUrl,
 				isOrphan: isOrphan,
 				indexEntries: indexEntries,
 			});
