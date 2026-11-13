@@ -1261,14 +1261,19 @@ async function performSearch(params) {
 // Locate the archive in the filesystem and gather useful data
 function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	let archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan = false;
+	let archiveRootDir, archiveInfoSetPath, archiveFound = false;
 
 	// Check the urls directory first
-	let archiveRootDir, archiveInfoSetPath, archiveFound = false;
-	for (const normalizedUrl of [utils.normalizeUrl(url), utils.normalizeUrl(utils.splitAnchor(url, true)[0])]) {
+	const normalizedUrls = [utils.normalizeUrl(url)];
+	if (/#|%23/.test(url))
+		normalizedUrls.push(utils.normalizeUrl(utils.splitAnchor(url, true)[0]));
+	if (url.includes('?'))
+		normalizedUrls.push(normalizedUrls[0].replace(/\?.*$/, ''));
+	for (const normalizedUrl of normalizedUrls) {
 		archiveRootDir = utils.getArchiveRootDir(normalizedUrl, 'urls');
 		archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archives.json');
 		archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
-		if (archiveFound || !/#|%23/.test(url))
+		if (archiveFound)
 			break;
 	}
 
@@ -1303,11 +1308,16 @@ function getArchiveInfo(url, sourceId = undefined, offset = undefined) {
 	}
 	else if (sourceId !== undefined) {
 		// If a source was provided, check the orphans directory if nothing was found in the urls directory
-		for (const normalizedPath of [utils.normalizePath(url), utils.normalizePath(utils.splitAnchor(url, true)[0])]) {
+		const normalizedPaths = [utils.normalizePath(url)];
+		if (/#|%23/.test(url))
+			normalizedPaths.push(utils.normalizePath(utils.splitAnchor(url, true)[0]));
+		if (url.includes('?'))
+			normalizedPaths.push(normalizedPaths[0].replace(/\?.*$/, ''));
+		for (const normalizedPath of normalizedPaths) {
 			archiveRootDir = utils.getArchiveRootDir(pathUtils.join(sourceId, normalizedPath), 'orphans');
 			archiveInfoSetPath = pathUtils.join(archiveRootDir, 'archive.json');
 			archiveFound = utils.getPathInfo(archiveInfoSetPath)?.isFile;
-			if (archiveFound || !/#|%23/.test(url))
+			if (archiveFound)
 				break;
 		}
 

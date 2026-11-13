@@ -46,7 +46,6 @@ export function normalizeUrl(url, ignoreOpNames = [], detailed = false) {
 		convertLowerCase: url => url.toLowerCase(),
 		removeWwwSubdomain: url => url.replace(/^\.*www(?:-?\d{1,2})?\.([^/]+\.)/i, '$1'),
 		removeHttpPort: url => url.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2'),
-		removeImagemapCoords: url => url.replace(/\?\d+,\d+$/, ''),
 		removeIndexFile: url => url.replace(/(?<!\?.*)\/+(?:index\.[a-z]?html?|default\.(?:htm|asp))$/i, ''),
 	};
 
