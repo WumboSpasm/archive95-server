@@ -33,10 +33,12 @@ Archive95 is an independent web archive focused on material that predates or has
 ## Configuration Options
 A template configuration file containing the default values of each option can be found at `data/config_template.json`.
 
-- `httpPort` - The HTTP port on which to start the server
-- `httpsPort` - The HTTPS port on which to start the server if `httpsCert` and `httpsKey` are specified
-- `httpsCert` - The file path of the TLS certificate needed to start the server on HTTPS
-- `httpsKey` - The file path of the TLS private key needed to start the server on HTTPS
+- `httpPort` - The port on which to listen for HTTP connections
+- `httpsPort` - The port on which to listen for HTTPS connections if `httpsCert` and `httpsKey` are defined
+- `httpsCert` - The file path of the TLS certificate needed to support HTTPS connections
+- `httpsKey` - The file path of the TLS private key needed to support HTTPS connections
+- `proxyPort` - If defined, HTTP connections through this port will be served responses compatible with HTTP/0.9 or HTTP/1.0
+- `forceProxy` - Controls if the HTTP port should be directly accessible when `proxyPort` is defined
 - `accessHosts` - An array of hostnames through which connections are allowed; if empty, all hostnames are allowed
 - `inputPath` - The directory of an extracted [Archive95 dataset](https://archive.org/details/archive95-dataset) from which the server database and file tree will be built
 - `buildPath` - The directory of the built server database and file tree

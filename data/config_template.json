@@ -3,6 +3,8 @@
 	"httpsPort": 8988,
 	"httpsCert": null,
 	"httpsKey": null,
+	"proxyPort": null,
+	"forceProxy": false,
 	"accessHosts": [],
 	"inputPath": "data/input",
 	"buildPath": "data/build",

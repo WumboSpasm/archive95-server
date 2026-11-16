@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
+
 import * as Comlink from 'comlink';
 import { contentType } from '@std/media-types';
 import { delay } from '@std/async/delay';
@@ -30,8 +35,9 @@ const features = JSON.parse(Deno.readTextFileSync(pathUtils.join(config.buildPat
 
 const staticFileInfo = cacheStaticFileInfo();
 
-let httpServer, httpsServer;
+let httpServer, httpsServer, proxyServer;
 let searchDatabase, randomDatabase;
+const proxyIdentifier = crypto.randomUUID();
 
 if (features.includes('database')) {
 	// Create the database workers
@@ -39,7 +45,7 @@ if (features.includes('database')) {
 	const randomDatabaseWorker = new Worker(new URL('./db/random.js', import.meta.url), { type: 'module' });
 	const databasePath = pathUtils.join(config.buildPath, 'archive95.sqlite');
 
-	// Initiate the workers and start the server once ready
+	// Initiate the workers and begin listening once ready
 	Promise.all([
 		new Promise(resolve => searchDatabaseWorker.addEventListener('message', () => {
 			searchDatabase = Comlink.wrap(searchDatabaseWorker);
@@ -57,53 +63,119 @@ if (features.includes('database')) {
 else
 	startServer();
 
-// Start the server
+// Begin listening for connections
 function startServer() {
-	// ...over HTTP
-	httpServer = Deno.serve({
-		port: config.httpPort,
-		onListen: serverListen,
-		onError: serverError,
-	}, serverHandler);
+	// Start HTTP server
+	httpServer = http.createServer({ requireHostHeader: false }, serverHandler);
+	httpServer.listen(config.httpPort);
+	httpServer.on('listening', () => serverListen('HTTP', config.httpPort));
 
-	// ...over HTTPS
-	if (config.httpsPort && config.httpsCert && config.httpsKey)
-		httpsServer = Deno.serve({
-			port: config.httpsPort,
+	// Start HTTPS server
+	if (config.httpsPort && config.httpsCert && config.httpsKey) {
+		httpsServer = https.createServer({
 			cert: Deno.readTextFileSync(config.httpsCert),
 			key: Deno.readTextFileSync(config.httpsKey),
-			onListen: serverListen,
-			onError: serverError,
 		}, serverHandler);
-};
+		httpsServer.listen(config.httpsPort);
+		httpsServer.on('listening', () => serverListen('HTTPS', config.httpsPort));
+	}
+
+	// Start HTTP proxy server if enabled
+	if (config.proxyPort) {
+		proxyServer = net.createServer(proxyHandler);
+		proxyServer.listen(config.proxyPort);
+		proxyServer.on('listening', () => serverListen('HTTP proxy', config.proxyPort));
+	}
+}
+
+// Hand off requests to the HTTP server and transform the response to work with archaic (1994 and earlier) browsers
+function proxyHandler(socket) {
+	socket.on('data', data => {
+		const headerStr = data.toString();
+		const requestLine = headerStr.match(/^GET\s+(\/.*?)(?:\s+(HTTP\/[V\d.]+)|\s*)?\r?\n/i);
+		if (requestLine !== null) {
+			// Extract information from request headers
+			const path = requestLine[1].replaceAll(' ', '%20');
+			const version = requestLine[2];
+			const host = headerStr.match(/^Host:\s*(.*$)/im)?.[1];
+			const userAgent = headerStr.match(/^User-Agent:\s*(.*$)/im)?.[1];
+			const referer = headerStr.match(/^Referer:\s*(.*$)/im)?.[1];
+
+			// Assemble new headers for the proxy request
+			const proxyHeaders = {};
+			if (host)
+				proxyHeaders['Host'] = host;
+			if (userAgent)
+				proxyHeaders['User-Agent'] = userAgent;
+			if (referer)
+				proxyHeaders['Referer'] = referer;
+			proxyHeaders['X-Forwarded-For'] = socket.address().address.replace(/^::ffff:/, '');
+			proxyHeaders['X-Proxy-Identifier'] = proxyIdentifier;
+
+			// Perform request to the HTTP/1.1 server
+			http.get({ port: config.httpPort, path: path, headers: proxyHeaders }, response => {
+				const chunks = [];
+				response.on('data', data => { chunks.push(data); });
+				response.on('end', () => {
+					// If an HTTP version is defined in the request header, return an HTTP/1.0 formatted response
+					// Otherwise, return just the content without any headers as per HTTP/0.9 conventions
+					const responseContent = Buffer.concat(chunks);
+					if (version) {
+						const responseHeaders = Buffer.from([
+							'HTTP/1.0 ' + response.statusCode + ' ' + response.statusMessage,
+							'Date: ' + response.headers['date'],
+							'Content-Type: ' + response.headers['content-type'],
+							'Content-Length: ' + responseContent.length,
+						].join('\r\n') + '\r\n\r\n');
+						socket.write(Buffer.concat([responseHeaders, responseContent]));
+					}
+					else
+						socket.write(responseContent);
+
+					socket.end();
+				});
+			});
+		}
+		else {
+			// Handle malformed request headers
+			socket.write('HTTP/1.0 400 Bad Request\r\n\r\n');
+			socket.end();
+		}
+	});
+}
 
 // Handle incoming requests
-async function serverHandler(request, info) {
-	const ipAddress = info.remoteAddr.hostname;
-	const userAgent = request.headers.get('User-Agent') ?? '';
+async function serverHandler(request, response) {
+	const info = request.socket.address();
+	const isHttps = info.port == config.httpsPort;
+	const isProxied = config.proxyPort && !isHttps && request.headers['x-proxy-identifier'] == proxyIdentifier;
+	const ipAddress = isProxied ? request.headers['x-forwarded-for'] : info.address.replace(/^::ffff:/, '');
+	const userAgent = request.headers['user-agent'] ?? '';
+	const requestUrlStr = (isHttps ? 'https://' : 'http://') + (request.headers['host'] || ipAddress + ':' + info.port) + request.url;
 
 	// Check if IP or user agent needs to be blocked
-	const blockRequest = blocklist.ipAddresses.some(ipAddressSegment => ipAddress.startsWith(ipAddressSegment))
+	const blockRequest = config.proxyPort && config.forceProxy && !isHttps && !isProxied
+		|| blocklist.ipAddresses.some(ipAddressSegment => ipAddress.startsWith(ipAddressSegment))
 		|| blocklist.userAgents.some(userAgentSegment => userAgent.includes(userAgentSegment))
 		|| config.doHoneypotBlock && honeypot[ipAddress];
 
 	// Log the request if desired
 	if (!blockRequest || config.logBlockedRequests)
-		utils.logMessage(`${blockRequest ? 'BLOCKED ' : ''}${ipAddress} (${userAgent}): ${request.url}`);
+		utils.logMessage(`${blockRequest ? 'BLOCKED ' : ''}${ipAddress} (${userAgent}): ${requestUrlStr}`);
 
 	// Block the request if it needs to be blocked
 	if (blockRequest)
-		throw new BlockedError();
+		return blockedError(response);
 
 	// Parse the request URL
-	const requestUrl = URL.parse(request.url);
+	const requestUrl = URL.parse(requestUrlStr);
 	if (requestUrl === null)
-		throw new BadRequestError();
+		return badRequestError(response);
 
 	// If access host is configured, do not allow connections through any other hostname
 	// (ancient browsers that do not send the Host header are exempt from this rule)
-	if (config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname) && request.headers.has('Host'))
-		throw new BadHostError();
+	if (request.headers['host'] && config.accessHosts.length > 0 && !config.accessHosts.some(host => host == requestUrl.hostname))
+		return badHostError(response);
 
 	// Assess the browser's recency so the response can be rendered accordingly
 	const modernMode = config.doModernMode && isModernBrowser(userAgent);
@@ -113,28 +185,24 @@ async function serverHandler(request, info) {
 	const requestPath = requestUrl.pathname.replace(/^\/+/, '');
 
 	// Initialize response headers
-	const headers = new Headers();
-	headers.set('Content-Type', 'text/html' + (!ancientMode ? ';charset=UTF-8' : ''));
-	headers.set('Cache-Control', 'max-age=14400');
+	response.setHeader('Content-Type', 'text/html' + (!ancientMode ? ';charset=UTF-8' : ''));
+	response.setHeader('Cache-Control', 'max-age=14400');
 
 	// Serve homepage/search results
 	if (requestPath == '')
-		return new Response(await buildSearch(requestUrl.searchParams, modernMode), { headers: headers });
+		return response.end(await buildSearch(requestUrl.searchParams, modernMode));
 
 	// Try serving from static file directory
 	const staticFileInfoEntry = staticFileInfo[requestPath];
 	if (staticFileInfoEntry !== undefined) {
-		const staticFile = Deno.openSync(staticFileInfoEntry.path);
-		headers.set('Content-Type', staticFileInfoEntry.type);
-		if (ancientMode)
-			headers.set('Content-Length', staticFile.statSync().size);
-		return new Response(staticFile.readable, { headers: headers });
+		response.setHeader('Content-Type', staticFileInfoEntry.type);
+		return fs.createReadStream(staticFileInfoEntry.path).pipe(response);
 	}
 
 	// Extract info from URL
 	const [urlStr, modeId, sourceId, offset, flagIds] = buildUrlSegments(requestUrl, requestPath);
 	if (urlStr === undefined)
-		throw new NotFoundError(modernMode);
+		return notFoundError(response, modernMode);
 
 	// If the honeypot is enabled, log the IP if the URL contains a hidden honeypot flag
 	// Also block the IP if honeypot blocking is enabled
@@ -145,14 +213,14 @@ async function serverHandler(request, info) {
 				try { Deno.writeTextFile(config.honeypotFile, ipAddress + '\n', { append: true }); } catch {}
 		}
 		if (config.doHoneypotBlock)
-			throw new BlockedError();
+			return blockedError(response);
 	}
 
 	switch (modeId) {
 		case 'view': {
 			const [archiveInfoSet, archiveDirs, archiveInfoIndex, isOrphan] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
-				throw new UnarchivedError(urlStr, modernMode);
+				return unarchivedError(response, urlStr, modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archiveDir = archiveDirs[archiveInfoIndex];
 
@@ -227,7 +295,7 @@ async function serverHandler(request, info) {
 
 				// Build HTML with replaced slices and serve it
 				const html = utils.replaceSlices(Deno.readTextFileSync(archivePathInfo.filePath), slices);
-				return new Response(html, { headers: headers });
+				return response.end(html);
 			}
 			else if (fileType == 'text/javascript' && /[ndijk]/.test(flagIds)) {
 				let script = Deno.readTextFileSync(archivePathInfo.filePath);
@@ -239,8 +307,8 @@ async function serverHandler(request, info) {
 
 				// Build JavaScript with replaced slices and serve it
 				script = utils.replaceSlices(script, codeSlices.concat(linkSlices));
-				headers.set('Content-Type', fileType + (!ancientMode ? ';charset=UTF-8' : ''));
-				return new Response(script, { headers: headers });
+				response.setHeader('Content-Type', fileType + (!ancientMode ? ';charset=UTF-8' : ''));
+				return response.end(script);
 			}
 			else if (fileType == 'text/css' && /[ndijk]/.test(flagIds)) {
 				let style = Deno.readTextFileSync(archivePathInfo.filePath);
@@ -251,8 +319,8 @@ async function serverHandler(request, info) {
 
 				// Build CSS with replaced slices and serve it
 				style = utils.replaceSlices(style, linkSlices);
-				headers.set('Content-Type', fileType + (!ancientMode ? ';charset=UTF-8' : ''));
-				return new Response(style, { headers: headers });
+				response.setHeader('Content-Type', fileType + (!ancientMode ? ';charset=UTF-8' : ''));
+				return response.end(style);
 			}
 			else if (!/[nijk]/.test(flagIds)) {
 				// Embed files using the most appropriate template if the navbar is enabled
@@ -322,39 +390,33 @@ async function serverHandler(request, info) {
 					'NAVBAR': buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modernMode),
 				});
 
-				return new Response(html, { headers: headers });
+				return response.end(html);
 			}
 			else {
 				// Serve the unprocessed file if the navbar is disabled
-				const archiveFile = Deno.openSync(archivePathInfo.filePath);
-				headers.set('Content-Type', fileType + (!ancientMode && utils.isTextType(fileType) ? ';charset=UTF-8' : ''));
-				if (ancientMode)
-					headers.set('Content-Length', archiveFile.statSync().size);
-				return new Response(archiveFile.readable, { headers: headers });
+				response.setHeader('Content-Type', fileType + (!ancientMode && utils.isTextType(fileType) ? ';charset=UTF-8' : ''));
+				return fs.createReadStream(archivePathInfo.filePath).pipe(response);
 			}
 		}
 		case 'raw': {
 			const [archiveInfoSet, archiveDirs, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archiveDir = archiveDirs[archiveInfoIndex];
 
 			const archiveRawPath = pathUtils.join(archiveDir, archiveInfo.files.includes('raw') ? 'raw' : 'file');
-			const archiveRawFile = Deno.openSync(archiveRawPath);
-			headers.set('Content-Type', archiveInfo.types[0]);
-			if (ancientMode)
-				headers.set('Content-Length', archiveRawFile.statSync().size);
-			return new Response(archiveRawFile.readable, { headers: headers });
+			response.setHeader('Content-Type', archiveInfo.types[0]);
+			return fs.createReadStream(archiveRawPath).pipe(response);
 		}
 		case 'browse': {
 			if (!features.includes('browse'))
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 
 			// Look for the directory listing file and load it
 			const browseInfoSpread = getBrowseInfo(urlStr, sourceId);
 			if (browseInfoSpread === null)
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 			const [browseInfo, isOrphan] = browseInfoSpread;
 
 			// Build path header
@@ -481,11 +543,11 @@ async function serverHandler(request, info) {
 				'METADATA': modernMode ? '<link rel="stylesheet" type="text/css" href="/styles/browse.css">' : '',
 				'CONTENT': { value: browseContent, indent: 'first' },
 			});
-			return new Response(browsePage, { headers: headers });
+			return response.end(browsePage);
 		}
 		case 'inlinks': {
 			if (!features.includes('inlinks'))
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 
 			const [inlinksInfo, displayUrl] = getInlinksInfo(urlStr, sourceId);
 
@@ -513,12 +575,12 @@ async function serverHandler(request, info) {
 				'METADATA': '',
 				'CONTENT': inlinksContent,
 			});
-			return new Response(inlinksPage, { headers: headers });
+			return response.end(inlinksPage);
 		}
 		case 'options': {
 			const [archiveInfoSet, _, archiveInfoIndex] = getArchiveInfo(urlStr, sourceId, offset);
 			if (archiveInfoSet === undefined)
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 			const archiveInfo = archiveInfoSet[archiveInfoIndex];
 			const archiveUrl = archiveInfo.url;
 
@@ -560,19 +622,19 @@ async function serverHandler(request, info) {
 				'METADATA': '',
 				'CONTENT': optionsContent,
 			});
-			return new Response(optionsPage, { headers: headers });
+			return response.end(optionsPage);
 		}
 		case 'screenshot':
 		case 'thumbnail': {
 			if (!features.includes('screenshots'))
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 
 			// Check if the screenshot exists
 			const screenshotUrl = urlStr.replaceAll('%23', '#');
 			const screenshotRootDir = utils.getArchiveRootDir(utils.normalizeUrl(screenshotUrl), 'screenshots');
 			const screenshotInfoSetPath = pathUtils.join(screenshotRootDir, 'screenshots.json');
 			if (!utils.getPathInfo(screenshotInfoSetPath)?.isFile)
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 
 			// Identify the desired screenshot from the set (mostly lifted from getArchiveInfo)
 			const screenshotInfoSet = JSON.parse(Deno.readTextFileSync(screenshotInfoSetPath));
@@ -595,30 +657,28 @@ async function serverHandler(request, info) {
 			const screenshotInfo = screenshotInfoSet[screenshotInfoIndex];
 			const screenshotDir = pathUtils.join(screenshotRootDir, screenshotInfoIndex.toString().padStart(2, '0') + '_' + screenshotInfo.source);
 			const screenshotPath = pathUtils.join(screenshotDir, modeId);
-			const screenshotFile = Deno.openSync(screenshotPath);
-			headers.set('Content-Type', screenshotInfo.type);
-			if (ancientMode)
-				headers.set('Content-Length', screenshotFile.statSync().size);
-			return new Response(screenshotFile.readable, { headers: headers });
+			response.setHeader('Content-Type', screenshotInfo.type);
+			return fs.createReadStream(screenshotPath).pipe(response);
 		}
 		case 'random': {
 			if (!features.includes('database'))
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 
 			// Query for a random archive
 			const archiveInfo = await randomDatabase.query(!flagIds.includes('m'), !flagIds.includes('o'), sourceId);
 			if (archiveInfo === null)
-				throw new NotFoundError(modernMode);
+				return notFoundError(response, modernMode);
 
 			// TODO: Find out if 302 Found responses can be formatted in a way that doesn't cause ancient browsers to hang
 			const randomUrl = `/${buildRoute('view', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`;
 			if (modernMode)
-				headers.set('Location', requestUrl.origin + randomUrl);
-			headers.set('Cache-Control', 'no-store');
-			return new Response(buildHtml(templates.compat.redirect.main, { 'URL': randomUrl }), { status: modernMode ? 302 : 200, headers: headers });
+				response.setHeader('Location', requestUrl.origin + randomUrl);
+			response.setHeader('Cache-Control', 'no-store');
+			response.statusCode = modernMode ? 302 : 200;
+			return response.end(buildHtml(templates.compat.redirect.main, { 'URL': randomUrl }));
 		}
 		case 'api': {
-			headers.set('Content-Type', 'application/json;charset=UTF-8');
+			response.setHeader('Content-Type', 'application/json;charset=UTF-8');
 
 			const subRoute = urlStr.replace(/\/*(?:\?.*)?$/, '');
 			const params = requestUrl.searchParams;
@@ -640,7 +700,7 @@ async function serverHandler(request, info) {
 					json.total = searchResults.length;
 					json.results = searchResults;
 
-					return new Response(JSON.stringify(json), { headers: headers });
+					return response.end(JSON.stringify(json));
 				}
 				case 'archives': {
 					// Return information on all archives belonging to the given URL
@@ -649,10 +709,10 @@ async function serverHandler(request, info) {
 						const sourceParam = sources[params.get('source')] !== undefined ? params.get('source') : undefined;
 						const [archiveInfoSet] = getArchiveInfo(urlParam, sourceParam);
 						if (archiveInfoSet !== undefined)
-							return new Response(JSON.stringify(archiveInfoSet), { headers: headers });
+							return response.end(JSON.stringify(archiveInfoSet));
 					}
 
-					return new Response('[]', { headers: headers });
+					return response.end('[]');
 				}
 				case 'get': {
 					// Return detailed information on the given archive
@@ -672,11 +732,11 @@ async function serverHandler(request, info) {
 								? JSON.parse(Deno.readTextFileSync(archivePathInfo.searchPath))
 								: {};
 
-							return new Response(JSON.stringify(archiveInfo), { headers: headers });
+							return response.end(JSON.stringify(archiveInfo));
 						}
 					}
 
-					return new Response('{}', { headers: headers });
+					return response.end('{}');
 				}
 				case 'browse': {
 					if (!features.includes('browse'))
@@ -686,10 +746,10 @@ async function serverHandler(request, info) {
 					const browseInfoSpread = getBrowseInfo(params.get('url') || '', params.get('source') || undefined);
 					if (browseInfoSpread !== null) {
 						const [browseInfo] = browseInfoSpread;
-						return new Response(JSON.stringify(browseInfo), { headers: headers });
+						return response.end(JSON.stringify(browseInfo));
 					}
 
-					return new Response('{}', { headers: headers });
+					return response.end('{}');
 				}
 				case 'inlinks': {
 					if (!features.includes('inlinks'))
@@ -697,11 +757,11 @@ async function serverHandler(request, info) {
 
 					// Return all archived pages which link to the given URL
 					const [inlinksInfo] = getInlinksInfo(params.get('url') || '', params.get('source') || undefined);
-					return new Response(JSON.stringify(inlinksInfo), { headers: headers });
+					return response.end(JSON.stringify(inlinksInfo));
 				}
 			}
 
-			throw new NotFoundError(modernMode);
+			return notFoundError(response, modernMode);
 		}
 		case 'about': {
 			const aboutPage = buildHtml(templates[modernMode ? 'modern' : 'compat'].shell.main, {
@@ -709,7 +769,7 @@ async function serverHandler(request, info) {
 				'METADATA': '',
 				'CONTENT': templates.compat.about.main,
 			});
-			return new Response(aboutPage, { headers: headers });
+			return response.end(aboutPage);
 		}
 		case 'sources': {
 			const splitSourceRoute = urlStr.replace(/\/*(?:\?.*)?$/, '').split(/(?<=^[^/]+)\/+/);
@@ -718,7 +778,7 @@ async function serverHandler(request, info) {
 			if (sourceId != null) {
 				const source = sources[sourceId];
 				if (source === undefined)
-					throw new NotFoundError(modernMode);
+					return notFoundError(response, modernMode);
 
 				if (sourceRoute == 'list') {
 					// Return a complete entry listing for a specific source
@@ -727,10 +787,10 @@ async function serverHandler(request, info) {
 						'METADATA': '',
 						'CONTENT': Deno.readTextFileSync(pathUtils.join(config.buildPath, 'lists', sourceId + '.html')),
 					});
-					return new Response(listPage, { headers: headers });
+					return response.end(listPage);
 				}
 				else if (sourceRoute !== null)
-					throw new NotFoundError(modernMode);
+					return notFoundError(response, modernMode);
 
 				const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
 				const grandTotalNoErrors = stats.totals.urls + stats.totals.orphans + stats.totals.brokenPages;
@@ -805,7 +865,7 @@ async function serverHandler(request, info) {
 					'METADATA': '',
 					'CONTENT': { value: sourceContent, indent: 'none' },
 				});
-				return new Response(sourcePage, { headers: headers });
+				return response.end(sourcePage);
 			}
 
 			// Sort source IDs by the first letter of their titles
@@ -851,7 +911,7 @@ async function serverHandler(request, info) {
 				'METADATA': '',
 				'CONTENT': sourcesContent,
 			});
-			return new Response(sourcesPage, { headers: headers });
+			return response.end(sourcesPage);
 		}
 		case 'stats': {
 			const grandTotal = stats.totals.urls + stats.totals.orphans + stats.totals.errorPages + stats.totals.brokenPages;
@@ -1018,25 +1078,21 @@ async function serverHandler(request, info) {
 				'METADATA': '',
 				'CONTENT': { value: statsContent, indent: 'none' },
 			});
-			return new Response(statsPage, { headers: headers });
+			return response.end(statsPage);
 		}
 		case 'deadend': {
-			throw new DeadEndError(modernMode);
+			return deadEndError(response, modernMode);
 		}
 	}
 }
 
 // Log when the server begins listening on a port
-function serverListen(addr) {
-	utils.logMessage(`listening on http${addr.port == config.httpsPort ? 's' : ''}://${addr.hostname}:${addr.port}/`);
+function serverListen(name, port) {
+	utils.logMessage(`${name} server listening on http${port == config.httpsPort ? 's' : ''}://localhost:${port}/`);
 }
 
 // Build the error page
-function serverError(error) {
-	const status = error.status || 500;
-	const statusText = error.statusText || 'Internal Server Error';
-	const message = error.name == 'ArchiveError' ? error.message : 'The server had trouble processing your request.';
-
+function serverError(response, error) {
 	let links = '';
 	if (error.options instanceof Array) {
 		if (features.includes('database'))
@@ -1045,21 +1101,18 @@ function serverError(error) {
 	}
 
 	const errorContent = buildHtml(templates.compat.error.main, {
-		'STATUSTEXT': statusText,
-		'MESSAGE': message,
+		'STATUSTEXT': error.statusText,
+		'MESSAGE': error.message,
 		'LINKS': links,
 	});
 	const errorPage = buildHtml(templates[error.modernMode ? 'modern' : 'compat'].shell.main, {
-		'TITLE': statusText,
+		'TITLE': error.statusText,
 		'METADATA': '<base target="_top">',
 		'CONTENT': errorContent,
 	});
 
-	// The server did not purposefully invoke this error, so dump the stack
-	if (error.name != 'ArchiveError')
-		utils.logMessage(error.stack);
-
-	return new Response(errorPage, { status: status, headers: { 'Content-Type': 'text/html' } });
+	response.writeHead(error.statusCode, { 'Content-Type': 'text/html' });
+	return response.end(errorPage);
 }
 
 // Try to shut down the server and database workers gracefully when a SIGINT or SIGTERM signal is received
@@ -1069,13 +1122,15 @@ async function serverShutdown() {
 		return;
 	shuttingDown = true;
 
-	utils.logMessage('shutting down server...');
+	utils.logMessage('shutting down...');
 	const serverPromises = [];
 	const databasePromises = [];
 	if (httpServer)
-		serverPromises.push(httpServer.shutdown());
+		serverPromises.push(new Promise(resolve => httpServer.close(resolve)));
 	if (httpsServer)
-		serverPromises.push(httpsServer.shutdown());
+		serverPromises.push(new Promise(resolve => httpsServer.close(resolve)));
+	if (proxyServer)
+		serverPromises.push(new Promise(resolve => proxyServer.close(resolve)));
 	if (features.includes('database'))
 		databasePromises.push(searchDatabase.close(), randomDatabase.close());
 
@@ -2020,96 +2075,81 @@ function getPercentString(part, whole, wholeName) {
 	return percentString;
 }
 
-class ArchiveError extends Error {
-	constructor(status, statusText, message, modernMode = false, options = null) {
-		super(message);
-		this.name = 'ArchiveError';
-
-		this.status = status;
-		this.statusText = statusText;
-		this.modernMode = modernMode;
-		this.options = options;
-	}
+// 400 Bad Request
+function badRequestError(response, modernMode = false) {
+	return serverError(response, {
+		statusCode: 400,
+		statusText: 'Bad Request',
+		message: 'Your request could not be understood.',
+		modernMode: modernMode,
+		options: null,
+	});
 }
 
-class BadRequestError extends ArchiveError {
-	constructor(modernMode = false) {
-		super(
-			400,
-			'Bad Request',
-			'The requested URL is invalid.',
-			modernMode,
-		);
-	}
+// 403 Forbidden (blocked)
+function blockedError(response, modernMode = false) {
+	return serverError(response, {
+		statusCode: 403,
+		statusText: 'Forbidden',
+		message: 'You are not allowed to access this server.',
+		modernMode: modernMode,
+		options: null,
+	});
 }
 
-class BlockedError extends ArchiveError {
-	constructor(modernMode = false) {
-		super(
-			403,
-			'Forbidden',
-			'You are not allowed to access this server.',
-			modernMode,
-		);
-	}
+// 403 Forbidden (bad hostname)
+function badHostError(response, modernMode = false) {
+	return serverError(response, {
+		statusCode: 403,
+		statusText: 'Forbidden',
+		message: 'Connections through this host are not allowed.',
+		modernMode: modernMode,
+		options: null,
+	});
 }
 
-class BadHostError extends ArchiveError {
-	constructor(modernMode = false) {
-		super(
-			403,
-			'Forbidden',
-			'Connections through this host are not allowed.',
-			modernMode,
-		);
-	}
+// 404 Not Found (regular)
+function notFoundError(response, modernMode = false) {
+	return serverError(response, {
+		statusCode: 404,
+		statusText: 'Not Found',
+		message: 'The requested URL does not exist.',
+		modernMode: modernMode,
+		options: [],
+	});
 }
 
-class NotFoundError extends ArchiveError {
-	constructor(modernMode = false) {
-		super(
-			404,
-			'Not Found',
-			'The requested URL does not exist.',
-			modernMode,
-			[],
-		);
-	}
+// 404 Not Found (unarchived URL)
+function unarchivedError(response, url, modernMode = false) {
+	const splitUrl = utils.splitUrl(url);
+	if (splitUrl.length > 1 && splitUrl[splitUrl.length - 1].includes('.'))
+		splitUrl.pop();
+	const urlDir = splitUrl.join('/');
+
+	const options = [];
+	if (features.includes('browse') && getBrowseInfo(urlDir) !== null)
+		options.push(`<li><a href="/browse/${encodeURI(urlDir)}">Browse files in this directory</a></li>`);
+	if (features.includes('inlinks') && getInlinksInfo(url)[0].length > 0)
+		options.push(`<li><a href="/inlinks/${url}">See which pages link here</a></li>`);
+	if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(url))
+		options.push(`<li><a href="http://web.archive.org/web/0/${url}">Go to the Wayback Machine</a></li>`);
+
+	return serverError(response, {
+		statusCode: 404,
+		statusText: 'Unarchived URL',
+		message: `The URL <b>${utils.sanitizeInject(utils.safeDecode(url))}</b> does not exist in the archive.`,
+		modernMode: modernMode,
+		options: options,
+	});
 }
 
-class UnarchivedError extends ArchiveError {
-	constructor(url, modernMode = false) {
-		const splitUrl = utils.splitUrl(url);
-		if (splitUrl.length > 1 && splitUrl[splitUrl.length - 1].includes('.'))
-			splitUrl.pop();
-		const urlDir = splitUrl.join('/');
-
-		const options = [];
-		if (features.includes('browse') && getBrowseInfo(urlDir) !== null)
-			options.push(`<li><a href="/browse/${encodeURI(urlDir)}">Browse files in this directory</a></li>`);
-		if (features.includes('inlinks') && getInlinksInfo(url)[0].length > 0)
-			options.push(`<li><a href="/inlinks/${url}">See which pages link here</a></li>`);
-		if (/^(?:https?:\/*)?[^/]+\.[^/]+/i.test(url))
-			options.push(`<li><a href="http://web.archive.org/web/0/${url}">Go to the Wayback Machine</a></li>`);
-
-		super(
-			404,
-			'Unarchived URL',
-			`The URL <b>${utils.sanitizeInject(utils.safeDecode(url))}</b> does not exist in the archive.`,
-			modernMode,
-			options,
-		);
-	}
-}
-
-class DeadEndError extends ArchiveError {
-	constructor(modernMode = false) {
-		super(
-			404,
-			'Dead End',
-			'If you reached this page, it means the original destination of the link you followed has been lost.',
-			modernMode,
-			[],
-		)
-	}
+// 404 Not Found (dead-end link)
+function deadEndError(response, modernMode = false) {
+	return serverError(response, {
+		statusCode: 404,
+		statusText: 'Dead End',
+		message: 'If you reached this page, it means the original destination of the link you followed has been lost.',
+		modernMode: modernMode,
+		options: [],
+	});
 }
