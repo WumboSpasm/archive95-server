@@ -39,14 +39,14 @@ export function normalizeUrl(url, ignoreOpNames = [], detailed = false) {
 		// Collapse sequences of slashes
 		.replace(/(?<!\?.*)\/{2,}/g, '/')
 		// Remove trailing slash
-		.replace(/(?<!\?.*)\/$/, '');
+		.replace(/(?<!\?.*)\/($|\?)/, '$1');
 
 	// Operations that have the potential to change the URL's destination are kept separate
 	const operations = {
 		convertLowerCase: url => url.toLowerCase(),
 		removeWwwSubdomain: url => url.replace(/^\.*www(?:-?\d{1,2})?\.([^/]+\.)/i, '$1'),
-		removeHttpPort: url => url.replace(/^([^/]+):80(?:80)?($|\/)/, '$1$2'),
-		removeIndexFile: url => url.replace(/(?<!\?.*)\/+(?:index\.[a-z]?html?|default\.(?:htm|asp))$/i, ''),
+		removeHttpPort: url => url.replace(/^([^/]+):80(?:80)?($|\/|\?)/, '$1$2'),
+		removeIndexFile: url => url.replace(/(?<!\?.*)\/+(?:index\.[a-z]?html?|default\.(?:htm|asp))($|\?)/i, '$1'),
 	};
 
 	// Apply each operation
@@ -110,10 +110,19 @@ export function splitUrl(url, orphanSource = null) {
 		? pathUtils.join(orphanSource, normalizePath(url, false))
 		: normalizeUrl(url, ['convertLowerCase']);
 
-	// The name is on purpose, FYI
-	const splittedUrl = normalizedUrl.split(/(?<!\?.*)[/\\]/i);
-	splittedUrl[0] = splittedUrl[0].toLowerCase();
-	return splittedUrl;
+	// Split the normalized URL and make the domain segment lowercase
+	const urlSegments = normalizedUrl.split(/(?<!\?.*)[/\\]/);
+	urlSegments[0] = urlSegments[0].toLowerCase();
+
+	// If the last segment has a query string and no dots in its name, split the query string into its own segment
+	const queryIndex = urlSegments[urlSegments.length - 1].search(urlSegments.length > 1 ? /(?<=^[^.?]*)\?/ : /\?/);
+	if (queryIndex != -1) {
+		const queryString = urlSegments[urlSegments.length - 1].substring(queryIndex);
+		urlSegments[urlSegments.length - 1] = urlSegments[urlSegments.length - 1].substring(0, queryIndex);
+		urlSegments.push(queryString);
+	}
+
+	return urlSegments;
 }
 
 // Extract the anchor from a URL

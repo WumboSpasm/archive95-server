@@ -42,6 +42,9 @@ const mimeFilePath = pathUtils.join(tempBuildPath, '.mimefile');
 const linkExp = /((?:href|src|action|background|code|codebase|rectangle|http-equiv\s*=\s*["']?refresh["']?[^>]+content)\s*=\s*)((["'])(?:(?!\3|>).)+\3|[^>\s]+)/gis;
 const baseExp = /<base\s+h?ref\s*=\s*("[^">]+"|[^>\s]+)/is;
 
+// Internal name for index files in directory browser
+const browseIndexName = '[__ARCHIVE95_INDEX__]';
+
 // Initialize indexes for quick lookup
 const urlIndex = {};
 const pathIndex = {};
@@ -249,7 +252,12 @@ let database, insertStatement;
 		const formatSize = size => format(size, { maximumFractionDigits: 1 }).replace(/ (.).*$/, (_, c) => c == 'B' ? '' : c.toUpperCase());
 		for (const browsePath of browseIndex) {
 			const browse = JSON.parse(Deno.readTextFileSync(browsePath));
-			browse.files.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+			browse.files.sort((a, b) => {
+				if (a.name == browseIndexName || b.name == browseIndexName)
+					return a.name == browseIndexName ? -1 : 1;
+				else
+					return a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+			});
 			browse.dirs.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
 			for (const browseFile of browse.files)
 				browseFile.size = formatSize(browseFile.size);
@@ -1444,8 +1452,21 @@ function buildBrowse(archive) {
 		// Otherwise, simply return which string has more uppercase letters
 		return str1UpperCount > str2UpperCount ? str1 : str2;
 	};
+
 	// Move up one directory without making any other modifications to the path
-	const getParentDir = path => path.replace(/(^[^?]*)\/.+$/s, '$1');
+	// Query strings are treated as directories if attached to the root domain or a filename without dots
+	const getParentDir = path => {
+		if (/^\.\/[^/]*\?/.test(path))
+			return path.substring(0, path.indexOf('?'));
+		else
+			return path.replace(/(^[^?]*)\/(.+$)/s, (_, parentDir, currentDir) => {
+				const queryIndex = currentDir.search(/(?<=^[^.?]*)\?/);
+				if (queryIndex != -1)
+					return parentDir + '/' + currentDir.substring(0, queryIndex);
+				else
+					return parentDir;
+			});
+	};
 
 	const isOrphan = archive.url === null;
 	const normalizedUrl = isOrphan
@@ -1455,10 +1476,10 @@ function buildBrowse(archive) {
 
 	// Split URL into segments and resolve index files to a consistent identifier to reduce complexity
 	let currentDir = './' + normalizedUrl;
-	const splitUrl = utils.splitUrl(archive.url ?? archive.path, isOrphan ? archive.source : null);
-	const isIndex = archive.types[0] == 'text/html' && (splitUrl.length == 1 || !splitUrl[splitUrl.length - 1].includes('.'));
+	const urlSegments = utils.splitUrl(archive.url ?? archive.path, isOrphan ? archive.source : null);
+	const isIndex = urlSegments.length == 1 || archive.types[0] == 'text/html' && !urlSegments[urlSegments.length - 1].includes('?') && !urlSegments[urlSegments.length - 1].includes('.');
 	if (!isOrphan && isIndex)
-		splitUrl.push('[__ARCHIVE95_INDEX__]');
+		urlSegments.push(browseIndexName);
 	else
 		currentDir = getParentDir(currentDir);
 
@@ -1469,11 +1490,11 @@ function buildBrowse(archive) {
 		browseNames.unshift('browse.json');
 
 	// Traverse up the directory tree and build listings
-	let splitUrlIndex = splitUrl.length - 1;
+	let urlSegmentIndex = urlSegments.length - 1;
 	let fileDone = false;
 	const fileSizeDeltas = {};
 	while (currentDir != '.') {
-		const segmentName = splitUrl[splitUrlIndex];
+		const segmentName = urlSegments[urlSegmentIndex];
 		const segmentNameLower = segmentName.toLowerCase();
 
 		for (const browseName of browseNames) {
@@ -1495,10 +1516,10 @@ function buildBrowse(archive) {
 
 			// Build the path
 			if (browse.path.length == 0)
-				browse.path = splitUrl.slice(0, splitUrlIndex);
+				browse.path = urlSegments.slice(0, urlSegmentIndex);
 			else {
 				for (let i = 0; i < browse.path.length; i++)
-					browse.path[i] = getBetterString(browse.path[i], splitUrl[i]);
+					browse.path[i] = getBetterString(browse.path[i], urlSegments[i]);
 			}
 
 			const archiveTime = utils.dateStringToNum(archive.date);
@@ -1581,7 +1602,7 @@ function buildBrowse(archive) {
 
 		// Move up one directory
 		currentDir = getParentDir(currentDir);
-		splitUrlIndex--;
+		urlSegmentIndex--;
 		fileDone = true;
 	}
 }

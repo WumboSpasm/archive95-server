@@ -199,8 +199,8 @@ async function serverHandler(request, response) {
 		return fs.createReadStream(staticFileInfoEntry.path).pipe(response);
 	}
 
-	// Extract info from URL
-	const [urlStr, modeId, sourceId, offset, flagIds] = buildUrlSegments(requestUrl, requestPath);
+	// Extract route info from URL
+	const [urlStr, modeId, sourceId, offset, flagIds] = extractRouteInfo(requestUrl, requestPath);
 	if (urlStr === undefined)
 		return notFoundError(response, modernMode);
 
@@ -1722,11 +1722,11 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 	if (archiveInfo.types[0] != 'text/html')
 		messages.push('(embed)');
 
-	const splitUrl = utils.splitUrl(archiveInfo.url, isOrphan ? archiveInfo.source : null);
-	if (splitUrl.length > 1 && (archiveInfo.types[0] != 'text/html' || splitUrl[splitUrl.length - 1].includes('.')))
-		splitUrl.pop();
+	const urlSegments = utils.splitUrl(archiveInfo.url, isOrphan ? archiveInfo.source : null);
+	if (urlSegments.length > 1 && (archiveInfo.types[0] != 'text/html' || urlSegments[urlSegments.length - 1].includes('?') || urlSegments[urlSegments.length - 1].includes('.')))
+		urlSegments.pop();
 	if (isOrphan)
-		splitUrl.shift();
+		urlSegments.shift();
 
 	let navbar = '';
 	if (modernMode) {
@@ -1737,7 +1737,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'WAYBACK': !isOrphan ? `<a href="${buildWaybackLink(archiveInfo.url, archiveInfo)}" target="_blank">Wayback</a>` : '',
 			'LIVE': !isOrphan ? `<a href="${archiveInfo.url}" target="_blank">Live</a>` : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
-			'BROWSE': features.includes('browse') ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}">Browse</a>` : '',
+			'BROWSE': features.includes('browse') ? `<a href="/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(urlSegments.join('/'))}">Browse</a>` : '',
 			'INLINKS': features.includes('inlinks') ? `<a href="/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}">Inlinks</a>` : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'RANDOM': features.includes('database') ? buildHtml(templates.modern.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
@@ -1785,7 +1785,7 @@ function buildNavbar(archiveInfoSet, archiveInfoIndex, flagIds, isOrphan, modern
 			'RANDOM': features.includes('database') ? buildHtml(templates.compat.navbar.random, { 'URL': `/${buildRoute('random', null, null, flagIds)}` }) : '',
 			'OPTIONS': `/${buildRoute('options', archiveInfo.source, archiveInfo.offset, flagIds)}/${archiveInfo.url}`,
 			'INLINKS': features.includes('inlinks') ? buildHtml(templates.compat.navbar.inlinks, { 'URL': `/${buildRoute('inlinks', archiveInfo.source, null, flagIds)}/${archiveInfo.url}` }) : '',
-			'BROWSE': features.includes('browse') ? buildHtml(templates.compat.navbar.browse, { 'URL': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(splitUrl.join('/'))}` }) : '',
+			'BROWSE': features.includes('browse') ? buildHtml(templates.compat.navbar.browse, { 'URL': `/${buildRoute('browse', isOrphan ? archiveInfo.source : null, null, flagIds)}/${encodeURI(urlSegments.join('/'))}` }) : '',
 			'RAW': `/${buildRoute('raw', archiveInfo.source, archiveInfo.offset, null)}/${archiveInfo.url}`,
 			'LIVE': !isOrphan ? buildHtml(templates.compat.navbar.live, { 'URL': archiveInfo.url }) : '',
 			'WAYBACK': !isOrphan ? buildHtml(templates.compat.navbar.wayback, { 'URL': buildWaybackLink(archiveInfo.url, archiveInfo) }) : '',
@@ -1917,8 +1917,8 @@ function isAncientBrowser(userAgent) {
 	return true;
 }
 
-// Split and parse important information from a URL
-function buildUrlSegments(requestUrl, requestPath) {
+// Split and parse route information from a URL
+function extractRouteInfo(requestUrl, requestPath) {
 	if (!requestUrl)
 		return [undefined, undefined, undefined, undefined, undefined];
 
@@ -2121,10 +2121,10 @@ function notFoundError(response, modernMode = false) {
 
 // 404 Not Found (unarchived URL)
 function unarchivedError(response, url, modernMode = false) {
-	const splitUrl = utils.splitUrl(url);
-	if (splitUrl.length > 1 && splitUrl[splitUrl.length - 1].includes('.'))
-		splitUrl.pop();
-	const urlDir = splitUrl.join('/');
+	const urlSegments = utils.splitUrl(url);
+	if (urlSegments.length > 1 && (urlSegments[urlSegments.length - 1].includes('?') || urlSegments[urlSegments.length - 1].includes('.')))
+		urlSegments.pop();
+	const urlDir = urlSegments.join('/');
 
 	const options = [];
 	if (features.includes('browse') && getBrowseInfo(urlDir) !== null)
