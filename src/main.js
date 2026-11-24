@@ -888,7 +888,7 @@ async function serverHandler(request, info) {
 				if (sortedSources[letter] !== undefined) {
 					sortedSources[letter].sort((a, b) => sources[a].title.localeCompare(sources[b].title, 'en', { sensitivity: 'base' }));
 					lettersHtmlArr.push(`<b><a href="#${letter}">${letter}</a></b>`);
-					sourcesHtmlArr.push(`<h2 id="${letter}">${letter}</h2>`);
+					sourcesHtmlArr.push(`<h2><a name="${letter}">${letter}</a></h2>`);
 					for (const sourceId of sortedSources[letter]) {
 						const source = sources[sourceId];
 						const date = stats.sources[sourceId].from != stats.sources[sourceId].to ? stats.sources[sourceId].from + ' to ' + stats.sources[sourceId].to : source.archiveDate;

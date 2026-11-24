@@ -1,8 +1,8 @@
 <h1>About Archive95</h1>
-<h2 id="background">Background</h2>
+<h2><a name="background">Background</a></h2>
 <p>The <a href="http://web.archive.org/" target="_blank">Wayback Machine</a> is the world's foremost web archive, with a collection dating all the way back to <a href="http://web.archive.org/web/19950301190227/http://www.bbcnc.org.uk/" target="_blank">1995</a>. However, like all things, it is not perfect; pages go unnoticed and assets slip through the cracks. Moreover, the web existed for several years prior to the Wayback Machine's earliest captures.</p>
 <p>This begs the question: what, if anything, can be done to fill in these gaps at a large scale?</p>
-<h2 id="goals">Goals of Archive95</h2>
+<h2><a name="goals">Goals of Archive95</a></h2>
 <p>Archive95 aims to provide its own reconstruction of the early web using data from often-overlooked sources. <a href="/sources">This includes:</a></p>
 <ul>
 	<li>CD-ROMs containing offline copies of web content</li>
@@ -18,35 +18,35 @@
 	<li>Corrupted and/or partially downloaded files</li>
 </ul>
 <p>A significant amount of effort is put into identifying and fixing issues such as these, in order to provide an accurate representation of these pages as they originally appeared on the web.</p>
-<h2 id="nongoals">Non-Goals of Archive95</h2>
+<h2><a name="nongoals">Non-Goals of Archive95</a></h2>
 <p>Archive95 is not hugely concerned with material that is already thoroughly preserved and easily accessible; for example, <a href="http://info.cern.ch/hypertext/WWW/TheProject.html" target="_blank">CERN's W3 project website from 1992</a> and the <a href="http://wayback.stanford.edu/was/" target="_blank">Stanford Web Archive Portal</a>. The primary focus of this project is data that is in desperate need of mirrors or is otherwise difficult to track down on its own.</p>
 <p>Additionally, as an archive of the <i>early</i> web, material which is dated well past the turn of the century is not considered high priority for inclusion in Archive95.</p>
-<h2 id="features">Features</h2>
+<h2><a name="features">Features</a></h2>
 <p>Archive95 offers a timeline-based interface for displaying archived URLs, similar to the Wayback Machine. Because all files are part of the same web of links, it is, for example, possible for image assets missing from one data source to be supplied by another.</p>
 <p>Additional quality-of-life features include a search engine, a directory browser, and the ability to view all pages which link to a particular file. A <a href="http://github.com/WumboSpasm/archive95-server#api-endpoints" target="_blank">JSON API</a> is also available.</p>
-<h2 id="compatibility">Browser Compatibility</h2>
+<h2><a name="compatibility">Browser Compatibility</a></h2>
 <p>In the interest of making Archive95 as easy to use in retro computing environments as possible, a lightweight, pure-HTML interface is served when connecting from a legacy web browser. Despite its basic appearance, it provides a virtually identical feature set as its modern HTML5 counterpart, and functions exceptionally well on browsers as old as <a href="http://home.mcom.com/archives/0/mosaic05.exe" target="_blank">Netscape b0.5</a> from September 1994 (although even older browsers should at least be able to access the site).</p>
 <p>When viewing archived pages on modern browsers with the navigation bar enabled, a small amount of JavaScript is used to ensure that links behave properly, especially on pages which use frames. Disabling JavaScript may cause some links to unintentionally duplicate or hide the navigation bar, or in the case of frames, update the wrong part of the page.</p>
-<h2 id="integrity">Data Integrity</h2>
+<h2><a name="integrity">Data Integrity</a></h2>
 <p>Specific information about the integrity of each data source, as well as any remediations applied, can be found through the <a href="/sources">Data Sources</a> page. Unfortunately, not all data integrity issues are fixable, and this often results in undesirable quirks while browsing the archive, such as the following:</p>
 <ul>
 	<li>Many pages contain links which point to a "dead-end" page, rather than their intended destinations. This usually happens when a data source originally intended for offline use is modified to point any links to content not available locally to an error page.</li>
 	<li>Many files lack their original URLs, instead being referred to by their raw paths within the data source. These are called "orphan files", and they appear most frequently when data sources store their contents in a custom file structure that does not resemble their original URLs, rendering them irrecoverable.</li>
 	<li>Many URLs do not display an archival date that is accurate to the day. This is because a large number of data sources do not provide reliable means of gathering the exact archival dates of their contents, whether through file timestamps or otherwise, so they are assigned an approximate month or year around which they appear to have been archived.</li>
 </ul>
-<h2 id="history">Project History</h2>
+<h2><a name="history">Project History</a></h2>
 <p>Archive95 was started in 2021 out of a newfound fascination with "internet CDs", an obscure genre of CD-ROMs whose purpose was to provide offline computer users a taste of the fledgling web. It was originally titled <a href="http://wumbospasm.github.io/wwwdirectory-js/" target="_blank">wwwdirectory-js</a> and consisted of material from a single source, <a href="/sources/wwwdir">World Wide Web Directory</a>. It was also very basic at a technical level, pulling data from an Internet Archive item on the client-side and rendering it on-the-fly using JavaScript.</p>
 <p>In 2022, the project was revamped and rebranded as Archive95, incorporating additional material from <a href="/sources/einblicke">Einblicke ins Internet</a>, although technically it was more or less the same. The name and logo were inspired by Windows 95, with the "95" also referring to how the archive's contents originated from the year 1995 (although this is no longer entirely true).</p>
 <p>In 2024, the project was completely re-engineered from the ground up, bringing it much closer to its current-day state and adding several new data sources in the process. The <code>archive95.net</code> domain name was registered shortly after in 2025. In 2026, the codebase was rewritten once again (hopefully for the last time) and development has been steady ever since.</p>
-<h2 id="contributing">Contributing</h2>
+<h2><a name="contributing">Contributing</a></h2>
 <p>Tracking down usable data for Archive95 is an exhausting and time-consuming task, especially with language barriers at play. As such, any help on that front is greatly appreciated, whether it comes in the form of direct data contributions or simply pointers to the right places. See the <a href="#author">"About the Author"</a> section below for ways to reach out.</p>
 <p>Information about particularly sought-after data sources can be found in the <a href="/sources#mostwanted">"Most Wanted"</a> section of the Data Sources page.</p>
-<h2 id="sourcecode">Source Code</h2>
+<h2><a name="sourcecode">Source Code</a></h2>
 <p>Archive95's website is open-source software licensed under the MIT License; its source code can be found on GitHub <a href="http://github.com/WumboSpasm/archive95-server" target="_blank">here</a>. Furthermore, the entire dataset is available to download on the Internet Archive <a href="http://archive.org/details/archive95-dataset" target="_blank">here</a>.</p>
-<h2 id="author">About the Author</h2>
+<h2><a name="author">About the Author</a></h2>
 <p>Archive95 is a passion project of Ian Edmonds, also known as <a href="http://github.com/WumboSpasm" target="_blank">WumboSpasm</a>. Other projects he has worked on include <a href="http://greetmaster.net/" target="_blank">Greetmaster</a> (an e-card museum) and <a href="http://flashpointarchive.org/" target="_blank">Flashpoint Archive</a>. He does not use artificial intelligence tools.</p>
 <p>If you have any questions, feature requests or bug reports - or if you would like to suggest or contribute data for the archive - feel free to <a href="http://github.com/WumboSpasm/archive95-server/issues" target="_blank">open an issue</a> in the GitHub repository, or send an email to admin (at sign) archive95 (period) net.</p>
-<h2 id="acknowledgements">Acknowledgements</h2>
+<h2><a name="acknowledgements">Acknowledgements</a></h2>
 <ul>
 	<li><a href="http://www.dejanristanovic.com/english.htm" target="_blank">Dejan Ristanovi&#263;</a> (RIP) for his email correspondence and for providing important context regarding the <a href="/sources/pcpress">PC Press Internet CD</a></li>
 	<li>404_11 for kindly acquiring and preserving a copy of <a href="/sources/roteiro">A Internet em CD-ROM</a> on behalf of the project</li>
