@@ -141,6 +141,8 @@ function proxyHandler(socket) {
 			socket.end();
 		}
 	});
+	// TODO: Maybe log some stuff here?
+	socket.on('error', () => {});
 }
 
 // Handle incoming requests
