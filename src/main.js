@@ -894,7 +894,7 @@ async function serverHandler(request, info) {
 					for (const sourceId of sortedSources[letter]) {
 						const source = sources[sourceId];
 						const date = stats.sources[sourceId].from != stats.sources[sourceId].to ? stats.sources[sourceId].from + ' to ' + stats.sources[sourceId].to : source.archiveDate;
-						sourcesHtmlArr.push(`<p><b><a href="/sources/${sourceId}">${source.title}</a></b> by ${source.author}, ${date}</p>`);
+						sourcesHtmlArr.push(`<p><a href="/sources/${sourceId}">${source.title}</a> by ${source.author}, ${date}</p>`);
 					}
 				}
 				else
